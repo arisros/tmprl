@@ -1,5 +1,7 @@
 # tmprl
 
+[![CI](https://github.com/arisros/tmprl/actions/workflows/ci.yml/badge.svg)](https://github.com/arisros/tmprl/actions/workflows/ci.yml)
+
 A terminal client for [Temporal](https://temporal.io), aiming at parity with the Temporal
 Web UI — built to be operated from the keyboard rather than a browser.
 
