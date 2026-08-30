@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  check:
+    name: fmt · clippy · build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # temporalio-protos compiles Temporal's protobufs from source, so protoc
+      # is a hard build requirement — not an optional accelerator.
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --all-targets --all-features
+      - run: cargo build --all-targets
+
+  test:
+    name: tests (against a live server)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Temporal CLI
+        run: |
+          curl -sSfL "https://temporal.download/cli/archive/latest?platform=linux&arch=amd64" \
+            -o /tmp/temporal.tar.gz
+          mkdir -p /tmp/tcli && tar -xzf /tmp/temporal.tar.gz -C /tmp/tcli
+          sudo install -m755 /tmp/tcli/temporal /usr/local/bin/temporal
+          temporal --version
+
+      - name: Start dev server
+        run: |
+          nohup temporal server start-dev --ip 127.0.0.1 --port 7233 --log-level warn \
+            > /tmp/temporal-dev.log 2>&1 &
+          for i in $(seq 1 30); do
+            temporal operator namespace list --address 127.0.0.1:7233 >/dev/null 2>&1 && exit 0
+            sleep 1
+          done
+          echo "dev server never came up"; cat /tmp/temporal-dev.log; exit 1
+
+      - name: Seed workflows
+        run: |
+          for i in 1 2 3; do
+            temporal workflow start --address 127.0.0.1:7233 \
+              --task-queue ci --type CiWorkflow --workflow-id "ci-$i"
+          done
+
+      # TMPRL_REQUIRE_SERVER turns the local "skip when no server" behaviour into a
+      # hard failure, so a broken connection layer cannot pass as a green build.
+      - name: Test
+        env:
+          TEMPORAL_ADDRESS: 127.0.0.1:7233
+          TMPRL_REQUIRE_SERVER: "1"
+        run: cargo test --all-features
