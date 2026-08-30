@@ -163,7 +163,7 @@ yet.
 
 ## Contributing
 
-The four rules in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#design-rules) are the ones
+The four rules in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#9-design-rules--planned) are the ones
 worth reading before writing code. Issues and discussion welcome; given the stage, design
 feedback is more useful than patches.
 
