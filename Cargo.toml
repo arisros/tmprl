@@ -1,0 +1,28 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/arisjirat/tmprl"
+
+[workspace.dependencies]
+temporalio-client = "=0.7.0"
+temporalio-common = "=0.7.0"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "signal"] }
+anyhow = "1"
+tracing = "0.1"
+thiserror = "2"
+
+# Debug info for 227 crates (temporalio-protos especially) does not fit in the
+# 4.6G free on this box. Keep dev builds lean; use `--profile dbg` when a real
+# debugger is actually needed.
+[profile.dev]
+debug = false
+incremental = false
+
+[profile.dbg]
+inherits = "dev"
+debug = true
