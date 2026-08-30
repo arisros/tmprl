@@ -15,7 +15,7 @@ jobs:
     name: fmt · clippy · build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # temporalio-protos compiles Temporal's protobufs from source, so protoc
       # is a hard build requirement — not an optional accelerator.
@@ -36,7 +36,7 @@ jobs:
     name: tests (against a live server)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install protoc
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
