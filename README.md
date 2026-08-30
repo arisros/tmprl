@@ -5,26 +5,29 @@
 A terminal client for [Temporal](https://temporal.io), aiming at parity with the Temporal
 Web UI — built to be operated from the keyboard rather than a browser.
 
-> ### Status: early. There is no TUI yet.
+> ### Status: early, but it runs.
 >
-> What exists today is the gRPC access layer — connecting, profile handling, and the four
-> RPCs the interface will be built on — plus the design documents for the rest.
-> **Nothing in this repository draws a user interface.** If you want a working Temporal TUI
-> today, see [Prior art](#prior-art).
+> `tmprl` starts, connects, and gives you a modal, vim-keyed namespace browser with counts,
+> a which-key popup, a `:` command line and clipboard yank. **It does not browse workflows
+> yet** — that is the next milestone. If you need a Temporal TUI for real work today, see
+> [Prior art](#prior-art).
 
 ---
 
 ## What works today
 
-- Connecting to a Temporal frontend: local, self-hosted, Temporal Cloud via API key, or mTLS.
-- Profile resolution that matches the `temporal` CLI exactly — same TOML file, same
-  environment variables, same precedence.
-- Thin wrappers over `ListNamespaces`, `CountWorkflowExecutions`, `ListWorkflowExecutions`
-  and `GetWorkflowExecutionHistory`.
-- An integration suite that pins those RPC contracts against a live server.
+- **Connecting** to a Temporal frontend: local, self-hosted, Temporal Cloud via API key, or
+  mTLS — using the same profiles and `TEMPORAL_*` variables as the `temporal` CLI.
+- **A modal interface**: Normal, Insert, Visual and Command modes, `jk` to leave Insert,
+  and counts that compose with motions (`7j`, `5gg`).
+- **A namespace list** with a hybrid relative/absolute gutter, so counts are readable off
+  the screen rather than estimated.
+- **Discovery**: a which-key popup on an incomplete prefix, and a `?` help overlay — both
+  generated from the command registry and keymap, so neither can go stale.
+- **A `:` command line** with completions over every registered command.
+- **Yank** (`y`, `Y`) to the system clipboard over OSC 52, so it works over SSH.
 
-That is genuinely all of it. You can run the example below and read data; you cannot yet
-browse it interactively.
+Not yet: workflows, histories, schedules, batch operations, splits, follow mode.
 
 ## What it is meant to become
 
@@ -66,33 +69,32 @@ Debug info is off in the `dev` profile. The dependency tree is 228 crates and th
 protos dominate it; with debug info on, `target/` runs to several gigabytes. When you
 actually need a debugger, use `cargo build --profile dbg`.
 
-## Run the example
+## Run it
 
 ```sh
 # terminal 1
 temporal server start-dev
 
 # terminal 2
-temporal workflow start --task-queue demo --type Demo --workflow-id demo-1
+cargo run -p tmprl-tui
+```
+
+```
+ tmprl  profile=default  ns=default                            2 namespaces
+
+    1  default                     Registered         1d
+    1  temporal-system             Registered         7d
+
+ NORMAL   ? help   : commands
+```
+
+`?` lists every binding. `<Space>` opens the which-key popup. `<Space>q` or `<C-c>` quits.
+
+There is also a non-interactive example that exercises the RPC layer directly, useful for
+checking connectivity without the interface:
+
+```sh
 cargo run -p tmprl-client --example spike
-```
-
-```
-connected  profile=default  namespace=default
-
-namespaces (2):
-  - default
-  - temporal-system
-
-total workflows in `default`: 1
-
-workflows (1 shown):
-  Running    Demo    demo-1
-  next_page_token: 0 bytes
-
-history of demo-1 (2 events):
-     1  WorkflowExecutionStarted
-     2  WorkflowTaskScheduled
 ```
 
 ## Test
@@ -128,10 +130,10 @@ Precedence follows the CLI: flags, then `TEMPORAL_*` environment variables, then
 ## Layout
 
 ```
-crates/tmprl-client   all network IO — gRPC, TLS, profiles     ← the only crate that exists
-crates/tmprl-core     domain logic — history, queries, keymap   (planned)
-crates/tmprl-ui       window tree — splits, tabs, focus         (planned)
-crates/tmprl-tui      ratatui rendering and input               (planned)
+crates/tmprl-client   all network IO — gRPC, TLS, profiles      built
+crates/tmprl-core     domain logic — modes, keymap, commands    built
+crates/tmprl-tui      ratatui rendering and input               built
+crates/tmprl-ui       window tree — splits, tabs, focus         planned (M2)
 ```
 
 The split exists so the hard logic — reconstructing histories, compiling visibility queries,
@@ -141,7 +143,7 @@ diffing runs — lands in a layer that needs neither a terminal nor a server to 
 ## Roadmap
 
 - [x] **M0a** gRPC layer, profile loading, integration tests
-- [ ] **M0b** event loop, command registry, modal keymap, statusline
+- [x] **M0b** event loop, command registry, modal keymap, statusline, which-key, yank
 - [ ] **M1** workflow list, visibility queries, saved views, multi-namespace
 - [ ] **M2** workflow detail, history views, follow mode, jq, codec server
 - [ ] **M3** mutations — signal, cancel, terminate, reset, update, delete
@@ -163,7 +165,7 @@ yet.
 
 ## Contributing
 
-The four rules in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#9-design-rules--planned) are the ones
+The four rules in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#9-design-rules) are the ones
 worth reading before writing code. Issues and discussion welcome; given the stage, design
 feedback is more useful than patches.
 

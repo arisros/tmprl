@@ -12,6 +12,11 @@ repository = "https://github.com/arisjirat/tmprl"
 temporalio-client = "=0.7.0"
 temporalio-common = "=0.7.0"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "signal"] }
+ratatui = "0.30"
+# ratatui pulls crossterm but not these two features: `event-stream` gives the async
+# EventStream the select! loop needs, `osc52` gives clipboard writes that survive SSH.
+crossterm = { version = "0.29", features = ["event-stream", "osc52"] }
+futures-util = "0.3"
 anyhow = "1"
 tracing = "0.1"
 thiserror = "2"

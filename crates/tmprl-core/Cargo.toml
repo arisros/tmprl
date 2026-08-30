@@ -1,0 +1,10 @@
+[package]
+name = "tmprl-core"
+description = "Pure domain logic for tmprl: modes, keymap, command registry"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+thiserror.workspace = true

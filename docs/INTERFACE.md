@@ -1,8 +1,13 @@
 # Interface design
 
-> **Status: none of this is implemented.** This document specifies the intended interface so
-> the shape is settled before it is built. No key described here currently does anything.
-> See [ARCHITECTURE.md](ARCHITECTURE.md) for the structure underneath it.
+> **Status: partly implemented.** The modal core, counts, which-key, the `:` command line,
+> the help overlay and yank all work today. Bindings for features that do not exist yet
+> (workflows, splits, pickers, follow mode) are **specified here but deliberately not bound**
+> — a key that opens an empty screen is worse than a key that does nothing at all. The
+> keymap tables below mark which is which.
+>
+> Run `?` in the application for the bindings that are actually live; that overlay is
+> generated from the keymap, so it is never out of date.
 
 ---
 
@@ -29,7 +34,7 @@ Consequences that follow from taking the model seriously rather than decorativel
 - **Macros** (`q{reg}`, `@{reg}`, `@@`) and `.` to repeat.
 
 Macros record command ids, not keystrokes. A recorded macro is therefore readable text that
-survives a remap — see [the command registry](ARCHITECTURE.md#4-the-command-registry--planned).
+survives a remap — see [the command registry](ARCHITECTURE.md#4-the-command-registry--built).
 
 ## Two constraints imposed by tmux
 
@@ -76,15 +81,16 @@ Leader is `Space`. A which-key-style popup appears after 500ms on an incomplete 
 
 ### Navigation
 
-| Key | Action |
-|---|---|
-| `j` `k` `gg` `G` `<C-d>` `<C-u>` | move, with counts |
-| `Enter` | open the focused item |
-| `-` | **go up a level** — run → workflow → namespace → cluster |
-| `<leader>-` | floating object browser |
-| `<C-o>` / `<C-i>` | jumplist back / forward |
-| `<leader>N` | switch namespace |
-| `<leader>P` | switch connection profile |
+| Key | Action | |
+|---|---|---|
+| `j` `k` `gg` `G` `<C-d>` `<C-u>` | move, with counts | **live** |
+| `<Down>` `<Up>` | move | **live** |
+| `Enter` | open the focused item | M1 |
+| `-` | **go up a level** — run → workflow → namespace → cluster | M1 |
+| `<leader>-` | floating object browser | M1 |
+| `<C-o>` / `<C-i>` | jumplist back / forward | M7 |
+| `<leader>N` | switch namespace | M1 |
+| `<leader>P` | switch connection profile | M1 |
 
 `-` deserves a note: it is modelled on [oil.nvim](https://github.com/stevearc/oil.nvim)'s
 treatment of a directory as an editable buffer. Temporal's objects form a hierarchy, and
@@ -92,59 +98,66 @@ treatment of a directory as an editable buffer. Temporal's objects form a hierar
 
 ### Finding
 
-| Key | Action |
-|---|---|
-| `<leader>ff` | find a workflow |
-| `<leader>fg` | query across executions (visibility query) |
-| `<leader>fb` | open workflow buffers |
-| `<leader>fl` | jump to an event or group in the current history |
-| `<leader>fh` | help |
-| `/` `n` `N` | search within the current view |
-| `1`–`9` | saved views |
+| Key | Action | |
+|---|---|---|
+| `<leader>ff` | find a workflow | M1 |
+| `<leader>fg` | query across executions (visibility query) | M1 |
+| `<leader>fb` | open workflow buffers | M2 |
+| `<leader>fl` | jump to an event or group in the current history | M2 |
+| `<leader>fh` | help | M1 |
+| `/` `n` `N` | search within the current view | M1 |
+| `1`–`9` | saved views | M1 |
 
 Pickers are bottom-docked with a preview pane, following Telescope's `ivy` layout.
 
 ### Windows
 
-| Key | Action |
-|---|---|
-| `<leader>sv` / `<leader>sh` | split vertical / horizontal |
-| `<leader>se` / `<leader>sx` | equalise / close |
-| `<C-w>hjkl` | move focus |
-| `<leader>r{h,j,k,l}` | resize by 10 |
-| `<leader>t{o,x,n,p}` | tab open / close / next / previous |
+All of this arrives with the window tree in M2; none of it is bound today.
+
+| Key | Action | |
+|---|---|---|
+| `<leader>sv` / `<leader>sh` | split vertical / horizontal | M2 |
+| `<leader>se` / `<leader>sx` | equalise / close | M2 |
+| `<C-w>hjkl` | move focus | M2 |
+| `<leader>r{h,j,k,l}` | resize by 10 | M2 |
+| `<leader>t{o,x,n,p}` | tab open / close / next / previous | M2 |
 
 Two workflow-detail views in a split, with linked scrolling, *is* the diff feature. There is
 no separate diff screen.
 
 ### Inspecting
 
-| Key | Action |
-|---|---|
-| `F` | follow — tail a running workflow |
-| `<leader>cs` | call stack (`__stack_trace` query) |
-| `<leader>cq` | send a query to the workflow |
-| `y` / `Y` | yank field / whole record as JSON |
-| `!` | pipe selection through `jq` |
-| `<leader>e` | open the payload in `$EDITOR` |
+| Key | Action | |
+|---|---|---|
+| `y` / `Y` | yank field / whole record as JSON | **live** |
+| `F` | follow — tail a running workflow | M2 |
+| `<leader>cs` | call stack (`__stack_trace` query) | M2 |
+| `<leader>cq` | send a query to the workflow | M2 |
+| `!` | pipe selection through `jq` | M2 |
+| `<leader>e` | open the payload in `$EDITOR` | M2 |
 
 ### Acting
 
-| Key | Action |
-|---|---|
-| `v` / `V` | select rows |
-| `<C-q>` | send selection to the quickfix list |
-| `<leader>xx` | problem list — failed and task-failure workflows |
-| `<leader>xQ` | open the quickfix list |
-| `:` | command palette |
+| Key | Action | |
+|---|---|---|
+| `v` / `V` | select rows | **live** |
+| `:` | command palette | **live** |
+| `?` | help overlay | **live** |
+| `<Esc>` | cancel pending input / close overlay | **live** |
+| `R` | reload from the server | **live** |
+| `<leader>q` / `<C-c>` | quit | **live** |
+| `<C-q>` | send selection to the quickfix list | M5 |
+| `<leader>xx` | problem list — failed and task-failure workflows | M1 |
+| `<leader>xQ` | open the quickfix list | M5 |
 
 The quickfix list is how batch operations are staged. Select rows, `<C-q>` to stage them,
 then run an operation over the staged set. Staging is a visible, editable list rather than an
 invisible selection, because *"which four thousand workflows am I about to terminate?"*
 should be a question with an answer on screen.
 
-Every binding above is a lookup into the command registry, so all of it is remappable through
-`~/.config/tmprl/keys.toml`.
+Every binding is a lookup into the command registry, so all of it will be remappable through
+`~/.config/tmprl/keys.toml` — the loader for that file lands in M1; the registry and keymap it
+reads already exist.
 
 ## Destructive actions
 
