@@ -5,5 +5,7 @@
 //! between releases, so confining it here keeps a version bump to one crate.
 
 pub mod conn;
+pub mod ops;
 
 pub use conn::{Conn, ConnectError, ProfileRef};
+pub use ops::{OpError, namespace::NamespaceInfo};

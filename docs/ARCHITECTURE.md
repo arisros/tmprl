@@ -1,9 +1,9 @@
 # Architecture
 
-> **Read this first.** This is a design document, not a description of working software.
-> Only §2's `tmprl-client` exists today. Sections 3 through 8 describe code that has **not
-> been written yet** — they are the plan being built against, written down in advance so the
-> shape is agreed before it is implemented. Every section carries a status marker.
+> **Read this first.** This document mixes built code with design that is not written yet,
+> and every section says which it is. §§2–4 are implemented and tested; §§5–8 are still the
+> plan being built against, written down in advance so the shape is agreed before there is
+> code sitting on top of it.
 >
 > | Marker | Meaning |
 > |---|---|
@@ -11,7 +11,7 @@
 > | **`PLANNED`** | Designed, not implemented |
 
 This document explains how `tmprl` is meant to be put together and, more importantly, *why*.
-If you are here to change something, read the [Design rules](#9-design-rules--planned) first —
+If you are here to change something, read the [Design rules](#9-design-rules) first —
 most of the structure exists to protect those four rules.
 
 ---
@@ -37,7 +37,7 @@ logic that deserves to be tested without a server anywhere in sight.
 
 ---
 
-## 2. The four crates · `tmprl-client` BUILT, the rest PLANNED
+## 2. The four crates · BUILT (3 of 4; `tmprl-ui` is M2)
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -59,16 +59,18 @@ logic that deserves to be tested without a server anywhere in sight.
 Dependencies point strictly downward. The split is not decoration — it is what makes the
 project testable:
 
-| Crate | Status | How it is tested |
-|---|---|---|
-| `tmprl-client` | **built** | Integration tests against `temporal server start-dev` |
-| `tmprl-core` | planned | Plain unit tests. Needs no server, no terminal, no async runtime. |
-| `tmprl-ui` | planned | Plain unit tests over the layout tree |
-| `tmprl-tui` | planned | Snapshot tests via ratatui's `TestBackend` + `insta` |
+| Crate | Status | How it is tested | Tests |
+|---|---|---|---|
+| `tmprl-client` | built | Integration tests against `temporal server start-dev` | 5 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 32 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 16 |
+| `tmprl-ui` | planned (M2) | Plain unit tests over the layout tree | — |
 
-The bulk of the difficult logic is meant to live in `tmprl-core`, the layer that needs
-*nothing* to test. That is the point of the arrangement — and the reason it is worth settling
-the shape before writing it.
+That `tmprl-core` carries the most tests while needing the least to run them is the
+arrangement working as intended.
+
+The bulk of the difficult logic lives in `tmprl-core`, the layer that needs *nothing* to
+test — no server, no terminal, no async runtime.
 
 ### Why `tmprl-client` exists at all
 
@@ -92,7 +94,7 @@ boundaries. `ConnectError` flattens it to a string so that everything above this
 
 ---
 
-## 3. Control flow · PLANNED
+## 3. Control flow · BUILT
 
 The application is Elm-shaped: a single reducer over a single state value, with all IO
 pushed to the edges.
@@ -136,13 +138,15 @@ way to express waiting — only a way to express "not here yet", which draws a s
 
 ### Frame pacing
 
-Rendering is dirty-flag driven, and the tick rate is adaptive: 30 Hz while something is
-animating or streaming, 4 Hz when idle. This is not micro-optimisation. The expected
-deployment is a TUI running over SSH inside tmux, where every redraw is bytes on a wire.
+Rendering is dirty-flag driven: a frame is drawn only when a message actually changed
+something. A 1 Hz tick keeps relative timestamps honest. Adaptive pacing — faster while
+streaming, slower when idle — arrives with follow mode in M2, where there will finally be
+something to animate. This is not micro-optimisation: the expected deployment is a TUI over
+SSH inside tmux, where every redraw is bytes on a wire.
 
 ---
 
-## 4. The command registry · PLANNED
+## 4. The command registry · BUILT
 
 Every user-visible action is registered exactly once:
 
@@ -282,7 +286,7 @@ should be a question with an answer on screen.
 
 ---
 
-## 9. Design rules · PLANNED
+## 9. Design rules
 
 Four rules, in priority order. Most of the structure above exists to enforce them.
 

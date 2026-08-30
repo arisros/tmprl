@@ -1,0 +1,17 @@
+//! Pure domain logic for tmprl.
+//!
+//! Nothing in this crate performs IO, touches a terminal, or is async. That is deliberate:
+//! it is the layer where the difficult logic lives, so it is the layer that must be
+//! trivially testable. If something here needs a runtime, it is in the wrong crate.
+
+pub mod command;
+pub mod key;
+pub mod keymap;
+pub mod loadable;
+pub mod mode;
+
+pub use command::{Action, Command, Registry};
+pub use key::{Chord, ChordSeq, Key, KeyParseError, Mods};
+pub use keymap::{Binding, Keymap, Pending, PendingEntry, Resolution, default_keymap};
+pub use loadable::Loadable;
+pub use mode::Mode;

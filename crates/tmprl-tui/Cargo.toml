@@ -1,0 +1,21 @@
+[package]
+name = "tmprl-tui"
+description = "Terminal interface for tmprl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "tmprl"
+path = "src/main.rs"
+
+[dependencies]
+tmprl-core = { path = "../tmprl-core" }
+tmprl-client = { path = "../tmprl-client" }
+ratatui.workspace = true
+crossterm.workspace = true
+tokio.workspace = true
+futures-util.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
