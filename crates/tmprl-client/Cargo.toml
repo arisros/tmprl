@@ -7,8 +7,11 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+tmprl-core = { path = "../tmprl-core" }
 temporalio-client.workspace = true
 temporalio-common.workspace = true
+prost-wkt-types.workspace = true
+futures-util.workspace = true
 tokio.workspace = true
 anyhow.workspace = true
 tracing.workspace = true

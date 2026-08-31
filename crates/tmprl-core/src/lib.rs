@@ -9,9 +9,12 @@ pub mod key;
 pub mod keymap;
 pub mod loadable;
 pub mod mode;
+pub mod query;
+pub mod workflow;
 
 pub use command::{Action, Command, Registry};
 pub use key::{Chord, ChordSeq, Key, KeyParseError, Mods};
 pub use keymap::{Binding, Keymap, Pending, PendingEntry, Resolution, default_keymap};
 pub use loadable::Loadable;
 pub use mode::Mode;
+pub use workflow::{StatusCounts, WorkflowList, WorkflowRow, WorkflowStatus};
