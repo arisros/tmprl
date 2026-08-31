@@ -403,6 +403,7 @@ async fn paging_a_fan_out_terminates_and_visits_each_row_once() {
     // single-namespace fan-out would not reach it.
     let mut namespaces = Vec::new();
     let mut total = 0usize;
+    let mut biggest = 0usize;
     for ns in c.list_namespaces().await.expect("list_namespaces") {
         let n = c
             .count_workflows_by_status(&ns.name, "")
@@ -412,25 +413,35 @@ async fn paging_a_fan_out_terminates_and_visits_each_row_once() {
         if n > 0 {
             namespaces.push(ns.name);
             total += n;
+            biggest = biggest.max(n);
         }
     }
     if namespaces.len() < 2 || total < 3 {
         eprintln!(
-            "SKIP: need workflows in >= 2 namespaces to exercise the fan-out,              found {} namespace(s) holding {total}",
+            "SKIP: need workflows in >= 2 namespaces to exercise the fan-out, \
+             found {} namespace(s) holding {total}",
             namespaces.len()
         );
         return;
     }
 
+    // Size the page so the largest namespace takes about `ROUNDS` pages however much data
+    // happens to be on this server. A fixed page size of 1 makes the request count scale
+    // with the cluster, which trips the namespace rate limit on anything but a nearly
+    // empty one — and makes the test pass or fail depending on what ran before it.
+    // Smaller namespaces still exhaust several pages earlier, which is what the bug needs.
+    const ROUNDS: usize = 6;
+    let page_size = biggest.div_ceil(ROUNDS).max(1) as i32;
+
     let mut seen: Vec<(String, String)> = Vec::new();
     let (mut rows, mut tokens) = c
-        .list_workflows_across(&namespaces, "", 1)
+        .list_workflows_across(&namespaces, "", page_size)
         .await
         .expect("first page");
 
     // Generous, but finite: without a bound a regression here hangs the suite instead of
     // failing it.
-    let limit = total * 4 + 16;
+    let limit = ROUNDS * 4 + 16;
     let mut rounds = 0;
     loop {
         for r in &rows {
@@ -442,10 +453,11 @@ async fn paging_a_fan_out_terminates_and_visits_each_row_once() {
         rounds += 1;
         assert!(
             rounds < limit,
-            "paging did not terminate after {rounds} rounds for {total} workflows —              an exhausted namespace is being restarted"
+            "paging did not terminate after {rounds} rounds for {total} workflows at \
+             page size {page_size} — an exhausted namespace is being restarted"
         );
         let next = c
-            .continue_workflows_across(&tokens, "", 1)
+            .continue_workflows_across(&tokens, "", page_size)
             .await
             .expect("continuation");
         rows = next.0;
