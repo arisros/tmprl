@@ -7,10 +7,10 @@ Web UI — built to be operated from the keyboard rather than a browser.
 
 > ### Status: early, but it runs.
 >
-> `tmprl` starts, connects, and gives you a modal, vim-keyed namespace browser with counts,
-> a which-key popup, a `:` command line and clipboard yank. **It does not browse workflows
-> yet** — that is the next milestone. If you need a Temporal TUI for real work today, see
-> [Prior art](#prior-art).
+> `tmprl` starts, connects, and gives you a modal, vim-keyed browser for namespaces and
+> **workflows** — with an editable visibility query, per-status counts, saved views and
+> infinite scroll. **It cannot open a workflow's history yet**; that is the next milestone.
+> If you need a Temporal TUI for real work today, see [Prior art](#prior-art).
 
 ---
 
@@ -22,12 +22,24 @@ Web UI — built to be operated from the keyboard rather than a browser.
   and counts that compose with motions (`7j`, `5gg`).
 - **A namespace list** with a hybrid relative/absolute gutter, so counts are readable off
   the screen rather than estimated.
-- **Discovery**: a which-key popup on an incomplete prefix, and a `?` help overlay — both
-  generated from the command registry and keymap, so neither can go stale.
+- **A workflow list** — `Enter` on a namespace. Pages in as you scroll, sorted newest-first,
+  with per-status counts in the header from one `GROUP BY` call. Status is drawn as a glyph
+  as well as a colour, so the column reads on 16 colours and for a colour-blind reader.
+- **An editable visibility query**, always on screen and always the raw string. `i` edits it,
+  `Enter` applies, `Esc` abandons. Saved views write *into* it and leave it editable — there
+  is no filter widget hiding the query from you.
+- **Saved views** in `views.toml`, on `<Space>1`–`<Space>9`, listed by name in the which-key
+  popup.
+- **Multiple namespaces at once**: select them with `V` on the namespace list and press
+  `Enter`. The result is one merged table, newest-first, each row tagged with its namespace.
+- **Remappable keys** through `keys.toml`, resolved against the command registry, so a typo
+  is an error at startup rather than a key that silently does nothing.
+- **Discovery**: a which-key popup on an incomplete prefix, and a scrollable `?` help overlay
+  — both generated from the command registry and keymap, so neither can go stale.
 - **A `:` command line** with completions over every registered command.
 - **Yank** (`y`, `Y`) to the system clipboard over OSC 52, so it works over SSH.
 
-Not yet: workflows, histories, schedules, batch operations, splits, follow mode.
+Not yet: workflow histories, schedules, batch operations, splits, follow mode.
 
 ## What it is meant to become
 
@@ -65,7 +77,7 @@ is easy to misread as a network problem. It isn't.
 cargo build
 ```
 
-Debug info is off in the `dev` profile. The dependency tree is 228 crates and the generated
+Debug info is off in the `dev` profile. The dependency tree is 230 crates and the generated
 protos dominate it; with debug info on, `target/` runs to several gigabytes. When you
 actually need a debugger, use `cargo build --profile dbg`.
 
@@ -79,16 +91,33 @@ temporal server start-dev
 cargo run -p tmprl-tui
 ```
 
+You land on the namespace list:
+
 ```
- tmprl  profile=default  ns=default                            2 namespaces
+ tmprl profile=default  ns=default                                        3 namespaces
+   1 default                     Registered       1d
+   2 payments                    Registered       3d
+   1 temporal-system             Registered       7d
 
-    1  default                     Registered         1d
-    1  temporal-system             Registered         7d
-
- NORMAL   ? help   : commands
+ NORMAL  ? help   : commands
 ```
 
-`?` lists every binding. `<Space>` opens the which-key popup. `<Space>q` or `<C-c>` quits.
+`Enter` opens one; `V` then `Enter` opens several as a single merged list:
+
+```
+ tmprl profile=default  ns=default +1                         ● 125  ■ 1  126 total
+ query  all workflows — i to filter
+   1 ● Running      charge-3            ChargeCard        payments             1m
+   1 ● Running      charge-2            ChargeCard        payments             1m
+   2 ● Running      charge-1            ChargeCard        payments             1m
+   3 ● Running      scroll-068          ScrollWorkflow    default              2m
+   4 ● Running      scroll-099          ScrollWorkflow    default              2m
+
+ NORMAL  ? help   : commands
+```
+
+`i` edits the query bar, `Enter` applies it, `-` goes back up a level. `?` lists every
+binding. `<Space>` opens the which-key popup. `<Space>q` or `<C-c>` quits.
 
 There is also a non-interactive example that exercises the RPC layer directly, useful for
 checking connectivity without the interface:
@@ -127,12 +156,33 @@ client_key_path  = "/etc/temporal/client.key"
 
 Precedence follows the CLI: flags, then `TEMPORAL_*` environment variables, then the TOML file.
 
+Everything else lives in `$TMPRL_CONFIG_DIR`, else `$XDG_CONFIG_HOME/tmprl`, else
+`~/.config/tmprl`. Both files are optional:
+
+```toml
+# views.toml — saved queries on <Space>1 … <Space>9
+[[view]]
+key   = "1"
+name  = "Running now"
+query = "ExecutionStatus = 'Running'"
+```
+
+```toml
+# keys.toml — chord → command id, overriding the defaults
+[normal]
+"ZZ"    = "app.quit"
+"<C-r>" = "app.refresh"
+```
+
+Command ids are the ones `?` and `:` show. An unknown id, an unparseable chord or a duplicate
+view key is reported in the statusline at startup rather than quietly skipped.
+
 ## Layout
 
 ```
-crates/tmprl-client   all network IO — gRPC, TLS, profiles      built
-crates/tmprl-core     domain logic — modes, keymap, commands    built
-crates/tmprl-tui      ratatui rendering and input               built
+crates/tmprl-client   all network IO — gRPC, TLS, profiles      built,  17 tests
+crates/tmprl-core     domain logic — modes, keymap, workflows   built,  75 tests
+crates/tmprl-tui      ratatui rendering and input               built,  49 tests
 crates/tmprl-ui       window tree — splits, tabs, focus         planned (M2)
 ```
 
@@ -144,7 +194,7 @@ diffing runs — lands in a layer that needs neither a terminal nor a server to 
 
 - [x] **M0a** gRPC layer, profile loading, integration tests
 - [x] **M0b** event loop, command registry, modal keymap, statusline, which-key, yank
-- [ ] **M1** workflow list, visibility queries, saved views, multi-namespace
+- [x] **M1** workflow list, visibility queries, saved views, multi-namespace, `keys.toml`
 - [ ] **M2** workflow detail, history views, follow mode, jq, codec server
 - [ ] **M3** mutations — signal, cancel, terminate, reset, update, delete
 - [ ] **M4** schedules
@@ -165,7 +215,7 @@ yet.
 
 ## Contributing
 
-The four rules in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#9-design-rules) are the ones
+The four rules in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#10-design-rules) are the ones
 worth reading before writing code. Issues and discussion welcome; given the stage, design
 feedback is more useful than patches.
 
