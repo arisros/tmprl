@@ -24,6 +24,9 @@ futures-util = "0.3"
 anyhow = "1"
 tracing = "0.1"
 thiserror = "2"
+# keys.toml / views.toml parsing. Pure string -> struct, so it lives in tmprl-core;
+# reading the files is the TUI's job.
+toml = "0.9"
 
 # Debug info for 227 crates (temporalio-protos especially) does not fit in the
 # 4.6G free on this box. Keep dev builds lean; use `--profile dbg` when a real

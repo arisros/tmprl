@@ -23,6 +23,15 @@ impl<T> Loadable<T> {
         }
     }
 
+    /// Mutable access to loaded data, for a list that grows a page at a time rather than
+    /// being replaced wholesale.
+    pub fn value_mut(&mut self) -> Option<&mut T> {
+        match self {
+            Loadable::Loaded(v, _) => Some(v),
+            _ => None,
+        }
+    }
+
     pub fn is_loading(&self) -> bool {
         matches!(self, Loadable::Loading)
     }
@@ -70,6 +79,20 @@ mod tests {
 
         let f: Loadable<u8> = Loadable::Failed("boom".into());
         assert_eq!(f.error(), Some("boom"));
+    }
+
+    #[test]
+    fn loaded_data_can_be_grown_in_place() {
+        // Infinite scroll appends to a list that is already on screen; replacing the
+        // Loadable would drop the fetch time the statusline reports staleness from.
+        let mut l = Loadable::loaded(vec![1u8]);
+        let at = l.age();
+        l.value_mut().unwrap().push(2);
+        assert_eq!(l.value(), Some(&vec![1, 2]));
+        assert!(at.is_some() && l.age().is_some());
+
+        let mut n: Loadable<Vec<u8>> = Loadable::NotAsked;
+        assert!(n.value_mut().is_none());
     }
 
     #[test]

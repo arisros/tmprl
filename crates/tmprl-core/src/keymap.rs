@@ -219,6 +219,14 @@ pub fn default_keymap() -> Keymap {
         bind(mode, "<C-c>", "app.quit");
     }
 
+    // `<CR>` opens in the visual modes too, where it means "open the selection": that is
+    // how several namespaces become one merged workflow list. `-` stays Normal-only —
+    // walking up a level while selecting rows has no sensible meaning.
+    for mode in [Mode::Normal, Mode::Visual, Mode::VisualLine] {
+        bind(mode, "<CR>", "nav.open");
+    }
+    bind(Mode::Normal, "-", "nav.up");
+
     bind(Mode::Normal, "i", "mode.insert");
     bind(Mode::Normal, "v", "mode.visual");
     bind(Mode::Normal, "V", "mode.visual-line");
