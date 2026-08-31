@@ -6,6 +6,7 @@
 
 pub mod command;
 pub mod config;
+pub mod history;
 pub mod key;
 pub mod keymap;
 pub mod loadable;
@@ -15,6 +16,7 @@ pub mod workflow;
 
 pub use command::{Action, Command, Registry};
 pub use config::{ConfigError, SavedView};
+pub use history::{Category, Group, GroupRef, NormalizedEvent, Outcome, Role};
 pub use key::{Chord, ChordSeq, Key, KeyParseError, Mods};
 pub use keymap::{Binding, Keymap, Pending, PendingEntry, Resolution, default_keymap};
 pub use loadable::Loadable;
