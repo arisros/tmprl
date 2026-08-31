@@ -21,6 +21,10 @@ use tmprl_core::workflow::{StatusCounts, WorkflowRow, WorkflowStatus, merge_by_s
 use super::OpError;
 use crate::Conn;
 
+/// Per-namespace continuation tokens. A namespace missing from the list has no more pages;
+/// an entry with an empty token starts from the beginning.
+pub type Continuation = Vec<(String, Vec<u8>)>;
+
 /// One page of the workflow table, plus the token that fetches the next.
 #[derive(Debug, Clone, Default)]
 pub struct WorkflowPage {
@@ -71,30 +75,50 @@ impl Conn {
         })
     }
 
-    /// The same page from several namespaces at once, merged newest-first.
+    /// The first page from several namespaces at once, merged newest-first.
     ///
-    /// Returned alongside the rows is each namespace's continuation token, because the
-    /// namespaces exhaust at different points and a single merged token cannot express
-    /// that. A namespace whose token comes back empty has no more pages.
+    /// Returned alongside the rows is a continuation token *per namespace*, because the
+    /// namespaces exhaust at different points and one merged token cannot express that.
+    /// A namespace that is already finished simply does not appear in the returned list.
+    /// Feed that list to [`Conn::continue_workflows_across`] for the next page.
     pub async fn list_workflows_across(
         &self,
         namespaces: &[String],
         query: &str,
         page_size: i32,
-        tokens: &[(String, Vec<u8>)],
-    ) -> Result<(Vec<WorkflowRow>, Vec<(String, Vec<u8>)>), OpError> {
-        let token_for = |ns: &str| -> Vec<u8> {
-            tokens
-                .iter()
-                .find(|(n, _)| n == ns)
-                .map(|(_, t)| t.clone())
-                .unwrap_or_default()
-        };
+    ) -> Result<(Vec<WorkflowRow>, Continuation), OpError> {
+        let starting: Continuation = namespaces
+            .iter()
+            .map(|ns| (ns.clone(), Vec::new()))
+            .collect();
+        self.fetch_pages(&starting, query, page_size).await
+    }
 
-        // One request per namespace, in flight together. They share the connection's
-        // channel, so this costs N streams rather than N connections.
-        let pages = futures_util::future::try_join_all(namespaces.iter().map(|ns| {
-            let token = token_for(ns);
+    /// The next page, asking *only* the namespaces that still have one.
+    ///
+    /// Taking the token list rather than the namespace list is the point. Re-deriving the
+    /// namespaces from the original scope would hand an exhausted namespace an empty token,
+    /// which the server reads as "start from the beginning" — so it would return page one
+    /// again, along with a fresh token, and that namespace would never finish.
+    pub async fn continue_workflows_across(
+        &self,
+        tokens: &Continuation,
+        query: &str,
+        page_size: i32,
+    ) -> Result<(Vec<WorkflowRow>, Continuation), OpError> {
+        self.fetch_pages(tokens, query, page_size).await
+    }
+
+    /// One request per namespace, in flight together. They share the connection's channel,
+    /// so this costs N streams rather than N connections.
+    async fn fetch_pages(
+        &self,
+        tokens: &Continuation,
+        query: &str,
+        page_size: i32,
+    ) -> Result<(Vec<WorkflowRow>, Continuation), OpError> {
+        let pages = futures_util::future::try_join_all(tokens.iter().map(|(ns, token)| {
+            let token = token.clone();
             async move {
                 self.list_workflows(ns, query, page_size, token)
                     .await
@@ -103,7 +127,7 @@ impl Conn {
         }))
         .await?;
 
-        let mut next = Vec::new();
+        let mut next = Continuation::new();
         let mut all = Vec::new();
         for (ns, page) in pages {
             if page.has_more() {

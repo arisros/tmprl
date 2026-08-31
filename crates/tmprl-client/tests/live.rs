@@ -372,7 +372,7 @@ async fn fan_out_merges_rows_newest_first() {
     let namespaces = vec![c.namespace().to_string()];
 
     let (rows, tokens) = c
-        .list_workflows_across(&namespaces, "", 1000, &[])
+        .list_workflows_across(&namespaces, "", 1000)
         .await
         .expect("list_workflows_across");
 
@@ -383,5 +383,86 @@ async fn fan_out_merges_rows_newest_first() {
     assert!(
         tokens.is_empty(),
         "a namespace with no further pages must not appear in the token list"
+    );
+}
+
+/// Paging a fan-out to exhaustion must terminate, and must visit every workflow exactly
+/// once.
+///
+/// This is the test for a bug that is invisible at a glance: if a continuation re-derives
+/// its namespaces from the original scope, a namespace that has already finished is handed
+/// an empty token, the server reads that as "start from the beginning", and it hands back
+/// page one plus a fresh token — forever. A tiny page size makes it show up with only a
+/// handful of workflows.
+#[tokio::test]
+async fn paging_a_fan_out_terminates_and_visits_each_row_once() {
+    let Some(c) = conn().await else { return };
+
+    // Fan out over every namespace that actually holds workflows. The bug this guards
+    // against only appears when the namespaces exhaust at *different* points, so a
+    // single-namespace fan-out would not reach it.
+    let mut namespaces = Vec::new();
+    let mut total = 0usize;
+    for ns in c.list_namespaces().await.expect("list_namespaces") {
+        let n = c
+            .count_workflows_by_status(&ns.name, "")
+            .await
+            .expect("count")
+            .total as usize;
+        if n > 0 {
+            namespaces.push(ns.name);
+            total += n;
+        }
+    }
+    if namespaces.len() < 2 || total < 3 {
+        eprintln!(
+            "SKIP: need workflows in >= 2 namespaces to exercise the fan-out,              found {} namespace(s) holding {total}",
+            namespaces.len()
+        );
+        return;
+    }
+
+    let mut seen: Vec<(String, String)> = Vec::new();
+    let (mut rows, mut tokens) = c
+        .list_workflows_across(&namespaces, "", 1)
+        .await
+        .expect("first page");
+
+    // Generous, but finite: without a bound a regression here hangs the suite instead of
+    // failing it.
+    let limit = total * 4 + 16;
+    let mut rounds = 0;
+    loop {
+        for r in &rows {
+            seen.push((r.namespace.clone(), r.run_id.clone()));
+        }
+        if tokens.is_empty() {
+            break;
+        }
+        rounds += 1;
+        assert!(
+            rounds < limit,
+            "paging did not terminate after {rounds} rounds for {total} workflows —              an exhausted namespace is being restarted"
+        );
+        let next = c
+            .continue_workflows_across(&tokens, "", 1)
+            .await
+            .expect("continuation");
+        rows = next.0;
+        tokens = next.1;
+    }
+
+    let mut unique = seen.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(
+        unique.len(),
+        seen.len(),
+        "paging returned the same execution twice"
+    );
+    assert_eq!(
+        unique.len(),
+        total,
+        "paging must visit every workflow exactly once"
     );
 }
