@@ -1,9 +1,9 @@
 # Architecture
 
 > **Read this first.** This document mixes built code with design that is not written yet,
-> and every section says which it is. §§2–5 are implemented and tested, §6 partly so;
-> §§7–9 are still the plan being built against, written down in advance so the shape is
-> agreed before there is code sitting on top of it.
+> and every section says which it is. §§2–6 are implemented and tested; §§7–9 are still
+> the plan being built against, written down in advance so the shape is agreed before there
+> is code sitting on top of it.
 >
 > | Marker | Meaning |
 > |---|---|
@@ -62,8 +62,8 @@ project testable:
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
 | `tmprl-client` | built | Integration tests against `temporal server start-dev` | 27 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 85 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 49 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 99 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 69 |
 | `tmprl-ui` | planned (M2) | Plain unit tests over the layout tree | — |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -247,7 +247,7 @@ point, so the continuation token is per namespace rather than one token for the 
 
 ---
 
-## 6. Reconstructing history · PARTLY BUILT (stages 1 and 2)
+## 6. Reconstructing history · BUILT
 
 This is the part that makes the difference between a port and a wrapper.
 
@@ -321,10 +321,25 @@ Groups are the unit of everything downstream:
 - **Outline** — a collapsible tree of groups, for jumping around a long history
 - **Diff** — two histories aligned by group key, via LCS
 
-**Stage 3 — virtualise · PLANNED.** Only the visible slice is ever turned into rendered rows. Scrolling
-a 100k-event history moves an index; it does not rebuild a list. A minimap strip down the
-right edge shows failure density across the whole history, which is how you find the
-interesting part of a long run without scrolling through it.
+**Stage 3 — virtualise · BUILT.** Only the visible slice is ever turned into rendered rows.
+Scrolling a 100k-event history moves an index; it does not rebuild a list.
+
+`Outline` keeps one cumulative-offset table over the visible groups, rebuilt when the *shape*
+changes — a group folded, plumbing toggled — and never while scrolling. A row lookup is then a
+binary search over that table, so asking for row 84,102 costs the same as asking for row 0.
+`len()` is the last entry in that table rather than a count of anything.
+
+Two consequences that are easy to get wrong, both pinned by tests:
+
+- **Folding shut from inside a group** would strand the cursor past the end, so `toggle`
+  returns the row the group's own line now occupies and the cursor moves there.
+- **The summary must not count what the outline hides.** Workflow tasks are folded away by
+  default; reporting one as "running" in the header sends the reader hunting for a row that is
+  not on screen.
+
+Still planned: the minimap strip down the right edge showing failure density across the whole
+history. `]f` and `[f` already jump between failures, which serves the same need with a key
+rather than a picture.
 
 ---
 
