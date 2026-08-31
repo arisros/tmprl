@@ -1,7 +1,7 @@
 # Architecture
 
 > **Read this first.** This document mixes built code with design that is not written yet,
-> and every section says which it is. §§2–4 are implemented and tested; §§5–8 are still the
+> and every section says which it is. §§2–5 are implemented and tested; §§6–9 are still the
 > plan being built against, written down in advance so the shape is agreed before there is
 > code sitting on top of it.
 >
@@ -11,7 +11,7 @@
 > | **`PLANNED`** | Designed, not implemented |
 
 This document explains how `tmprl` is meant to be put together and, more importantly, *why*.
-If you are here to change something, read the [Design rules](#9-design-rules) first —
+If you are here to change something, read the [Design rules](#10-design-rules) first —
 most of the structure exists to protect those four rules.
 
 ---
@@ -61,9 +61,9 @@ project testable:
 
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
-| `tmprl-client` | built | Integration tests against `temporal server start-dev` | 5 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 32 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 16 |
+| `tmprl-client` | built | Integration tests against `temporal server start-dev` | 17 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 75 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 49 |
 | `tmprl-ui` | planned (M2) | Plain unit tests over the layout tree | — |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -71,6 +71,11 @@ arrangement working as intended.
 
 The bulk of the difficult logic lives in `tmprl-core`, the layer that needs *nothing* to
 test — no server, no terminal, no async runtime.
+
+`tmprl-client` depends on `tmprl-core`. The domain types that carry logic — execution
+status, a workflow row, the paged list — live in `tmprl-core`, and `tmprl-client` maps
+protobuf into them. That way the ordering, deduplication and cursor-anchoring rules are
+tested with no server in sight, and the generated types still stop at the client boundary.
 
 ### Why `tmprl-client` exists at all
 
@@ -177,7 +182,72 @@ something you infer from reading the input handler.
 
 ---
 
-## 5. Reconstructing history · PLANNED
+## 5. The workflow list · BUILT
+
+The first screen that is a real port rather than a list of names, and the one that fixed the
+assumptions the rest of the read path will inherit.
+
+### The server does not sort, so we do
+
+`ListWorkflowExecutions` returns rows in no defined order, and standard visibility rejects an
+`ORDER BY` clause outright — the dev server answers `operation is not supported: 'ORDER BY'
+clause`. Both facts are pinned by integration tests, so a future server that changes its mind
+tells us.
+
+Ordering is therefore the client's job. `WorkflowList` sorts newest-first on every append and
+deduplicates by `(namespace, run_id)`:
+
+- **Sorting on append, not once.** Pages arrive unordered, so a later page routinely contains
+  rows that belong above rows already on screen.
+- **Deduplicating on the pair, not the run id.** Run ids are unique per namespace, not across
+  a fan-out. Deduplicating on the run id alone would silently drop a row.
+- **Deduplicating at all.** A page is a snapshot of a set that is changing underneath it, so
+  the same execution legitimately arrives twice. A table that lists a workflow twice makes an
+  operator doubt the whole screen.
+
+### The cursor is an identity, not an index
+
+The list is live. Rows appear above the cursor while you are reading it, so a cursor stored
+as a row index quietly ends up on a different workflow. The cursor is stored as the
+`(namespace, run_id)` of the row it is on and re-found after every load.
+
+### Stale replies are dropped, not painted
+
+Every fetch carries a generation, bumped whenever the query or the scope changes. A reply
+whose generation no longer matches is discarded. Without this, editing a query while a slow
+request is in flight repaints the table with results for a query the user has already
+abandoned — a race that shows up exactly when the cluster is slow, which is when it is least
+welcome.
+
+### The raw query is the interface
+
+The visibility query is always on screen and always the literal string sent to the server.
+Saved views fill it and leave it editable; the filter builder planned for M2 will compile
+into it. Nothing holds a structured filter that renders down to a query the user cannot see
+or correct — that abstraction is the most irritating thing about the web UI's filter bar, and
+it is being deliberately rejected rather than ported.
+
+The only query rewriting anywhere is what the RPCs demand: `CountWorkflowExecutions` does not
+accept `ORDER BY` and needs its own `GROUP BY`, so `tmprl_core::query::count_query` strips and
+appends those clauses. It skips quoted strings, so a workflow id containing the words `order
+by` is not mistaken for a clause.
+
+### Counts are one call
+
+The header tallies come from a single `CountWorkflowExecutions ... GROUP BY ExecutionStatus`
+rather than a call per status. The group values come back as `json/plain` Keyword payloads
+holding a quoted status name. Grouped counts are approximate by Temporal's own documentation,
+so the total is taken from the response's `count` field rather than summed from the groups.
+
+### Fan-out is N requests on one channel
+
+A `Conn` clone shares a single HTTP/2 channel, so listing several namespaces is one connection
+and N concurrent streams. Each namespace pages independently and exhausts at a different
+point, so the continuation token is per namespace rather than one token for the merged list.
+
+---
+
+## 6. Reconstructing history · PLANNED
 
 This is the part that makes the difference between a port and a wrapper.
 
@@ -225,7 +295,7 @@ interesting part of a long run without scrolling through it.
 
 ---
 
-## 6. The window model · PLANNED
+## 7. The window model · PLANNED
 
 `tmprl-ui` holds a layout tree, not a fixed master-detail arrangement:
 
@@ -249,7 +319,7 @@ two views, not just the pair someone anticipated.
 
 ---
 
-## 7. Payloads and the codec server · PLANNED
+## 8. Payloads and the codec server · PLANNED
 
 Temporal payloads are opaque bytes plus metadata. When a cluster uses a codec server, they are
 also encrypted, and decoding requires an HTTP round trip to a service the user runs.
@@ -266,7 +336,7 @@ The wire contract is Temporal's: `POST {endpoint}/decode`, proto3-JSON `Payloads
 
 ---
 
-## 8. Mutations · PLANNED
+## 9. Mutations · PLANNED
 
 `tmprl` can terminate workflows and run batch operations across thousands of them. The
 safety design is deliberate:
@@ -286,7 +356,7 @@ should be a question with an answer on screen.
 
 ---
 
-## 9. Design rules
+## 10. Design rules
 
 Four rules, in priority order. Most of the structure above exists to enforce them.
 
@@ -302,7 +372,7 @@ Four rules, in priority order. Most of the structure above exists to enforce the
 
 ---
 
-## 10. Things that will bite you · BUILT
+## 11. Things that will bite you · BUILT
 
 Collected because each one cost real time to discover.
 
@@ -313,4 +383,8 @@ Collected because each one cost real time to discover.
 | **Protos are in `temporalio-common`** | `temporalio_common::protos::temporal::api::*::v1`, requiring a direct dependency on `temporalio-common`. Not `temporal-sdk-core-protos`, which is a different, older crate. |
 | **`ConfigError` is not `Sync`** | It boxes a bare `dyn Error`. Flatten it at the crate boundary or it poisons every `anyhow` signature above it. |
 | **`wait_new_event: true` blocks** | Correct in follow mode, a hang anywhere else. Any test touching history must pass `false`. |
+| **Timestamps are `prost_wkt_types`** | Not `prost_types`. The generated protos use `prost_wkt_types::Timestamp` and nothing re-exports it, so reading a `start_time` needs a direct `prost-wkt-types` dependency. The compiler's "expected `prost_wkt_types::pbtime::Timestamp`" is the only clue. |
+| **`ListWorkflowExecutions` is unordered** | And standard visibility rejects `ORDER BY` — `operation is not supported: 'ORDER BY' clause`. Sorting is the client's job; see §5. |
+| **`GROUP BY` returns payloads** | An `AggregationGroup`'s `group_values` are `Payload`s, not strings: `json/plain`, type `Keyword`, data `"Running"` *with* the quotes. |
+| **Grouped counts are approximate** | Temporal documents this. Sum the groups and you understate the total, so read `response.count` for the total instead. |
 | **Debug info does not fit** | 228 crates, and `temporalio-protos` dominates. `[profile.dev] debug = false`; use `--profile dbg` when you actually need a debugger. |
