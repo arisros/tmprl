@@ -142,6 +142,38 @@ impl Conn {
     }
 }
 
+impl Conn {
+    /// Header counts summed over a fan-out.
+    ///
+    /// A header that counted only the first of several namespaces would be quietly wrong,
+    /// which is worse than having no header at all.
+    pub async fn count_workflows_across(
+        &self,
+        namespaces: &[String],
+        query: &str,
+    ) -> Result<StatusCounts, OpError> {
+        let per_ns = futures_util::future::try_join_all(
+            namespaces
+                .iter()
+                .map(|ns| self.count_workflows_by_status(ns, query)),
+        )
+        .await?;
+
+        let mut total = 0;
+        let mut summed: Vec<(WorkflowStatus, i64)> = Vec::new();
+        for counts in &per_ns {
+            total += counts.total;
+            for (status, n) in counts.iter() {
+                match summed.iter_mut().find(|(s, _)| *s == status) {
+                    Some((_, acc)) => *acc += n,
+                    None => summed.push((status, n)),
+                }
+            }
+        }
+        Ok(StatusCounts::new(total, summed))
+    }
+}
+
 /// Map the protobuf row onto the domain row.
 fn row_from(namespace: &str, e: WorkflowExecutionInfo) -> WorkflowRow {
     // `status()` borrows `e`, so resolve it before the string fields are moved out.

@@ -2,6 +2,7 @@
 
 mod app;
 mod clipboard;
+mod config;
 mod event;
 mod keys;
 mod theme;
@@ -74,7 +75,20 @@ async fn main() -> std::process::ExitCode {
     };
 
     let (tx, rx) = unbounded_channel();
-    let app = app::App::new(conn, tx.clone());
+    let mut app = app::App::new(conn, tx.clone());
+
+    // Config is applied before the terminal is touched, so a bad keys.toml is a plain
+    // message on stderr rather than an error flashed behind an alternate screen. A file
+    // that exists but cannot be read is reported; an absent one is simply no config.
+    let read_config = |name: &str| match config::read(name) {
+        Ok(found) => found,
+        Err(e) => {
+            eprintln!("tmprl: {e}");
+            None
+        }
+    };
+    let (keys, views) = (read_config("keys.toml"), read_config("views.toml"));
+    app.apply_config(keys.as_deref(), views.as_deref());
 
     let terminal = ratatui::init();
     let result = event::run(terminal, app, rx, tx).await;

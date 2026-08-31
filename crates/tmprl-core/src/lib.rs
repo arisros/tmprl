@@ -5,6 +5,7 @@
 //! trivially testable. If something here needs a runtime, it is in the wrong crate.
 
 pub mod command;
+pub mod config;
 pub mod key;
 pub mod keymap;
 pub mod loadable;
@@ -13,6 +14,7 @@ pub mod query;
 pub mod workflow;
 
 pub use command::{Action, Command, Registry};
+pub use config::{ConfigError, SavedView};
 pub use key::{Chord, ChordSeq, Key, KeyParseError, Mods};
 pub use keymap::{Binding, Keymap, Pending, PendingEntry, Resolution, default_keymap};
 pub use loadable::Loadable;

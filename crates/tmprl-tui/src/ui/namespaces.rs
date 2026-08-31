@@ -10,6 +10,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
+use super::truncate;
 use crate::app::App;
 use crate::theme::Theme;
 
@@ -17,7 +18,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
     if area.height == 0 {
         return;
     }
-    let rows = app.rows();
+    let rows = app.namespace_rows();
 
     if rows.is_empty() {
         let msg = if app.namespaces.is_loading() {
@@ -48,11 +49,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
         .take(height)
         .map(|(i, ns)| {
             let focused = i == app.cursor;
-            let gutter = if focused {
-                format!("{:>4} ", i + 1)
-            } else {
-                format!("{:>4} ", i.abs_diff(app.cursor))
-            };
+            let gutter = super::gutter(i, app.cursor);
 
             let base = if focused {
                 Style::new().fg(t.fg).bg(t.sel).add_modifier(Modifier::BOLD)
@@ -78,27 +75,4 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
         .collect();
 
     frame.render_widget(Paragraph::new(lines), area);
-}
-
-fn truncate(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        return s.to_string();
-    }
-    let keep = max.saturating_sub(1);
-    let mut out: String = s.chars().take(keep).collect();
-    out.push('…');
-    out
-}
-
-#[cfg(test)]
-mod tests {
-    use super::truncate;
-
-    #[test]
-    fn truncation_respects_character_boundaries() {
-        assert_eq!(truncate("short", 10), "short");
-        assert_eq!(truncate("abcdefghij", 5), "abcd…");
-        // Multi-byte input must not be sliced mid-character.
-        assert_eq!(truncate("日本語テスト", 3), "日本…");
-    }
 }
