@@ -17,8 +17,9 @@ use tokio::sync::mpsc::UnboundedSender;
 /// enough that the first screen arrives promptly on a slow link.
 const PAGE_SIZE: i32 = 50;
 
-/// Continuation tokens, one per namespace that still has pages.
-type Tokens = Vec<(String, Vec<u8>)>;
+/// Continuation tokens, one per namespace that still has pages. The client owns the shape;
+/// this is an alias so the reducer reads the same way.
+use tmprl_client::Continuation as Tokens;
 
 /// Which list is on screen. Temporal's objects form a hierarchy and `-` walks up it, so
 /// this is a level rather than a tab.
@@ -785,6 +786,9 @@ impl App {
         let Some(conn) = self.conn.clone() else {
             return;
         };
+        // On a continuation, ask only the namespaces that still have pages. Passing the
+        // whole scope would hand an exhausted namespace an empty token, which the server
+        // reads as "start again" — so it would never finish.
         let tokens: Tokens = if append {
             self.workflows
                 .value()
@@ -801,10 +805,13 @@ impl App {
             self.query.clone(),
         );
         tokio::spawn(async move {
-            let result = conn
-                .list_workflows_across(&scope, &query, PAGE_SIZE, &tokens)
-                .await
-                .map_err(|e| e.to_string());
+            let result = if append {
+                conn.continue_workflows_across(&tokens, &query, PAGE_SIZE)
+                    .await
+            } else {
+                conn.list_workflows_across(&scope, &query, PAGE_SIZE).await
+            }
+            .map_err(|e| e.to_string());
             let _ = tx.send(Msg::Workflows {
                 generation,
                 append,
