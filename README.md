@@ -180,7 +180,7 @@ view key is reported in the statusline at startup rather than quietly skipped.
 ## Layout
 
 ```
-crates/tmprl-client   all network IO — gRPC, TLS, profiles      built,  17 tests
+crates/tmprl-client   all network IO — gRPC, TLS, profiles      built,  18 tests
 crates/tmprl-core     domain logic — modes, keymap, workflows   built,  75 tests
 crates/tmprl-tui      ratatui rendering and input               built,  49 tests
 crates/tmprl-ui       window tree — splits, tabs, focus         planned (M2)

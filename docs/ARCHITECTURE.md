@@ -61,7 +61,7 @@ project testable:
 
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
-| `tmprl-client` | built | Integration tests against `temporal server start-dev` | 17 |
+| `tmprl-client` | built | Integration tests against `temporal server start-dev` | 18 |
 | `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 75 |
 | `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 49 |
 | `tmprl-ui` | planned (M2) | Plain unit tests over the layout tree | — |
