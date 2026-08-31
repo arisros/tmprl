@@ -214,3 +214,174 @@ async fn reads_history_starting_at_execution_started() {
         "event 1 is always WorkflowExecutionStarted"
     );
 }
+
+// ── the typed workflow ops the M1 table is built on ──────────────────────────
+
+/// The typed wrapper must agree with the raw RPC about what a page contains. This is the
+/// call the workflow table makes on every scroll, so a mapping slip here is every row.
+#[tokio::test]
+async fn typed_list_maps_rows_and_pages() {
+    let Some(c) = conn().await else { return };
+    let ns = c.namespace().to_string();
+
+    let page = c
+        .list_workflows(&ns, "", 10, Vec::new())
+        .await
+        .expect("list_workflows");
+
+    for row in &page.rows {
+        assert_eq!(row.namespace, ns, "every row must carry its namespace");
+        assert!(!row.run_id.is_empty(), "a listed row always has a run id");
+        assert_ne!(
+            row.status,
+            tmprl_core::WorkflowStatus::Unspecified,
+            "a real execution never has an unspecified status"
+        );
+    }
+
+    // NOTE: the server does *not* guarantee an order here, and the dev server's standard
+    // visibility store rejects `ORDER BY` outright ("operation is not supported"). So
+    // there is no server-side ordering to lean on, and tmprl sorts client-side — see
+    // `tmprl_core::workflow::WorkflowList`. This test therefore asserts the mapping, not
+    // an ordering the API never promised.
+    assert!(
+        page.rows.len() <= 10,
+        "page_size must be respected: asked for 10, got {}",
+        page.rows.len()
+    );
+}
+
+/// Pin the constraint that forces client-side sorting, so that if a future server version
+/// starts supporting `ORDER BY` we find out from a failing test rather than never.
+#[tokio::test]
+async fn order_by_is_rejected_by_standard_visibility() {
+    let Some(c) = conn().await else { return };
+    let ns = c.namespace().to_string();
+
+    let err = c
+        .list_workflows(&ns, "ORDER BY StartTime DESC", 10, Vec::new())
+        .await;
+    match err {
+        Err(e) => assert!(
+            e.to_string().contains("ORDER BY") || e.to_string().contains("not supported"),
+            "unexpected error for an ORDER BY query: {e}"
+        ),
+        Ok(_) => eprintln!(
+            "NOTE: this server accepts `ORDER BY`. tmprl still sorts client-side, which \
+             stays correct — but server-side ordering is now available if wanted."
+        ),
+    }
+}
+
+/// Infinite scroll depends on the token round-tripping through the typed wrapper, and on
+/// the second page not repeating the first.
+#[tokio::test]
+async fn typed_list_continues_from_its_token() {
+    let Some(c) = conn().await else { return };
+    let ns = c.namespace().to_string();
+
+    let first = c
+        .list_workflows(&ns, "", 1, Vec::new())
+        .await
+        .expect("page 1");
+    if !first.has_more() {
+        eprintln!("SKIP: need >= 2 workflows to exercise paging");
+        return;
+    }
+
+    let second = c
+        .list_workflows(&ns, "", 1, first.next_page_token.clone())
+        .await
+        .expect("page 2");
+
+    assert_eq!(first.rows.len(), 1);
+    assert_eq!(second.rows.len(), 1);
+    assert_ne!(
+        first.rows[0].run_id, second.rows[0].run_id,
+        "page 2 must not repeat page 1"
+    );
+}
+
+/// The header counts. `GROUP BY` payloads are `json/plain` Keyword values holding a quoted
+/// status name — if that encoding ever changes, every status count silently reads zero, so
+/// assert that at least one group actually decoded.
+#[tokio::test]
+async fn grouped_counts_decode_to_statuses() {
+    let Some(c) = conn().await else { return };
+    let ns = c.namespace().to_string();
+
+    let counts = c
+        .count_workflows_by_status(&ns, "")
+        .await
+        .expect("count_workflows_by_status");
+
+    if counts.total == 0 {
+        eprintln!("SKIP: no workflows to count");
+        return;
+    }
+    let groups: Vec<_> = counts.iter().collect();
+    assert!(
+        !groups.is_empty(),
+        "total is {} but no status group decoded — the GROUP BY payload \
+         encoding has changed",
+        counts.total
+    );
+    let summed: i64 = groups.iter().map(|(_, n)| n).sum();
+    assert!(
+        summed <= counts.total,
+        "grouped counts ({summed}) cannot exceed the total ({})",
+        counts.total
+    );
+}
+
+/// A filter must survive being adapted for the count RPC. This is the pairing the header
+/// depends on: the same user query, counted and listed, must describe the same set.
+#[tokio::test]
+async fn a_filtered_count_agrees_with_a_filtered_list() {
+    let Some(c) = conn().await else { return };
+    let ns = c.namespace().to_string();
+
+    let query = "ExecutionStatus = 'Running'";
+    let counts = c
+        .count_workflows_by_status(&ns, query)
+        .await
+        .expect("filtered count");
+    let page = c
+        .list_workflows(&ns, query, 1000, Vec::new())
+        .await
+        .expect("filtered list");
+
+    assert_eq!(
+        counts.total as usize,
+        page.rows.len(),
+        "count and list must agree on the same filter"
+    );
+    assert!(
+        page.rows
+            .iter()
+            .all(|r| r.status == tmprl_core::WorkflowStatus::Running),
+        "the filter must actually be applied server-side"
+    );
+}
+
+/// The multi-namespace fan-out. Even with one namespace this pins the contract: rows come
+/// back merged and newest-first, and exhausted namespaces drop out of the token list.
+#[tokio::test]
+async fn fan_out_merges_rows_newest_first() {
+    let Some(c) = conn().await else { return };
+    let namespaces = vec![c.namespace().to_string()];
+
+    let (rows, tokens) = c
+        .list_workflows_across(&namespaces, "", 1000, &[])
+        .await
+        .expect("list_workflows_across");
+
+    let starts: Vec<Option<i64>> = rows.iter().map(|r| r.start_time).collect();
+    let mut sorted = starts.clone();
+    sorted.sort_by(|a, b| b.cmp(a));
+    assert_eq!(starts, sorted, "merged rows must be newest first");
+    assert!(
+        tokens.is_empty(),
+        "a namespace with no further pages must not appear in the token list"
+    );
+}

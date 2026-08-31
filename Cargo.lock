@@ -2597,9 +2597,12 @@ name = "tmprl-client"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "futures-util",
+ "prost-wkt-types",
  "temporalio-client",
  "temporalio-common",
  "thiserror 2.0.20",
+ "tmprl-core",
  "tokio",
  "tracing",
 ]

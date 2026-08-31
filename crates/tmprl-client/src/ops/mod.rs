@@ -4,6 +4,7 @@
 //! keeps a `temporalio-client` bump contained: the generated types stop here.
 
 pub mod namespace;
+pub mod workflow;
 
 #[derive(Debug, thiserror::Error)]
 pub enum OpError {
