@@ -274,6 +274,10 @@ Three rows. One thing happened.
 > definitions. Grouping code written against the old sketch would have looked for a second
 > scheduling event that never arrives, and would have reported every retried activity as one
 > attempt.
+>
+> Confirmed against a real worker, not just the protobuf comments. An activity that failed
+> twice and then succeeded produces exactly the three events above — `ActivityTaskScheduled`
+> once, at event 5, with `ActivityTaskStarted` carrying `attempt=3`.
 
 ### What we build from it
 
