@@ -5,6 +5,7 @@
 
 pub mod codec;
 pub mod history;
+pub mod mutate;
 pub mod namespace;
 pub mod workflow;
 

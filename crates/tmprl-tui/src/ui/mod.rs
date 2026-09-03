@@ -2,6 +2,7 @@
 //! is mutated except the viewport height, which the layout is what determines.
 
 mod cmdline;
+mod confirm;
 mod detail;
 mod help;
 mod history;
@@ -88,6 +89,11 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     }
     if app.show_help {
         help::render(frame, app, &theme);
+    }
+    // Outermost of all: while this is up nothing else can be acted on, so nothing else
+    // should be able to sit over it.
+    if let Some(c) = &app.confirm {
+        confirm::render(frame, c, &theme);
     }
 }
 
