@@ -3,6 +3,7 @@
 //! Everything above this crate talks in these types, never in protobuf types. That is what
 //! keeps a `temporalio-client` bump contained: the generated types stop here.
 
+pub mod history;
 pub mod namespace;
 pub mod workflow;
 

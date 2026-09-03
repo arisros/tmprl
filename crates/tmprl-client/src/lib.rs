@@ -10,6 +10,7 @@ pub mod ops;
 pub use conn::{Conn, ConnectError, ProfileRef};
 pub use ops::{
     OpError,
+    history::HistoryPage,
     namespace::NamespaceInfo,
     workflow::{Continuation, WorkflowPage},
 };

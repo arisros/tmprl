@@ -7,6 +7,8 @@
 use std::sync::Arc;
 
 use tmprl_client::{Conn, NamespaceInfo};
+use tmprl_core::history::{NormalizedEvent, group_events};
+use tmprl_core::outline::{Outline, Row};
 use tmprl_core::{
     Action, Chord, Keymap, Loadable, Mode, Pending, PendingEntry, Registry, Resolution, SavedView,
     StatusCounts, WorkflowList, WorkflowRow, default_keymap,
@@ -16,6 +18,10 @@ use tokio::sync::mpsc::UnboundedSender;
 /// Rows fetched per namespace per page. Large enough that scrolling rarely waits, small
 /// enough that the first screen arrives promptly on a slow link.
 const PAGE_SIZE: i32 = 50;
+
+/// History events per page. Larger than the workflow page because events are small and a
+/// history is read top to bottom, so the first screen wants plenty behind it.
+const HISTORY_PAGE_SIZE: i32 = 500;
 
 /// Continuation tokens, one per namespace that still has pages. The client owns the shape;
 /// this is an alias so the reducer reads the same way.
@@ -27,6 +33,7 @@ use tmprl_client::Continuation as Tokens;
 pub enum Screen {
     Namespaces,
     Workflows,
+    History,
 }
 
 /// What Insert mode is editing.
@@ -58,6 +65,11 @@ pub enum Msg {
         generation: u64,
         result: Result<StatusCounts, String>,
     },
+    /// A page of a workflow's history, already normalised by the client.
+    History {
+        generation: u64,
+        result: Result<(Vec<NormalizedEvent>, Vec<u8>), String>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,6 +89,9 @@ pub struct App {
     pub namespaces: Loadable<Vec<NamespaceInfo>>,
     pub workflows: Loadable<WorkflowList>,
     pub counts: Loadable<StatusCounts>,
+    pub history: Loadable<Outline>,
+    /// The workflow whose history is on screen.
+    pub viewing: Option<WorkflowRow>,
 
     /// The visibility query, verbatim. This string is the interface: everything that
     /// filters the list compiles into it, and it is always on screen and always editable.
@@ -112,9 +127,15 @@ pub struct App {
     cursor_key: Option<(String, String)>,
     /// Cursor position on the namespace screen, restored by `-`.
     namespace_cursor: usize,
+    /// Cursor position on the workflow list, restored by `-` from a history.
+    workflow_cursor: usize,
     /// Bumped whenever the query or scope changes. Replies carrying an older generation
     /// belong to a query the user has already moved on from.
     generation: u64,
+    /// Every history event loaded so far, for re-grouping when a page arrives.
+    history_events: Vec<NormalizedEvent>,
+    /// Continuation token for the history being read. Empty means fully loaded.
+    history_token: Vec<u8>,
     /// A page request is in flight; scrolling must not queue a second one.
     loading_more: bool,
 
@@ -153,6 +174,8 @@ impl App {
             namespaces: Loadable::NotAsked,
             workflows: Loadable::NotAsked,
             counts: Loadable::NotAsked,
+            history: Loadable::NotAsked,
+            viewing: None,
             query: String::new(),
             scope: vec![namespace.clone()],
             views: Vec::new(),
@@ -171,7 +194,10 @@ impl App {
             dirty: true,
             cursor_key: None,
             namespace_cursor: 0,
+            workflow_cursor: 0,
             generation: 0,
+            history_events: Vec::new(),
+            history_token: Vec::new(),
             loading_more: false,
             profile,
             namespace,
@@ -227,6 +253,7 @@ impl App {
         match self.screen {
             Screen::Namespaces => self.namespace_rows().len(),
             Screen::Workflows => self.workflow_rows().len(),
+            Screen::History => self.history.value().map(Outline::len).unwrap_or(0),
         }
     }
 
@@ -303,6 +330,34 @@ impl App {
                         // only a failed first page leaves the list with nothing to show.
                         if !append {
                             self.workflows = Loadable::Failed(e);
+                        }
+                    }
+                }
+            }
+            Msg::History { generation, result } => {
+                if generation != self.generation {
+                    return;
+                }
+                self.loading_more = false;
+                match result {
+                    Ok((events, token)) => {
+                        self.history_token = token;
+                        self.history_events.extend(events);
+                        // Re-group the whole accumulated history rather than patching: a
+                        // page boundary can land in the middle of a group, so the last
+                        // group of a page is routinely completed by the next one.
+                        let groups = group_events(&self.history_events);
+                        let events = self.history_events.clone();
+                        match self.history.value_mut() {
+                            Some(outline) => outline.replace(events, groups),
+                            None => self.history = Loadable::loaded(Outline::new(events, groups)),
+                        }
+                        self.clamp_cursor();
+                    }
+                    Err(e) => {
+                        self.note = Some((e.clone(), Note::Error));
+                        if self.history_events.is_empty() {
+                            self.history = Loadable::Failed(e);
                         }
                     }
                 }
@@ -438,6 +493,24 @@ impl App {
 
             Action::LoadMore => self.load_more(),
             Action::SelectView(key) => self.select_view(key),
+
+            Action::ToggleFold => self.toggle_fold(),
+            Action::ExpandAll => self.with_outline(|o| o.expand_all()),
+            Action::CollapseAll => self.with_outline(|o| o.collapse_all()),
+            Action::TogglePlumbing => {
+                let showing = self.history.value().is_some_and(Outline::show_plumbing);
+                self.with_outline(|o| o.set_show_plumbing(!showing));
+                self.note = Some((
+                    if showing {
+                        "workflow tasks hidden".into()
+                    } else {
+                        "workflow tasks shown".into()
+                    },
+                    Note::Info,
+                ));
+            }
+            Action::NextFailure => self.jump_failure(true),
+            Action::PrevFailure => self.jump_failure(false),
         }
         self.clamp_cursor();
     }
@@ -472,18 +545,35 @@ impl App {
                 self.cursor_key = None;
                 self.load_workflows(false);
             }
-            // Honest rather than silent: the binding exists because it works one level up.
             Screen::Workflows => {
-                self.note = Some((
-                    "workflow detail arrives in M2; the list is all there is today".into(),
-                    Note::Warn,
-                ));
+                let Some(row) = self.workflow_rows().get(self.cursor).cloned() else {
+                    self.note = Some(("nothing to open".into(), Note::Warn));
+                    return;
+                };
+                self.workflow_cursor = self.cursor;
+                self.anchor = None;
+                self.mode = Mode::Normal;
+                self.screen = Screen::History;
+                self.viewing = Some(row);
+                self.cursor = 0;
+                self.load_history();
             }
+            // On the history screen, "open the focused item" is folding a group open.
+            Screen::History => self.toggle_fold(),
         }
     }
 
     fn go_up(&mut self) {
         match self.screen {
+            Screen::History => {
+                self.screen = Screen::Workflows;
+                self.cursor = self.workflow_cursor;
+                self.viewing = None;
+                self.history = Loadable::NotAsked;
+                self.history_events.clear();
+                self.history_token.clear();
+                self.restore_cursor();
+            }
             Screen::Workflows => {
                 self.screen = Screen::Namespaces;
                 self.cursor = self.namespace_cursor;
@@ -492,6 +582,69 @@ impl App {
             }
             Screen::Namespaces => {
                 self.note = Some(("already at the top level".into(), Note::Warn));
+            }
+        }
+    }
+
+    // ── history ──────────────────────────────────────────────────────────────
+
+    /// The group the cursor is on, whether it sits on the group's own line or on one of its
+    /// events. Folding from inside an expanded group is what a reader expects.
+    fn group_under_cursor(&self) -> Option<usize> {
+        match self.history.value()?.row_at(self.cursor)? {
+            Row::Group { group, .. } | Row::Event { group, .. } => Some(group),
+        }
+    }
+
+    fn toggle_fold(&mut self) {
+        let Some(group) = self.group_under_cursor() else {
+            return;
+        };
+        // Folding shut from inside a group would otherwise strand the cursor past the end;
+        // `toggle` hands back where the group's own line is now, so it moves there.
+        if let Some(outline) = self.history.value_mut()
+            && let Some(row) = outline.toggle(group)
+        {
+            self.cursor = row;
+        }
+        self.clamp_cursor();
+    }
+
+    /// Apply a shape change, then put the cursor back on the group it was on. Expanding or
+    /// collapsing everything moves every row, so an unadjusted cursor lands somewhere
+    /// arbitrary.
+    fn with_outline(&mut self, f: impl FnOnce(&mut Outline)) {
+        let was = self.group_under_cursor();
+        let Some(outline) = self.history.value_mut() else {
+            return;
+        };
+        f(outline);
+        self.cursor = was
+            .and_then(|g| outline.row_of_group(g))
+            .unwrap_or(self.cursor);
+        self.clamp_cursor();
+    }
+
+    fn jump_failure(&mut self, forward: bool) {
+        let Some(outline) = self.history.value() else {
+            return;
+        };
+        let found = if forward {
+            outline.next_failure(self.cursor)
+        } else {
+            outline.prev_failure(self.cursor)
+        };
+        match found {
+            Some(row) => self.cursor = row,
+            None => {
+                self.note = Some((
+                    if forward {
+                        "no failure below".into()
+                    } else {
+                        "no failure above".into()
+                    },
+                    Note::Warn,
+                ));
             }
         }
     }
@@ -515,6 +668,11 @@ impl App {
         match self.screen {
             Screen::Namespaces => self.load_namespaces(),
             Screen::Workflows => self.load_workflows(false),
+            Screen::History => {
+                self.history_events.clear();
+                self.history_token.clear();
+                self.load_history();
+            }
         }
     }
 
@@ -575,13 +733,26 @@ impl App {
 
     /// Infinite scroll: fetch the next page once the cursor is within a screen of the end.
     fn maybe_load_more(&mut self) {
-        if self.screen != Screen::Workflows || self.loading_more {
+        if self.loading_more {
             return;
         }
         let len = self.row_count();
-        let has_more = self.workflows.value().is_some_and(WorkflowList::has_more);
-        if has_more && self.cursor + self.page.max(1) >= len {
-            self.load_more();
+        let near_end = self.cursor + self.page.max(1) >= len;
+        if !near_end {
+            return;
+        }
+        match self.screen {
+            Screen::Workflows => {
+                if self.workflows.value().is_some_and(WorkflowList::has_more) {
+                    self.load_more();
+                }
+            }
+            Screen::History => {
+                if !self.history_token.is_empty() {
+                    self.load_history();
+                }
+            }
+            Screen::Namespaces => {}
         }
     }
 
@@ -600,6 +771,32 @@ impl App {
                 .get(self.cursor)
                 .map(|w| w.workflow_id.clone())
                 .unwrap_or_default(),
+            Screen::History => self.history_field_under_cursor(),
+        }
+    }
+
+    /// On a group line, the thing it is about; on an event line, the event's own name. Both
+    /// are what you would paste into a search or a CLI command.
+    fn history_field_under_cursor(&self) -> String {
+        let Some(outline) = self.history.value() else {
+            return String::new();
+        };
+        match outline.row_at(self.cursor) {
+            Some(Row::Group { group, .. }) => outline
+                .group(group)
+                .map(|g| {
+                    if g.subject.is_empty() {
+                        format!("{:?}", g.category)
+                    } else {
+                        g.subject.clone()
+                    }
+                })
+                .unwrap_or_default(),
+            Some(Row::Event { event, .. }) => outline
+                .event(event)
+                .map(|e| e.name.to_string())
+                .unwrap_or_default(),
+            None => String::new(),
         }
     }
 
@@ -640,12 +837,44 @@ impl App {
                     )
                 })
                 .collect(),
+            Screen::History => self.history_records(lo, take),
         };
         match picked.len() {
             0 => String::new(),
             1 => picked.into_iter().next().unwrap(),
             _ => format!("[{}]", picked.join(",")),
         }
+    }
+
+    /// The selected history rows as JSON. A group serialises as the summary the compact
+    /// view shows; an event as its own fields.
+    fn history_records(&self, lo: usize, take: usize) -> Vec<String> {
+        let Some(outline) = self.history.value() else {
+            return Vec::new();
+        };
+        (lo..lo.saturating_add(take))
+            .map_while(|r| outline.row_at(r))
+            .filter_map(|row| match row {
+                Row::Group { group, .. } => outline.group(group).map(|g| {
+                    format!(
+                        r#"{{"group":{},"category":{},"outcome":{},"attempts":{},"events":{}}}"#,
+                        json_string(&g.subject),
+                        json_string(&format!("{:?}", g.category)),
+                        json_string(g.outcome.label()),
+                        g.attempts,
+                        g.events.len()
+                    )
+                }),
+                Row::Event { event, .. } => outline.event(event).map(|e| {
+                    format!(
+                        r#"{{"eventId":{},"event":{},"subject":{}}}"#,
+                        e.id,
+                        json_string(e.name),
+                        json_string(&e.subject)
+                    )
+                }),
+            })
+            .collect()
     }
 
     fn yank(&mut self, text: String) {
@@ -817,6 +1046,42 @@ impl App {
                 append,
                 result,
             });
+        });
+    }
+
+    /// Fetch a page of the focused workflow's history.
+    ///
+    /// Called for the first page and for each continuation; the accumulated events are
+    /// re-grouped whenever one lands, because a page boundary routinely falls inside a
+    /// group.
+    pub fn load_history(&mut self) {
+        let Some(row) = self.viewing.clone() else {
+            return;
+        };
+        if self.history_events.is_empty() {
+            self.generation = self.generation.wrapping_add(1);
+            self.history.begin_refresh();
+        }
+        self.loading_more = true;
+
+        let Some(conn) = self.conn.clone() else {
+            return;
+        };
+        let (tx, generation, token) =
+            (self.tx.clone(), self.generation, self.history_token.clone());
+        tokio::spawn(async move {
+            let result = conn
+                .get_history(
+                    &row.namespace,
+                    &row.workflow_id,
+                    &row.run_id,
+                    HISTORY_PAGE_SIZE,
+                    token,
+                )
+                .await
+                .map(|p| (p.events, p.next_page_token))
+                .map_err(|e| e.to_string());
+            let _ = tx.send(Msg::History { generation, result });
         });
     }
 
@@ -1200,6 +1465,183 @@ mod tests {
         let record = app.records_selected();
         assert!(record.starts_with('['), "a multi-row yank is an array");
         assert!(record.contains("order-r1") && record.contains("order-r2"));
+    }
+
+    // ── history ──────────────────────────────────────────────────────────────
+
+    fn hev(
+        id: i64,
+        group: tmprl_core::history::GroupRef,
+        role: tmprl_core::history::Role,
+        cat: tmprl_core::history::Category,
+    ) -> NormalizedEvent {
+        NormalizedEvent::new(id, "E", cat, group, role).with_time(Some(id * 1000))
+    }
+
+    /// A workflow, a workflow task (plumbing) and two activities, the second of which
+    /// failed.
+    fn history_events() -> Vec<NormalizedEvent> {
+        use tmprl_core::history::{Category as C, GroupRef as G, Role as R};
+        vec![
+            hev(1, G::Workflow, R::Opens, C::Workflow).with_subject("Order"),
+            hev(2, G::Opened(2), R::Opens, C::WorkflowTask),
+            hev(3, G::Opened(2), R::Closes, C::WorkflowTask),
+            hev(4, G::Opened(4), R::Opens, C::Activity).with_subject("Charge"),
+            hev(5, G::Opened(4), R::Continues, C::Activity),
+            hev(6, G::Opened(4), R::Closes, C::Activity)
+                .with_outcome(tmprl_core::history::Outcome::Completed),
+            hev(7, G::Opened(7), R::Opens, C::Activity).with_subject("Ship"),
+            hev(8, G::Opened(7), R::Closes, C::Activity)
+                .with_outcome(tmprl_core::history::Outcome::Failed),
+        ]
+    }
+
+    fn viewing_history() -> App {
+        let mut app = app();
+        loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
+        app.run("nav.open", None);
+        assert_eq!(app.screen, Screen::History);
+        app.handle(Msg::History {
+            generation: app.generation,
+            result: Ok((history_events(), Vec::new())),
+        });
+        app
+    }
+
+    #[test]
+    fn opening_a_workflow_reads_its_history() {
+        let app = viewing_history();
+        assert_eq!(app.viewing.as_ref().unwrap().run_id, "r1");
+        // Three groups: the workflow and two activities. The workflow task is plumbing.
+        assert_eq!(app.row_count(), 3);
+    }
+
+    #[test]
+    fn dash_returns_to_the_workflow_it_came_from() {
+        let mut app = viewing_history();
+        app.run("nav.up", None);
+        assert_eq!(app.screen, Screen::Workflows);
+        assert!(app.viewing.is_none());
+        assert!(
+            app.history.value().is_none(),
+            "leaving must drop the history rather than show a stale one on re-entry"
+        );
+    }
+
+    #[test]
+    fn folding_a_group_shows_its_events_and_keeps_the_cursor_on_it() {
+        let mut app = viewing_history();
+        app.run("motion.down", None); // onto the "Charge" activity
+        let before = app.row_count();
+        let at = app.cursor;
+
+        app.run("history.fold", None);
+        assert_eq!(app.row_count(), before + 3, "its three events appeared");
+        assert_eq!(app.cursor, at, "the cursor stays on the group's own line");
+
+        // Folding shut from *inside* the group must not strand the cursor past the end.
+        app.run("motion.down", None);
+        app.run("motion.down", None);
+        app.run("history.fold", None);
+        assert_eq!(app.row_count(), before);
+        assert_eq!(app.cursor, at);
+    }
+
+    #[test]
+    fn expanding_everything_keeps_the_cursor_on_the_same_group() {
+        let mut app = viewing_history();
+        app.run("motion.bottom", None); // the failed "Ship" activity
+        let group = app.group_under_cursor();
+
+        app.run("history.expand-all", None);
+        assert_eq!(
+            app.group_under_cursor(),
+            group,
+            "expanding moves every row; the cursor must follow its group"
+        );
+
+        app.run("history.collapse-all", None);
+        assert_eq!(app.group_under_cursor(), group);
+    }
+
+    #[test]
+    fn workflow_tasks_are_hidden_until_asked_for() {
+        let mut app = viewing_history();
+        assert_eq!(app.row_count(), 3);
+
+        app.run("history.plumbing", None);
+        assert_eq!(app.row_count(), 4, "the workflow-task group appeared");
+        assert!(matches!(app.note, Some((_, Note::Info))));
+
+        app.run("history.plumbing", None);
+        assert_eq!(app.row_count(), 3);
+    }
+
+    #[test]
+    fn failures_are_reachable_by_key() {
+        let mut app = viewing_history();
+        app.run("motion.top", None);
+        app.run("history.next-failure", None);
+
+        let group = app.group_under_cursor().expect("on a group");
+        let outline = app.history.value().unwrap();
+        assert_eq!(outline.group(group).unwrap().subject, "Ship");
+
+        // Saying so beats moving the cursor nowhere and looking broken.
+        app.run("history.next-failure", None);
+        assert!(matches!(app.note, Some((_, Note::Warn))));
+    }
+
+    #[test]
+    fn a_second_history_page_is_appended_and_regrouped() {
+        let mut app = app();
+        loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
+        app.run("nav.open", None);
+
+        // First page stops mid-group: "Charge" is scheduled but has not finished.
+        app.handle(Msg::History {
+            generation: app.generation,
+            result: Ok((history_events()[..5].to_vec(), vec![7])),
+        });
+        let charge = app.history.value().unwrap().group(2).unwrap().clone();
+        assert!(charge.is_open(), "the group is incomplete on page one");
+
+        // The rest arrives and completes it — which is why pages are re-grouped whole.
+        app.handle(Msg::History {
+            generation: app.generation,
+            result: Ok((history_events()[5..].to_vec(), Vec::new())),
+        });
+        let charge = app.history.value().unwrap().group(2).unwrap();
+        assert!(!charge.is_open(), "the second page closed the group");
+        assert_eq!(app.row_count(), 3);
+    }
+
+    #[test]
+    fn a_stale_history_reply_is_dropped() {
+        let mut app = viewing_history();
+        let stale = app.generation;
+        app.generation = app.generation.wrapping_add(1);
+
+        app.handle(Msg::History {
+            generation: stale,
+            result: Ok((Vec::new(), Vec::new())),
+        });
+        assert_eq!(
+            app.row_count(),
+            3,
+            "a reply for an abandoned read must not land"
+        );
+    }
+
+    #[test]
+    fn yanking_a_history_row_takes_something_useful() {
+        let mut app = viewing_history();
+        app.run("motion.bottom", None);
+        assert_eq!(app.field_under_cursor(), "Ship");
+
+        let record = app.records_selected();
+        assert!(record.contains(r#""group":"Ship""#), "got {record}");
+        assert!(record.contains(r#""outcome":"Failed""#), "got {record}");
     }
 
     #[test]
