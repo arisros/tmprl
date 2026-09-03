@@ -1,8 +1,8 @@
 # Interface design
 
 > **Status: partly implemented.** The modal core, the namespace and workflow lists, the
-> workflow history outline, the visibility query bar, saved views, counts, which-key, the
-> `:` command line, the help overlay and yank all work today. Bindings for features that do not exist yet (histories,
+> workflow history outline, follow mode, the visibility query bar, saved views, counts,
+> which-key, the `:` command line, the help overlay and yank all work today. Bindings for features that do not exist yet (histories,
 > splits, pickers, follow mode) are **specified here but deliberately not bound** — a key
 > that opens an empty screen is worse than a key that does nothing at all. The keymap
 > tables below mark which is which.
@@ -159,6 +159,13 @@ The fold bindings are vim's `z` family deliberately, so the which-key popup on `
 way vim's does. `zp` is not a vim binding, but it sits in the same namespace as the folds it
 resembles. `]f` / `[f` follow vim-unimpaired's bracket-motion convention.
 
+`F` tails a running workflow, the way `tail -f` does. The statusline carries a **FOLLOW**
+badge while it is on, because a view that rewrites itself under you needs to say so — a
+screen that changes on its own otherwise reads as a glitch. Following stops on `F`, on leaving
+the history, and by itself when the workflow closes, which it reports rather than leaving the
+badge up over a view that has quietly stopped moving. Following a workflow that has *already*
+closed is refused with a message instead of polling for events that can never arrive.
+
 ### Inspecting
 
 | Key | Action | |
@@ -168,7 +175,7 @@ resembles. `]f` / `[f` follow vim-unimpaired's bracket-motion convention.
 | `zR` / `zM` | expand / collapse every group | **live** |
 | `zp` | show or hide the workflow-task plumbing | **live** |
 | `]f` / `[f` | jump to the next / previous failure | **live** |
-| `F` | follow — tail a running workflow | M2 |
+| `F` | follow — tail a running workflow | **live** |
 | `<leader>cs` | call stack (`__stack_trace` query) | M2 |
 | `<leader>cq` | send a query to the workflow | M2 |
 | `!` | pipe selection through `jq` | M2 |

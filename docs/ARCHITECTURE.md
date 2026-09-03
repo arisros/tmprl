@@ -62,8 +62,8 @@ project testable:
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
 | `tmprl-client` | built | Integration tests against `temporal server start-dev` | 27 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 99 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 69 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 102 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 77 |
 | `tmprl-ui` | planned (M2) | Plain unit tests over the layout tree | — |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -127,6 +127,13 @@ A keystroke is handled by mutating state and, if data is needed, *spawning* a ta
 sends its result back as another message. Nothing in the input path can block on the network,
 so no RPC — including a 60-second long poll — can freeze the UI.
 
+Follow mode is where that stops being hypothetical. `GetWorkflowExecutionHistory` with
+`wait_new_event: true` does not return until the workflow does something, so tailing is a task
+that spends most of its life parked inside a single RPC, pushing batches of events back as
+messages. The reducer never waits on it; it only starts it, and aborts it when following stops
+or the screen is left. Aborting matters — a poll left running holds a request open and keeps
+feeding a view that has moved on.
+
 The corollary is that **every piece of remote data is explicitly four-state**:
 
 ```rust
@@ -144,10 +151,16 @@ way to express waiting — only a way to express "not here yet", which draws a s
 ### Frame pacing
 
 Rendering is dirty-flag driven: a frame is drawn only when a message actually changed
-something. A 1 Hz tick keeps relative timestamps honest. Adaptive pacing — faster while
-streaming, slower when idle — arrives with follow mode in M2, where there will finally be
-something to animate. This is not micro-optimisation: the expected deployment is a TUI over
-SSH inside tmux, where every redraw is bytes on a wire.
+something. A 1 Hz tick keeps relative timestamps honest. This is not micro-optimisation: the
+expected deployment is a TUI over SSH inside tmux, where every redraw is bytes on a wire.
+
+This section used to promise *adaptive pacing* — faster while streaming, slower when idle —
+"with follow mode in M2, where there will finally be something to animate". Follow mode is
+built, and adaptive pacing turned out to be unnecessary. A batch of tailed events arrives as
+an ordinary message, which marks the frame dirty and draws it; when nothing is happening no
+message arrives and nothing is drawn. The dirty flag *is* the adaptive pacing. Adding a
+second mechanism would have meant drawing on a timer rather than on a change, which is
+strictly more bytes on the wire for the same picture.
 
 ---
 
