@@ -161,10 +161,10 @@ fn status_color(s: tmprl_core::WorkflowStatus, t: &Theme) -> ratatui::style::Col
 
 pub fn render_status(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
     // The command line takes over the status row while it is open.
-    if let Some(buf) = &app.cmdline {
+    if let Some(prompt) = &app.prompt {
         let line = Line::from(vec![
-            Span::styled(":", Style::new().fg(t.accent)),
-            Span::styled(buf.clone(), Style::new().fg(t.fg)),
+            Span::styled(prompt.sigil(), Style::new().fg(t.accent)),
+            Span::styled(prompt.buf.clone(), Style::new().fg(t.fg)),
             Span::styled("█", Style::new().fg(t.accent)),
         ]);
         frame.render_widget(Paragraph::new(line), area);

@@ -246,6 +246,8 @@ pub fn default_keymap() -> Keymap {
         // pane, which is the only thing on screen tall enough to need it.
         bind(mode, "<C-e>", "history.detail-down");
         bind(mode, "<C-y>", "history.detail-up");
+        // vim's filter operator. Here it filters the focused payloads rather than lines.
+        bind(mode, "!", "payload.pipe");
     }
 
     bind(Mode::Normal, "i", "mode.insert");

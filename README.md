@@ -49,10 +49,12 @@ Web UI — built to be operated from the keyboard rather than a browser.
 - **Payloads** (`K`) — inputs and results, decoded and pretty-printed, in a pane under the
   history. Encrypted payloads say they need a codec server rather than showing ciphertext;
   binary ones say what they are rather than corrupting your terminal.
+- **Piping** (`!`) — filter those payloads through any command, pre-filled with `jq .`. What
+  goes down the pipe is a JSON object keyed by label, so `jq .result` picks one out.
 - **Yank** (`y`, `Y`) to the system clipboard over OSC 52, so it works over SSH.
 
-Not yet: `jq` piping, the codec server round trip, schedules, batch operations, splits, and
-any operation that changes something.
+Not yet: the codec server round trip, schedules, batch operations, splits, and any
+operation that changes something.
 
 ## What it is meant to become
 
@@ -194,8 +196,8 @@ view key is reported in the statusline at startup rather than quietly skipped.
 
 ```
 crates/tmprl-client   all network IO — gRPC, TLS, profiles      built,  31 tests
-crates/tmprl-core     domain logic — modes, keymap, histories   built, 111 tests
-crates/tmprl-tui      ratatui rendering and input               built,  83 tests
+crates/tmprl-core     domain logic — modes, keymap, histories   built, 116 tests
+crates/tmprl-tui      ratatui rendering and input               built,  99 tests
 crates/tmprl-ui       window tree — splits, tabs, focus         planned (M2)
 ```
 
@@ -208,7 +210,7 @@ diffing runs — lands in a layer that needs neither a terminal nor a server to 
 - [x] **M0a** gRPC layer, profile loading, integration tests
 - [x] **M0b** event loop, command registry, modal keymap, statusline, which-key, yank
 - [x] **M1** workflow list, visibility queries, saved views, multi-namespace, `keys.toml`
-- [ ] **M2** history views *(done)*, follow mode *(done)*, jq, codec server, window tree
+- [ ] **M2** history views *(done)*, follow mode *(done)*, jq *(done)*, codec server, window tree
 - [ ] **M3** mutations — signal, cancel, terminate, reset, update, delete
 - [ ] **M4** schedules
 - [ ] **M5** batch operations

@@ -117,6 +117,50 @@ impl Payload {
     }
 }
 
+/// The payloads of one row, gathered into a single JSON object for piping.
+///
+/// Returns the JSON and the labels that could not be included.
+///
+/// A row usually carries more than one payload — an activity has both an `input` and a
+/// `result` — so "pipe the payload" is ambiguous. Piping an object keyed by label removes the
+/// ambiguity and makes the obvious `jq` expressions work: `.` shows everything, `.result`
+/// picks one, `.input[1]` picks an argument.
+///
+/// A `json/plain` payload is embedded as the value it already is rather than as a string, so
+/// `.result.total` works without a second parse. One that claims JSON but does not parse is
+/// embedded as a string — it is still worth seeing, and a broken value should not make the
+/// whole object unpipeable. Anything not textual is left out and reported, because piping
+/// ciphertext into `jq` produces a parse error that explains nothing.
+pub fn payloads_as_json(payloads: &[(String, Payload)]) -> (Option<String>, Vec<String>) {
+    let mut obj = serde_json::Map::new();
+    let mut skipped = Vec::new();
+
+    for (label, p) in payloads {
+        match p.pipeable() {
+            None => skipped.push(label.clone()),
+            Some(bytes) => {
+                let Ok(text) = std::str::from_utf8(bytes) else {
+                    skipped.push(label.clone());
+                    continue;
+                };
+                let value = match p.encoding.as_str() {
+                    "json/plain" | "json/protobuf" => serde_json::from_str(text)
+                        .unwrap_or_else(|_| serde_json::Value::String(text.to_string())),
+                    _ => serde_json::Value::String(text.to_string()),
+                };
+                obj.insert(label.clone(), value);
+            }
+        }
+    }
+
+    let json = if obj.is_empty() {
+        None
+    } else {
+        serde_json::to_string_pretty(&serde_json::Value::Object(obj)).ok()
+    };
+    (json, skipped)
+}
+
 /// Pretty-print JSON, or hand back the input unchanged when it is not JSON.
 ///
 /// Payloads claim `json/plain` and are usually right, but a workflow can put anything in one.
@@ -223,6 +267,78 @@ mod tests {
 
         // Short values are shown whole, without an ellipsis.
         assert_eq!(json("42").summary(30), "42");
+    }
+
+    #[test]
+    fn payloads_pipe_as_one_object_keyed_by_label() {
+        // "Pipe the payload" is ambiguous when a row carries two. An object makes the
+        // obvious jq expressions work.
+        let payloads = vec![
+            ("input".to_string(), json(r#"{"amount":100}"#)),
+            ("result".to_string(), json(r#""charged""#)),
+        ];
+        let (out, skipped) = payloads_as_json(&payloads);
+        let out = out.expect("something to pipe");
+        assert!(skipped.is_empty());
+
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        // Embedded as values, not as strings: `.input.amount` must work without a re-parse.
+        assert_eq!(v["input"]["amount"], 100);
+        assert_eq!(v["result"], "charged");
+    }
+
+    #[test]
+    fn indexed_arguments_keep_their_labels() {
+        let payloads = vec![
+            ("input[0]".to_string(), json("1")),
+            ("input[1]".to_string(), json(r#""two""#)),
+        ];
+        let (out, _) = payloads_as_json(&payloads);
+        let v: serde_json::Value = serde_json::from_str(&out.unwrap()).unwrap();
+        assert_eq!(v["input[0]"], 1);
+        assert_eq!(v["input[1]"], "two");
+    }
+
+    #[test]
+    fn unpipeable_payloads_are_reported_rather_than_breaking_the_object() {
+        let payloads = vec![
+            ("input".to_string(), json("42")),
+            (
+                "result".to_string(),
+                Payload::new("binary/encrypted", vec![0u8; 8]),
+            ),
+        ];
+        let (out, skipped) = payloads_as_json(&payloads);
+        let v: serde_json::Value = serde_json::from_str(&out.unwrap()).unwrap();
+        assert_eq!(v["input"], 42);
+        assert!(v.get("result").is_none(), "ciphertext must not be embedded");
+        assert_eq!(skipped, ["result"], "and the reader is told which");
+    }
+
+    #[test]
+    fn a_row_with_nothing_pipeable_yields_no_json() {
+        let payloads = vec![(
+            "input".to_string(),
+            Payload::new("binary/encrypted", vec![0u8; 8]),
+        )];
+        let (out, skipped) = payloads_as_json(&payloads);
+        assert_eq!(out, None, "an empty object is not worth piping");
+        assert_eq!(skipped, ["input"]);
+        assert_eq!(payloads_as_json(&[]), (None, Vec::new()));
+    }
+
+    #[test]
+    fn a_broken_json_payload_is_embedded_as_a_string_rather_than_lost() {
+        // One malformed value must not make the whole row unpipeable.
+        let payloads = vec![
+            ("input".to_string(), json("{not json")),
+            ("result".to_string(), json("1")),
+        ];
+        let (out, skipped) = payloads_as_json(&payloads);
+        let v: serde_json::Value = serde_json::from_str(&out.unwrap()).unwrap();
+        assert_eq!(v["input"], "{not json");
+        assert_eq!(v["result"], 1);
+        assert!(skipped.is_empty());
     }
 
     #[test]
