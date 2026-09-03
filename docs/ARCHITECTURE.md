@@ -37,7 +37,7 @@ logic that deserves to be tested without a server anywhere in sight.
 
 ---
 
-## 2. The four crates · BUILT (3 of 4; `tmprl-ui` is M2)
+## 2. The four crates · BUILT
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -64,10 +64,13 @@ project testable:
 | `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 43 |
 | `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 120 |
 | `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 109 |
-| `tmprl-ui` | planned (M2) | Plain unit tests over the layout tree | — |
+| `tmprl-ui` | built | Plain unit tests over the layout tree | 35 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
 arrangement working as intended.
+
+`tmprl-ui` is built and tested but **not yet wired into the interface** — see §7. Nothing
+renders through it today.
 
 The bulk of the difficult logic lives in `tmprl-core`, the layer that needs *nothing* to
 test — no server, no terminal, no async runtime.
@@ -360,18 +363,38 @@ rather than a picture.
 
 ---
 
-## 7. The window model · PLANNED
+## 7. The window model · PARTLY BUILT (the tree; not yet wired to the interface)
 
 `tmprl-ui` holds a layout tree, not a fixed master-detail arrangement:
 
 ```rust
-struct Tab { root: Window }
+struct Tabs { tabs: Vec<Tree>, current: usize }
 
-enum Window {
+enum Node {
     Leaf(ViewId),
-    Split { dir: Dir, children: Vec<Window>, sizes: Vec<u16> },
+    Split { axis: Axis, children: Vec<Node>, weights: Vec<u16> },
 }
 ```
+
+The crate has no dependencies at all — not even ratatui. A layout is a tree and some
+arithmetic, and keeping the terminal out of it is what lets the rules be tested as plain
+functions: where focus goes on `<C-w>l`, what a split's siblings inherit when one closes,
+what happens at a terminal size too small to show everything.
+
+Four decisions worth recording, each pinned by a test:
+
+- **`Axis` is named for what you see**, `Columns` and `Rows`, not "horizontal" and "vertical".
+  vim's `:split` is called horizontal and stacks windows *vertically*; that ambiguity is
+  exactly how transposed layouts get written.
+- **Sizes are weights, not cells.** A layout keeps its proportions when the terminal is
+  resized, so an arrangement the reader set up is not scrambled by a window drag.
+- **Focus moves geometrically.** The window to the right is the one that *looks* right, which
+  is not always a sibling; candidates must share rows with the current window, so `<C-w>j` in
+  a tall pane does not jump to something in another column that happens to sit lower.
+- **Same-axis splits flatten.** Nested same-axis splits look identical on screen but make
+  focus movement step through invisible levels. Flattening preserves the proportions rather
+  than evening them up — `:vsplit` twice gives one half and two quarters in vim too, and
+  `<C-w>=` is a separate decision.
 
 Splits and tabs behave like vim's, with vim's bindings. This buys two things.
 
@@ -381,6 +404,11 @@ The less obvious one: **diff falls out of it for free.** Comparing a good run ag
 run is just two workflow-detail views in a vertical split with linked scrolling, aligned by
 compact-group key. There is no separate diff screen to build, and the comparison works for any
 two views, not just the pair someone anticipated.
+
+**What is not built:** the wiring. Every screen still renders into the whole frame, the
+application holds one of each rather than a view per pane, and no split or tab key is bound —
+binding one now would put an empty pane on screen, which is worse than a key that does
+nothing. That is the next piece of work.
 
 ---
 
