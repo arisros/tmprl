@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 tmprl-core = { path = "../tmprl-core" }
 tmprl-client = { path = "../tmprl-client" }
+tmprl-ui = { path = "../tmprl-ui" }
 ratatui.workspace = true
 crossterm.workspace = true
 tokio.workspace = true

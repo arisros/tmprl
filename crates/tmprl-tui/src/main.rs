@@ -7,6 +7,7 @@ mod event;
 mod keys;
 mod theme;
 mod ui;
+mod view;
 
 use tmprl_client::{Conn, ProfileRef};
 use tokio::sync::mpsc::unbounded_channel;

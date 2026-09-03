@@ -248,6 +248,26 @@ pub fn default_keymap() -> Keymap {
         bind(mode, "<C-y>", "history.detail-up");
         // vim's filter operator. Here it filters the focused payloads rather than lines.
         bind(mode, "!", "payload.pipe");
+
+        // Windows and tabs, with vim's bindings. `<C-w>` prefixes focus movement — never
+        // bare `<C-h/j/k/l>`, which tmux's vim-tmux-navigator swallows before any
+        // application sees them.
+        bind(mode, "<leader>sv", "window.split-right");
+        bind(mode, "<leader>sh", "window.split-down");
+        bind(mode, "<leader>sx", "window.close");
+        bind(mode, "<leader>se", "window.equalize");
+        bind(mode, "<C-w>h", "window.focus-left");
+        bind(mode, "<C-w>j", "window.focus-down");
+        bind(mode, "<C-w>k", "window.focus-up");
+        bind(mode, "<C-w>l", "window.focus-right");
+        bind(mode, "<leader>rh", "window.grow-left");
+        bind(mode, "<leader>rj", "window.grow-down");
+        bind(mode, "<leader>rk", "window.grow-up");
+        bind(mode, "<leader>rl", "window.grow-right");
+        bind(mode, "<leader>to", "tab.new");
+        bind(mode, "<leader>tx", "tab.close");
+        bind(mode, "<leader>tn", "tab.next");
+        bind(mode, "<leader>tp", "tab.previous");
     }
 
     bind(Mode::Normal, "i", "mode.insert");

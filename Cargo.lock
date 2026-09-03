@@ -2805,6 +2805,7 @@ dependencies = [
  "thiserror 2.0.20",
  "tmprl-client",
  "tmprl-core",
+ "tmprl-ui",
  "tokio",
 ]
 

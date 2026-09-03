@@ -53,6 +53,9 @@ Web UI — built to be operated from the keyboard rather than a browser.
   goes down the pipe is a JSON object keyed by label, so `jq .result` picks one out.
 - **Codec server** — point `config.toml` at one and encrypted payloads decode in place,
   lazily and cached, so everything else reads the plaintext without knowing.
+- **Splits and tabs** with vim's bindings — `<Space>sv` / `<Space>sh` to split, `<C-w>hjkl`
+  to move between panes, `<Space>t{o,x,n,p}` for tabs. Each pane keeps its own screen,
+  cursor, query and history.
 - **Yank** (`y`, `Y`) to the system clipboard over OSC 52, so it works over SSH.
 
 Not yet: schedules, batch operations, splits, and any operation that changes something.
@@ -198,8 +201,8 @@ view key is reported in the statusline at startup rather than quietly skipped.
 ```
 crates/tmprl-client   all network IO — gRPC, TLS, codec, profiles built,  43 tests
 crates/tmprl-core     domain logic — modes, keymap, histories   built, 120 tests
-crates/tmprl-tui      ratatui rendering and input               built, 109 tests
-crates/tmprl-ui       window tree — splits, tabs, focus         built,  35 tests (not yet wired)
+crates/tmprl-tui      ratatui rendering and input               built, 118 tests
+crates/tmprl-ui       window tree — splits, tabs, focus         built,  35 tests
 ```
 
 The split exists so the hard logic — reconstructing histories, compiling visibility queries,
@@ -211,8 +214,7 @@ diffing runs — lands in a layer that needs neither a terminal nor a server to 
 - [x] **M0a** gRPC layer, profile loading, integration tests
 - [x] **M0b** event loop, command registry, modal keymap, statusline, which-key, yank
 - [x] **M1** workflow list, visibility queries, saved views, multi-namespace, `keys.toml`
-- [ ] **M2** history views, follow mode, jq, codec server *(done)*; window tree engine
-      *(done)*, its wiring into the interface remains
+- [x] **M2** history views, follow mode, jq, codec server, splits and tabs
 - [ ] **M3** mutations — signal, cancel, terminate, reset, update, delete
 - [ ] **M4** schedules
 - [ ] **M5** batch operations

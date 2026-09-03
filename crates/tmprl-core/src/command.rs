@@ -55,6 +55,24 @@ pub enum Action {
     DetailDown,
     DetailUp,
     OpenPipe,
+
+    // Windows and tabs
+    SplitRight,
+    SplitDown,
+    CloseWindow,
+    EqualizeWindows,
+    FocusLeft,
+    FocusRight,
+    FocusUp,
+    FocusDown,
+    GrowLeft,
+    GrowRight,
+    GrowUp,
+    GrowDown,
+    NewTab,
+    CloseTab,
+    NextTab,
+    PrevTab,
     /// Apply the saved view bound to this digit. Carries the digit because the views come
     /// from `views.toml` and cannot be enumerated at compile time.
     SelectView(char),
@@ -123,6 +141,24 @@ impl Registry {
             "history.detail-down","History",     "Scroll the payload pane down" => DetailDown;
             "history.detail-up",  "History",     "Scroll the payload pane up"   => DetailUp;
             "payload.pipe",       "History",     "Pipe payloads through a command" => OpenPipe;
+
+            "window.split-right", "Windows",     "Split side by side"        => SplitRight;
+            "window.split-down",  "Windows",     "Split above and below"     => SplitDown;
+            "window.close",       "Windows",     "Close this window"         => CloseWindow;
+            "window.equalize",    "Windows",     "Give windows equal space"  => EqualizeWindows;
+            "window.focus-left",  "Windows",     "Focus the window left"     => FocusLeft;
+            "window.focus-right", "Windows",     "Focus the window right"    => FocusRight;
+            "window.focus-up",    "Windows",     "Focus the window above"    => FocusUp;
+            "window.focus-down",  "Windows",     "Focus the window below"    => FocusDown;
+            "window.grow-left",   "Windows",     "Widen to the left"         => GrowLeft;
+            "window.grow-right",  "Windows",     "Widen to the right"        => GrowRight;
+            "window.grow-up",     "Windows",     "Grow upwards"              => GrowUp;
+            "window.grow-down",   "Windows",     "Grow downwards"            => GrowDown;
+
+            "tab.new",            "Tabs",        "Open a tab"                => NewTab;
+            "tab.close",          "Tabs",        "Close this tab"            => CloseTab;
+            "tab.next",           "Tabs",        "Next tab"                  => NextTab;
+            "tab.previous",       "Tabs",        "Previous tab"              => PrevTab;
         };
         Self { commands }
     }
