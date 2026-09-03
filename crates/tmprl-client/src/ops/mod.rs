@@ -3,6 +3,7 @@
 //! Everything above this crate talks in these types, never in protobuf types. That is what
 //! keeps a `temporalio-client` bump contained: the generated types stop here.
 
+pub mod codec;
 pub mod history;
 pub mod namespace;
 pub mod workflow;
@@ -15,6 +16,9 @@ pub enum OpError {
         code: String,
         message: String,
     },
+    /// The codec server is HTTP, not gRPC, so its failures are not `tonic::Status`.
+    #[error("{message}")]
+    Codec { message: String },
 }
 
 impl OpError {

@@ -87,8 +87,12 @@ async fn main() -> std::process::ExitCode {
             None
         }
     };
-    let (keys, views) = (read_config("keys.toml"), read_config("views.toml"));
-    app.apply_config(keys.as_deref(), views.as_deref());
+    let (keys, views, config) = (
+        read_config("keys.toml"),
+        read_config("views.toml"),
+        read_config("config.toml"),
+    );
+    app.apply_config(keys.as_deref(), views.as_deref(), config.as_deref());
 
     let terminal = ratatui::init();
     let result = event::run(terminal, app, rx, tx).await;

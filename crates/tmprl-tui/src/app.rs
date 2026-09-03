@@ -4,11 +4,13 @@
 //! spawns a task, which reports back as another [`Msg`]. Nothing on the keystroke path can
 //! block on the network — see `docs/ARCHITECTURE.md`.
 
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use tmprl_client::{Conn, NamespaceInfo};
+use tmprl_client::{Codec, Conn, NamespaceInfo};
 use tmprl_core::history::{NormalizedEvent, group_events, merge_events};
 use tmprl_core::outline::{Outline, Row};
+use tmprl_core::payload::Payload;
 use tmprl_core::{
     Action, Chord, Keymap, Loadable, Mode, Pending, PendingEntry, Registry, Resolution, SavedView,
     StatusCounts, WorkflowList, WorkflowRow, default_keymap,
@@ -65,6 +67,17 @@ impl Prompt {
     }
 }
 
+/// Where an encrypted payload has got to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DecodeState {
+    /// No codec server is configured, so it cannot be read at all.
+    NoCodec,
+    /// A decode is out.
+    InFlight,
+    /// A codec is configured but nothing has been asked yet.
+    Idle,
+}
+
 /// What Insert mode is editing.
 ///
 /// On the workflow list, Insert mode edits the visibility query — that is the only text
@@ -96,6 +109,8 @@ pub enum Msg {
     },
     /// Output of an external command a `!` filter ran.
     Piped(Result<String, String>),
+    /// Payloads a codec server decoded, paired with the hash of what was sent.
+    Decoded(Result<Vec<(u64, Payload)>, String>),
     /// A page of a workflow's history, already normalised by the client.
     History {
         generation: u64,
@@ -132,6 +147,13 @@ pub struct App {
     /// the command's own stderr, which is the only useful thing to show when jq rejects a
     /// filter.
     pub piped: Option<Result<String, String>>,
+    /// Payloads a codec server has already decoded, keyed by the hash of the encrypted
+    /// bytes. Decoding is a network hop per payload, and scrolling back over a row that has
+    /// already been decoded should cost nothing.
+    decoded: HashMap<u64, Payload>,
+    /// Requests in flight, so a cursor resting on a row does not ask repeatedly.
+    decoding: HashSet<u64>,
+    codec: Option<Arc<Codec>>,
     /// First visible line of the payload pane, and how far it can usefully go. A payload can
     /// be far taller than the pane — clipping a stack trace silently hides its end, which is
     /// the part worth reading.
@@ -229,6 +251,9 @@ impl App {
             following: false,
             show_detail: false,
             piped: None,
+            decoded: HashMap::new(),
+            decoding: HashSet::new(),
+            codec: None,
             detail_scroll: 0,
             detail_max_scroll: 0,
             query: String::new(),
@@ -265,7 +290,15 @@ impl App {
 
     /// Install the user's `keys.toml` and `views.toml`. Called once at startup, before the
     /// first frame, so the help overlay and which-key describe the keymap actually in use.
-    pub fn apply_config(&mut self, keys: Option<&str>, views: Option<&str>) {
+    pub fn apply_config(&mut self, keys: Option<&str>, views: Option<&str>, config: Option<&str>) {
+        if let Some(src) = config {
+            match tmprl_core::config::parse_config(src) {
+                Ok(cfg) => {
+                    self.codec = cfg.codec.map(|c| Arc::new(Codec::new(c.endpoint, c.auth)));
+                }
+                Err(e) => self.note = Some((e.to_string(), Note::Error)),
+            }
+        }
         if let Some(src) = views {
             match tmprl_core::config::parse_views(src) {
                 Ok(v) => {
@@ -356,6 +389,19 @@ impl App {
                 self.piped = Some(result);
                 self.detail_scroll = 0;
             }
+            Msg::Decoded(Ok(pairs)) => {
+                for (key, payload) in pairs {
+                    self.decoding.remove(&key);
+                    self.decoded.insert(key, payload);
+                }
+                self.apply_decoded();
+            }
+            Msg::Decoded(Err(e)) => {
+                // Clearing the in-flight set is what lets a retry happen at all; leaving it
+                // populated would make one failure permanent for the session.
+                self.decoding.clear();
+                self.note = Some((e, Note::Error));
+            }
             Msg::Namespaces(Ok(list)) => {
                 self.namespaces = Loadable::loaded(list);
                 self.clamp_cursor();
@@ -383,6 +429,9 @@ impl App {
                                 self.workflows = Loadable::loaded(list);
                             }
                         }
+                        // A later page can carry a payload already decoded from an
+                        // earlier one; swap it in rather than asking the server again.
+                        self.apply_decoded();
                         self.restore_cursor();
                     }
                     Err(e) => {
@@ -596,6 +645,7 @@ impl App {
                     self.show_detail = !self.show_detail;
                     self.detail_scroll = 0;
                     self.piped = None;
+                    self.maybe_decode();
                 } else {
                     self.note = Some((
                         "payloads are shown on a workflow history".into(),
@@ -896,6 +946,7 @@ impl App {
             self.piped = None;
         }
         self.cursor = at;
+        self.maybe_decode();
         self.remember_cursor();
         self.maybe_load_more();
     }
@@ -1152,6 +1203,114 @@ impl App {
             Key::Backspace => {}
             Key::Char(c) if chord.mods.is_none() => prompt.buf.push(c),
             _ => {}
+        }
+    }
+
+    // ── codec server ─────────────────────────────────────────────────────────
+
+    /// Identity of an encrypted payload, for the decode cache.
+    ///
+    /// The ciphertext plus its encoding: the same bytes decode to the same value, so a row
+    /// revisited costs nothing, and two different payloads cannot collide on content alone.
+    fn payload_key(p: &Payload) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        p.encoding.hash(&mut h);
+        p.data.hash(&mut h);
+        h.finish()
+    }
+
+    /// What the pane should say about an encrypted payload.
+    ///
+    /// "Needs a codec server" is only true when none is configured; once one is, the honest
+    /// answer is that a request is out.
+    pub fn decode_state(&self, p: &Payload) -> DecodeState {
+        if self.codec.is_none() {
+            DecodeState::NoCodec
+        } else if self.decoding.contains(&Self::payload_key(p)) {
+            DecodeState::InFlight
+        } else {
+            DecodeState::Idle
+        }
+    }
+
+    /// Ask the codec server about anything encrypted under the cursor.
+    ///
+    /// Lazy on purpose: only what the pane is actually showing. Decoding a whole history
+    /// up front would be thousands of round trips for values nobody looked at.
+    fn maybe_decode(&mut self) {
+        if !self.show_detail || self.screen != Screen::History {
+            return;
+        }
+        let Some(codec) = self.codec.clone() else {
+            return;
+        };
+
+        let wanted: Vec<Payload> = self
+            .payloads_under_cursor()
+            .into_iter()
+            .map(|(_, p)| p)
+            .filter(|p| p.needs_codec())
+            .filter(|p| {
+                let key = Self::payload_key(p);
+                !self.decoded.contains_key(&key) && !self.decoding.contains(&key)
+            })
+            .collect();
+        if wanted.is_empty() {
+            return;
+        }
+
+        for p in &wanted {
+            self.decoding.insert(Self::payload_key(p));
+        }
+        let keys: Vec<u64> = wanted.iter().map(Self::payload_key).collect();
+        let namespace = self
+            .viewing
+            .as_ref()
+            .map(|w| w.namespace.clone())
+            .unwrap_or_default();
+        let tx = self.tx.clone();
+
+        tokio::spawn(async move {
+            let result = codec
+                .decode(&namespace, &wanted)
+                .await
+                .map(|out| keys.into_iter().zip(out).collect::<Vec<_>>())
+                .map_err(|e| e.to_string());
+            let _ = tx.send(Msg::Decoded(result));
+        });
+    }
+
+    /// Swap every decoded payload into the history in place.
+    ///
+    /// Replacing the payload rather than keeping a cache the views consult means everything
+    /// downstream — the pane, `!` piping, yanking — reads the plaintext without knowing a
+    /// codec exists. It is also why this runs after each history page: a later page can
+    /// carry the same encrypted value.
+    fn apply_decoded(&mut self) {
+        if self.decoded.is_empty() {
+            return;
+        }
+        let mut changed = false;
+        for event in &mut self.history_events {
+            for (_, p) in &mut event.payloads {
+                if !p.needs_codec() {
+                    continue;
+                }
+                if let Some(plain) = self.decoded.get(&Self::payload_key(p)) {
+                    *p = plain.clone();
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            return;
+        }
+        let groups = group_events(&self.history_events);
+        let events = self.history_events.clone();
+        match self.history.value_mut() {
+            Some(outline) => outline.replace(events, groups),
+            None => self.history = Loadable::loaded(Outline::new(events, groups)),
         }
     }
 
@@ -2134,7 +2293,6 @@ mod tests {
     /// A history whose activity carries a JSON input and result.
     fn viewing_payloads() -> App {
         use tmprl_core::history::{Category as C, GroupRef as G, Outcome as O, Role as R};
-        use tmprl_core::payload::Payload;
 
         let mut scheduled = hev(4, G::Opened(4), R::Opens, C::Activity).with_subject("Charge");
         scheduled.payloads.push((
@@ -2302,10 +2460,115 @@ mod tests {
         assert_eq!(out.trim(), "done");
     }
 
+    // ── codec server ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn a_decoded_payload_replaces_the_encrypted_one_everywhere() {
+        // Replacing in place is what lets the pane, `!` piping and yanking all read the
+        // plaintext without knowing a codec exists.
+        let mut app = viewing_payloads();
+        app.run("motion.bottom", None); // the encrypted group
+
+        let encrypted = app
+            .payloads_under_cursor()
+            .into_iter()
+            .next()
+            .map(|(_, p)| p)
+            .expect("an encrypted payload");
+        assert!(encrypted.needs_codec());
+        let key = App::payload_key(&encrypted);
+
+        app.handle(Msg::Decoded(Ok(vec![(
+            key,
+            Payload::new("json/plain", br#"{"secret":true}"#.to_vec()),
+        )])));
+
+        let (_, now) = app
+            .payloads_under_cursor()
+            .into_iter()
+            .next()
+            .expect("still a payload");
+        assert!(!now.needs_codec(), "it should be plaintext now");
+        assert_eq!(
+            now.render(),
+            tmprl_core::payload::Rendered::Text("{\n  \"secret\": true\n}".into())
+        );
+        // And it is pipeable, which it was not before.
+        assert!(now.pipeable().is_some());
+    }
+
+    #[test]
+    fn a_decode_failure_is_reported_and_can_be_retried() {
+        // Leaving the in-flight set populated would make one failure permanent for the
+        // session, with no way to ask again.
+        let mut app = viewing_payloads();
+        app.decoding.insert(42);
+        app.handle(Msg::Decoded(Err("codec server returned 502".into())));
+
+        let (msg, kind) = app.note.clone().unwrap();
+        assert_eq!(kind, Note::Error);
+        assert!(msg.contains("502"), "the server's own words: {msg}");
+        assert!(app.decoding.is_empty(), "a retry must be possible");
+    }
+
+    #[test]
+    fn the_same_ciphertext_is_only_decoded_once() {
+        let a = Payload::new("binary/encrypted", vec![1, 2, 3]);
+        let b = Payload::new("binary/encrypted", vec![1, 2, 3]);
+        let c = Payload::new("binary/encrypted", vec![9, 9, 9]);
+        assert_eq!(App::payload_key(&a), App::payload_key(&b));
+        assert_ne!(App::payload_key(&a), App::payload_key(&c));
+    }
+
+    #[test]
+    fn a_payload_key_distinguishes_encodings_with_identical_bytes() {
+        let a = Payload::new("binary/encrypted", vec![1, 2, 3]);
+        let b = Payload::new("binary/plain", vec![1, 2, 3]);
+        assert_ne!(App::payload_key(&a), App::payload_key(&b));
+    }
+
+    #[test]
+    fn nothing_is_decoded_without_a_configured_codec() {
+        // No endpoint means no request; the badge stays and says what is needed.
+        let mut app = viewing_payloads();
+        app.run("motion.bottom", None);
+        app.run("history.detail", None);
+        assert!(app.decoding.is_empty(), "there is nowhere to send it");
+    }
+
+    #[test]
+    fn a_config_without_a_codec_section_is_not_an_error() {
+        let mut app = app();
+        app.apply_config(None, None, Some("# nothing here\n"));
+        assert!(app.note.is_none());
+        assert!(app.codec.is_none());
+    }
+
+    #[test]
+    fn a_broken_config_is_surfaced() {
+        let mut app = app();
+        app.apply_config(None, None, Some("[codec]\nauth = \"x\"\n"));
+        let (msg, kind) = app.note.clone().unwrap();
+        assert_eq!(kind, Note::Error);
+        assert!(msg.contains("codec.endpoint"), "got {msg}");
+    }
+
+    #[test]
+    fn a_configured_codec_is_used() {
+        let mut app = app();
+        app.apply_config(
+            None,
+            None,
+            Some("[codec]\nendpoint = \"http://localhost:8081\"\n"),
+        );
+        assert!(app.note.is_none());
+        assert!(app.codec.is_some());
+    }
+
     #[test]
     fn config_errors_are_surfaced_rather_than_swallowed() {
         let mut app = app();
-        app.apply_config(Some("[normal]\n\"x\" = \"nope.nope\"\n"), None);
+        app.apply_config(Some("[normal]\n\"x\" = \"nope.nope\"\n"), None, None);
         let (msg, kind) = app.note.clone().expect("a bad binding must be reported");
         assert_eq!(kind, Note::Error);
         assert!(msg.contains("nope.nope"), "got {msg}");
@@ -2317,6 +2580,7 @@ mod tests {
         app.apply_config(
             None,
             Some("[[view]]\nkey = \"1\"\nname = \"Running\"\nquery = \"ExecutionStatus = 'Running'\"\n"),
+            None,
         );
         assert!(app.note.is_none(), "a valid config must not warn");
         assert_eq!(app.registry.get("view.1").unwrap().title, "Running");
