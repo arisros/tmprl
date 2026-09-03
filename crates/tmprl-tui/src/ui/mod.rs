@@ -314,6 +314,19 @@ mod tests {
     }
 
     #[test]
+    fn following_is_announced_in_the_statusline() {
+        // A view that rewrites itself while you read it must say so, or a changing screen
+        // reads as a glitch.
+        let mut app = app_with_history();
+        assert!(!draw(&mut app, 110, 12).contains("FOLLOW"));
+
+        app.following = true;
+        let out = draw(&mut app, 110, 12);
+        assert!(out.contains("FOLLOW"), "follow indicator missing:\n{out}");
+        assert!(out.contains("NORMAL"), "the mode is still shown:\n{out}");
+    }
+
+    #[test]
     fn the_history_screen_renders_at_a_cramped_size() {
         let mut app = app_with_history();
         let _ = draw(&mut app, 20, 4);

@@ -9,9 +9,9 @@ Web UI — built to be operated from the keyboard rather than a browser.
 >
 > `tmprl` starts, connects, and gives you a modal, vim-keyed browser for namespaces,
 > **workflows and their histories** — with an editable visibility query, per-status counts,
-> saved views, infinite scroll and a collapsible event outline. **Nothing mutates anything
-> yet**, and there is no follow mode, `jq` or codec support. If you need a Temporal TUI for
-> real work today, see [Prior art](#prior-art).
+> saved views, infinite scroll, a collapsible event outline and `tail -f`-style follow mode.
+> **Nothing mutates anything yet**, and there is no `jq` or codec support. If you need a
+> Temporal TUI for real work today, see [Prior art](#prior-art).
 
 ---
 
@@ -44,10 +44,12 @@ Web UI — built to be operated from the keyboard rather than a browser.
   everything, `zp` reveals the workflow-task plumbing that is hidden by default, and `]f`/`[f`
   jump between failures. Only the visible rows are ever built, so a very long history scrolls
   by moving an index.
+- **Follow mode** (`F`) — tail a running workflow like `tail -f`. New events appear as they
+  happen; it stops by itself when the workflow closes and says so.
 - **Yank** (`y`, `Y`) to the system clipboard over OSC 52, so it works over SSH.
 
-Not yet: follow mode, `jq`, codec server, schedules, batch operations, splits, and any
-operation that changes something.
+Not yet: `jq`, codec server, schedules, batch operations, splits, and any operation that
+changes something.
 
 ## What it is meant to become
 
@@ -189,8 +191,8 @@ view key is reported in the statusline at startup rather than quietly skipped.
 
 ```
 crates/tmprl-client   all network IO — gRPC, TLS, profiles      built,  27 tests
-crates/tmprl-core     domain logic — modes, keymap, histories   built,  99 tests
-crates/tmprl-tui      ratatui rendering and input               built,  69 tests
+crates/tmprl-core     domain logic — modes, keymap, histories   built, 102 tests
+crates/tmprl-tui      ratatui rendering and input               built,  77 tests
 crates/tmprl-ui       window tree — splits, tabs, focus         planned (M2)
 ```
 
@@ -203,7 +205,7 @@ diffing runs — lands in a layer that needs neither a terminal nor a server to 
 - [x] **M0a** gRPC layer, profile loading, integration tests
 - [x] **M0b** event loop, command registry, modal keymap, statusline, which-key, yank
 - [x] **M1** workflow list, visibility queries, saved views, multi-namespace, `keys.toml`
-- [ ] **M2** history views *(done)*, follow mode, jq, codec server, window tree
+- [ ] **M2** history views *(done)*, follow mode *(done)*, jq, codec server, window tree
 - [ ] **M3** mutations — signal, cancel, terminate, reset, update, delete
 - [ ] **M4** schedules
 - [ ] **M5** batch operations
