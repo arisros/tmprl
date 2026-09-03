@@ -95,6 +95,13 @@ pub struct App {
     /// Whether the history is being tailed. Shown in the statusline, because a view that
     /// silently changes under you is worse than one that does not update.
     pub following: bool,
+    /// Whether the payload pane is open under the history list.
+    pub show_detail: bool,
+    /// First visible line of the payload pane, and how far it can usefully go. A payload can
+    /// be far taller than the pane — clipping a stack trace silently hides its end, which is
+    /// the part worth reading.
+    pub detail_scroll: usize,
+    pub detail_max_scroll: usize,
 
     /// The visibility query, verbatim. This string is the interface: everything that
     /// filters the list compiles into it, and it is always on screen and always editable.
@@ -185,6 +192,9 @@ impl App {
             history: Loadable::NotAsked,
             viewing: None,
             following: false,
+            show_detail: false,
+            detail_scroll: 0,
+            detail_max_scroll: 0,
             query: String::new(),
             scope: vec![namespace.clone()],
             views: Vec::new(),
@@ -535,6 +545,19 @@ impl App {
             Action::NextFailure => self.jump_failure(true),
             Action::PrevFailure => self.jump_failure(false),
             Action::ToggleFollow => self.toggle_follow(),
+            Action::DetailDown => self.scroll_detail(n as isize),
+            Action::DetailUp => self.scroll_detail(-(n as isize)),
+            Action::ToggleDetail => {
+                if self.screen == Screen::History {
+                    self.show_detail = !self.show_detail;
+                    self.detail_scroll = 0;
+                } else {
+                    self.note = Some((
+                        "payloads are shown on a workflow history".into(),
+                        Note::Warn,
+                    ));
+                }
+            }
         }
         self.clamp_cursor();
     }
@@ -652,6 +675,11 @@ impl App {
     }
 
     // ── follow mode ──────────────────────────────────────────────────────────
+
+    fn scroll_detail(&mut self, delta: isize) {
+        let next = (self.detail_scroll as isize + delta).clamp(0, self.detail_max_scroll as isize);
+        self.detail_scroll = next as usize;
+    }
 
     fn toggle_follow(&mut self) {
         if self.screen != Screen::History {
@@ -814,6 +842,11 @@ impl App {
     }
 
     fn set_cursor(&mut self, at: usize) {
+        if at != self.cursor {
+            // The pane now shows a different value; keeping the old offset would open it
+            // part-way down something the reader has not seen the start of.
+            self.detail_scroll = 0;
+        }
         self.cursor = at;
         self.remember_cursor();
         self.maybe_load_more();
