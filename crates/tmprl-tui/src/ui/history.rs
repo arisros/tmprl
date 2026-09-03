@@ -19,13 +19,14 @@ use tmprl_core::workflow::humanize_age_ms;
 use super::truncate;
 use crate::app::App;
 use crate::theme::Theme;
+use crate::view::View;
 
-pub fn render(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
+pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) {
     if area.height == 0 {
         return;
     }
-    let Some(outline) = app.view.history.value() else {
-        let msg = match app.view.history.error() {
+    let Some(outline) = view.history.value() else {
+        let msg = match view.history.error() {
             Some(e) => format!("{e} — R to retry"),
             None => "loading history…".to_string(),
         };
@@ -63,23 +64,29 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
         .slice(first, height)
         .into_iter()
         .enumerate()
-        .map(|(n, row)| render_row(outline, row, first + n, app, t))
+        .map(|(n, row)| render_row(outline, row, first + n, view, t))
         .collect();
 
     frame.render_widget(Paragraph::new(lines), area);
 }
 
-fn render_row<'a>(outline: &'a Outline, row: Row, index: usize, app: &App, t: &Theme) -> Line<'a> {
-    let focused = index == app.view.cursor;
+fn render_row<'a>(
+    outline: &'a Outline,
+    row: Row,
+    index: usize,
+    view: &View,
+    t: &Theme,
+) -> Line<'a> {
+    let focused = index == view.cursor;
     let base = if focused {
         Style::new().fg(t.fg).bg(t.sel).add_modifier(Modifier::BOLD)
-    } else if app.is_selected(index) {
+    } else if view.is_selected(index) {
         Style::new().fg(t.fg).bg(t.sel)
     } else {
         Style::new().fg(t.fg)
     };
     let gutter = Span::styled(
-        super::gutter(index, app.view.cursor),
+        super::gutter(index, view.cursor),
         Style::new().fg(if focused { t.warn } else { t.faint }),
     );
 
