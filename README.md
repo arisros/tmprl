@@ -46,10 +46,13 @@ Web UI — built to be operated from the keyboard rather than a browser.
   by moving an index.
 - **Follow mode** (`F`) — tail a running workflow like `tail -f`. New events appear as they
   happen; it stops by itself when the workflow closes and says so.
+- **Payloads** (`K`) — inputs and results, decoded and pretty-printed, in a pane under the
+  history. Encrypted payloads say they need a codec server rather than showing ciphertext;
+  binary ones say what they are rather than corrupting your terminal.
 - **Yank** (`y`, `Y`) to the system clipboard over OSC 52, so it works over SSH.
 
-Not yet: `jq`, codec server, schedules, batch operations, splits, and any operation that
-changes something.
+Not yet: `jq` piping, the codec server round trip, schedules, batch operations, splits, and
+any operation that changes something.
 
 ## What it is meant to become
 
@@ -190,9 +193,9 @@ view key is reported in the statusline at startup rather than quietly skipped.
 ## Layout
 
 ```
-crates/tmprl-client   all network IO — gRPC, TLS, profiles      built,  27 tests
-crates/tmprl-core     domain logic — modes, keymap, histories   built, 102 tests
-crates/tmprl-tui      ratatui rendering and input               built,  77 tests
+crates/tmprl-client   all network IO — gRPC, TLS, profiles      built,  31 tests
+crates/tmprl-core     domain logic — modes, keymap, histories   built, 111 tests
+crates/tmprl-tui      ratatui rendering and input               built,  83 tests
 crates/tmprl-ui       window tree — splits, tabs, focus         planned (M2)
 ```
 

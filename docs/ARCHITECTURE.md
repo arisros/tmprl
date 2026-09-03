@@ -1,9 +1,9 @@
 # Architecture
 
 > **Read this first.** This document mixes built code with design that is not written yet,
-> and every section says which it is. §§2–6 are implemented and tested; §§7–9 are still
-> the plan being built against, written down in advance so the shape is agreed before there
-> is code sitting on top of it.
+> and every section says which it is. §§2–6 are implemented and tested and §8 partly so;
+> §7 and §9 are still the plan being built against, written down in advance so the shape is
+> agreed before there is code sitting on top of it.
 >
 > | Marker | Meaning |
 > |---|---|
@@ -61,9 +61,9 @@ project testable:
 
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
-| `tmprl-client` | built | Integration tests against `temporal server start-dev` | 27 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 102 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 77 |
+| `tmprl-client` | built | Integration tests against `temporal server start-dev` | 31 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 111 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 83 |
 | `tmprl-ui` | planned (M2) | Plain unit tests over the layout tree | — |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -384,12 +384,38 @@ two views, not just the pair someone anticipated.
 
 ---
 
-## 8. Payloads and the codec server · PLANNED
+## 8. Payloads and the codec server · PARTLY BUILT (rendering; the codec is not)
 
 Temporal payloads are opaque bytes plus metadata. When a cluster uses a codec server, they are
 also encrypted, and decoding requires an HTTP round trip to a service the user runs.
 
-Decoding is therefore:
+### Rendering · BUILT
+
+The encoding string in a payload's metadata decides everything, and deciding is pure, so it
+lives in `tmprl-core` and is tested without a server:
+
+| Encoding | Shown as |
+|---|---|
+| `json/plain`, `json/protobuf` | pretty-printed text |
+| `text/plain` | text |
+| `binary/null` | `null` — distinct from an empty string, which is a value |
+| `binary/encrypted` | a `🔒` badge and a byte count |
+| anything else | encoding name and byte count, **not** decoded |
+
+That last row is the one worth defending. A payload from a custom converter can be arbitrary
+bytes, and optimistically decoding those as UTF-8 is how a terminal fills with control
+characters. The same applies when a payload *claims* `json/plain` but is not valid UTF-8: the
+declaration is wrong, so it is not trusted enough to print. A value that is valid UTF-8 but
+not valid JSON is shown raw rather than rejected — seeing the bytes beats being told they were
+unparseable.
+
+`K` opens the pane on the focused row. For a group it gathers the input from the event that
+opened the group and the result from the event that closed it, because those are two different
+events and showing only the row you happen to be on would hide one of them.
+
+### Decoding · PLANNED
+
+Decoding is:
 
 - **lazy** — only payloads currently on screen are decoded, never a whole history
 - **cached** by payload hash
@@ -398,6 +424,9 @@ Decoding is therefore:
 
 The wire contract is Temporal's: `POST {endpoint}/decode`, proto3-JSON `Payloads` in the body,
 `X-Namespace` header, optional `Authorization`.
+
+Until that is built, an encrypted payload renders as its badge and says it needs a codec
+server — the value is not lost, it is not readable yet, and the interface says which.
 
 ---
 

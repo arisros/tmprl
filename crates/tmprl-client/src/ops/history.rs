@@ -20,13 +20,14 @@
 
 use temporalio_client::tonic::Request;
 use temporalio_common::protos::temporal::api::{
-    common::v1::WorkflowExecution,
+    common::v1::{Payload as ProtoPayload, Payloads, WorkflowExecution},
     enums::v1::HistoryEventFilterType,
     failure::v1::Failure,
     history::v1::{HistoryEvent, history_event::Attributes},
     workflowservice::v1::GetWorkflowExecutionHistoryRequest,
 };
 use tmprl_core::history::{Category, GroupRef, NormalizedEvent, Outcome, Role};
+use tmprl_core::payload::Payload;
 
 use super::OpError;
 use crate::Conn;
@@ -156,6 +157,7 @@ struct Mapped {
     attempt: Option<i32>,
     failure: Option<String>,
     fields: Vec<(&'static str, String)>,
+    payloads: Vec<(String, Payload)>,
 }
 
 /// Start an arm. `group` is the group this event joins; `role` is what it does to it.
@@ -169,6 +171,7 @@ fn at(category: Category, group: GroupRef, role: Role) -> Mapped {
         attempt: None,
         failure: None,
         fields: Vec::new(),
+        payloads: Vec::new(),
     }
 }
 
@@ -195,6 +198,46 @@ impl Mapped {
             self.fields.push((k, v));
         }
         self
+    }
+
+    /// Attach an argument list. A single value is labelled plainly; several are indexed,
+    /// because an activity's third argument is not interchangeable with its first.
+    fn args(mut self, label: &str, p: Option<Payloads>) -> Self {
+        let Some(list) = p else { return self };
+        let n = list.payloads.len();
+        for (i, raw) in list.payloads.into_iter().enumerate() {
+            let name = if n == 1 {
+                label.to_string()
+            } else {
+                format!("{label}[{i}]")
+            };
+            self.payloads.push((name, convert(raw)));
+        }
+        self
+    }
+
+    /// Attach a single payload.
+    fn arg(mut self, label: &str, p: Option<ProtoPayload>) -> Self {
+        if let Some(raw) = p {
+            self.payloads.push((label.to_string(), convert(raw)));
+        }
+        self
+    }
+}
+
+/// Protobuf payload to domain payload. The metadata values are bytes on the wire; the two
+/// keys tmprl reads are ASCII.
+fn convert(p: ProtoPayload) -> Payload {
+    let meta = |k: &str| {
+        p.metadata
+            .get(k)
+            .and_then(|v| std::str::from_utf8(v).ok())
+            .map(str::to_string)
+    };
+    Payload {
+        encoding: meta("encoding").unwrap_or_default(),
+        type_hint: meta("type"),
+        data: p.data,
     }
 }
 
@@ -321,6 +364,7 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
                     "taskQueue",
                     a.task_queue.map(|q| q.name).unwrap_or_default(),
                 )
+                .args("input", a.input)
         }
         Some(Attributes::ActivityTaskStartedEventAttributes(a)) => at(
             Category::Activity,
@@ -337,7 +381,8 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
             GroupRef::Opened(a.scheduled_event_id),
             Role::Closes,
         )
-        .ends(Outcome::Completed),
+        .ends(Outcome::Completed)
+        .args("result", a.result),
         Some(Attributes::ActivityTaskFailedEventAttributes(a)) => at(
             Category::Activity,
             GroupRef::Opened(a.scheduled_event_id),
@@ -399,6 +444,7 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
                 .subject(a.workflow_type.map(|t| t.name).unwrap_or_default())
                 .field("workflowId", a.workflow_id)
                 .field("namespace", a.namespace)
+                .args("input", a.input)
         }
         Some(Attributes::StartChildWorkflowExecutionFailedEventAttributes(a)) => at(
             Category::ChildWorkflow,
@@ -421,7 +467,8 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
             GroupRef::Opened(a.initiated_event_id),
             Role::Closes,
         )
-        .ends(Outcome::Completed),
+        .ends(Outcome::Completed)
+        .args("result", a.result),
         Some(Attributes::ChildWorkflowExecutionFailedEventAttributes(a)) => at(
             Category::ChildWorkflow,
             GroupRef::Opened(a.initiated_event_id),
@@ -461,7 +508,8 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
                 .map(|w| w.workflow_id)
                 .unwrap_or_default(),
         )
-        .field("namespace", a.namespace),
+        .field("namespace", a.namespace)
+        .args("input", a.input),
         Some(Attributes::SignalExternalWorkflowExecutionFailedEventAttributes(a)) => at(
             Category::ExternalWorkflow,
             GroupRef::Opened(a.initiated_event_id),
@@ -527,6 +575,7 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
             at(Category::Nexus, GroupRef::Opened(id), Role::Opens)
                 .subject(format!("{}/{}", a.service, a.operation))
                 .field("endpoint", a.endpoint)
+                .arg("input", a.input)
         }
         Some(Attributes::NexusOperationStartedEventAttributes(a)) => at(
             Category::Nexus,
@@ -600,6 +649,7 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
         attempt: m.attempt,
         failure: m.failure,
         fields: m.fields,
+        payloads: m.payloads,
     }
 }
 
@@ -785,6 +835,89 @@ mod tests {
         let n = normalize(e);
         assert_eq!(n.id, 99);
         assert_eq!(n.group, GroupRef::Workflow);
+    }
+
+    fn json_payload(body: &str) -> ProtoPayload {
+        ProtoPayload {
+            metadata: [("encoding".to_string(), b"json/plain".to_vec())]
+                .into_iter()
+                .collect(),
+            data: body.as_bytes().to_vec(),
+            external_payloads: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn an_activity_carries_its_input_payload() {
+        let n = normalize(event(
+            5,
+            EventType::ActivityTaskScheduled,
+            Attributes::ActivityTaskScheduledEventAttributes(
+                ActivityTaskScheduledEventAttributes {
+                    activity_type: Some(ActivityType {
+                        name: "ChargeCard".into(),
+                    }),
+                    input: Some(Payloads {
+                        payloads: vec![json_payload("100")],
+                    }),
+                    ..Default::default()
+                },
+            ),
+        ));
+
+        assert_eq!(n.payloads.len(), 1);
+        let (label, p) = &n.payloads[0];
+        assert_eq!(label, "input", "a lone argument is not indexed");
+        assert_eq!(p.encoding, "json/plain");
+        assert_eq!(
+            p.render(),
+            tmprl_core::payload::Rendered::Text("100".into())
+        );
+    }
+
+    #[test]
+    fn several_arguments_are_indexed() {
+        // An activity's third argument is not interchangeable with its first, so an
+        // unlabelled list would lose which is which.
+        let n = normalize(event(
+            5,
+            EventType::ActivityTaskScheduled,
+            Attributes::ActivityTaskScheduledEventAttributes(
+                ActivityTaskScheduledEventAttributes {
+                    input: Some(Payloads {
+                        payloads: vec![json_payload("1"), json_payload("\"two\"")],
+                    }),
+                    ..Default::default()
+                },
+            ),
+        ));
+
+        let labels: Vec<&str> = n.payloads.iter().map(|(l, _)| l.as_str()).collect();
+        assert_eq!(labels, ["input[0]", "input[1]"]);
+    }
+
+    #[test]
+    fn an_event_with_no_payloads_carries_none() {
+        let n = normalize(event(
+            6,
+            EventType::ActivityTaskStarted,
+            Attributes::ActivityTaskStartedEventAttributes(ActivityTaskStartedEventAttributes {
+                scheduled_event_id: 5,
+                ..Default::default()
+            }),
+        ));
+        assert!(n.payloads.is_empty());
+    }
+
+    #[test]
+    fn payload_metadata_is_decoded_from_bytes() {
+        // Metadata values are bytes on the wire; the encoding is what decides how the value
+        // is shown, so getting it out wrongly would make every payload opaque.
+        let mut raw = json_payload("{}");
+        raw.metadata.insert("type".to_string(), b"Keyword".to_vec());
+        let p = convert(raw);
+        assert_eq!(p.encoding, "json/plain");
+        assert_eq!(p.type_hint.as_deref(), Some("Keyword"));
     }
 
     #[test]

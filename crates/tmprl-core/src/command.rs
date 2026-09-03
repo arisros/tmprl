@@ -51,6 +51,9 @@ pub enum Action {
     NextFailure,
     PrevFailure,
     ToggleFollow,
+    ToggleDetail,
+    DetailDown,
+    DetailUp,
     /// Apply the saved view bound to this digit. Carries the digit because the views come
     /// from `views.toml` and cannot be enumerated at compile time.
     SelectView(char),
@@ -115,6 +118,9 @@ impl Registry {
             "history.next-failure","History",    "Jump to the next failure"  => NextFailure;
             "history.prev-failure","History",    "Jump to the previous failure" => PrevFailure;
             "history.follow",     "History",     "Follow — tail a running workflow" => ToggleFollow;
+            "history.detail",     "History",     "Show the payloads under the cursor" => ToggleDetail;
+            "history.detail-down","History",     "Scroll the payload pane down" => DetailDown;
+            "history.detail-up",  "History",     "Scroll the payload pane up"   => DetailUp;
         };
         Self { commands }
     }
