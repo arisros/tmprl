@@ -12,6 +12,7 @@ pub mod keymap;
 pub mod loadable;
 pub mod mode;
 pub mod outline;
+pub mod payload;
 pub mod query;
 pub mod workflow;
 
@@ -23,4 +24,5 @@ pub use keymap::{Binding, Keymap, Pending, PendingEntry, Resolution, default_key
 pub use loadable::Loadable;
 pub use mode::Mode;
 pub use outline::{Outline, Row, Summary};
+pub use payload::{Payload, Rendered};
 pub use workflow::{StatusCounts, WorkflowList, WorkflowRow, WorkflowStatus};

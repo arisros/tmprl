@@ -12,6 +12,8 @@
 //! * This module folds those into [`Group`]s. It is pure, so the grouping rules — the part
 //!   that is actually easy to get wrong — are tested with hand-built events and no server.
 
+use crate::payload::Payload;
+
 /// What kind of thing an event is about. Drives icons, filtering and the outline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Category {
@@ -129,6 +131,9 @@ pub struct NormalizedEvent {
     pub failure: Option<String>,
     /// Detail rows for the expanded view, in protocol order.
     pub fields: Vec<(&'static str, String)>,
+    /// Payloads this event carries, labelled — `input`, `result`, `details[1]`. Labels are
+    /// owned because an argument list needs an index in them.
+    pub payloads: Vec<(String, Payload)>,
 }
 
 impl NormalizedEvent {
@@ -152,6 +157,7 @@ impl NormalizedEvent {
             attempt: None,
             failure: None,
             fields: Vec::new(),
+            payloads: Vec::new(),
         }
     }
 
