@@ -212,6 +212,10 @@ closed is refused with a message instead of polling for events that can never ar
 | `R` | reload from the server | **live** |
 | `<leader>q` / `<C-c>` | quit | **live** |
 | `<C-q>` | send selection to the quickfix list | M5 |
+| `<leader>mc` | cancel this workflow | **live** |
+| `<leader>mt` | terminate this workflow | **live** |
+| `<leader>ms` | signal this workflow | **live** |
+| `<leader>md` | delete this workflow | **live** |
 | `<leader>xx` | problem list — failed and task-failure workflows | M2 |
 | `<leader>xQ` | open the quickfix list | M5 |
 
@@ -239,12 +243,35 @@ that is silently dropped is a key that does nothing, with no way to find out why
 
 ## Destructive actions
 
+**Live for one workflow at a time**: cancel, terminate, signal and delete, under `<leader>m`
+— clear of bare `m`, which marks reserve. Reset and update are not built. Batch operations are
+M5.
+
 Every mutation routes through one confirmation modal, which displays **the equivalent
 `temporal` CLI command**. That teaches the CLI, makes the action auditable at a glance, and
-gives an escape hatch to anyone who would rather not trust a TUI with it.
+gives an escape hatch to anyone who would rather not trust a TUI with it:
 
-Batch operations additionally show a `CountWorkflowExecutions` dry run and require typing the
-affected count. Every mutation appends to `~/.local/state/tmprl/audit.jsonl`.
+```
+┌ confirm — terminate ────────────────────────────────────────────────┐
+│  Terminate kill-me                                                  │
+│  in default                                                         │
+│                                                                     │
+│  the equivalent command:                                            │
+│    temporal workflow terminate --namespace default --workflow-id    │
+│    kill-me --run-id 01a06850-20c6-755b-8f02-d9000b16e8cf --reason   │
+│    'terminated from tmprl'                                          │
+│                                                                     │
+│  ⏎ to confirm   Esc to cancel                                       │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+While it is up it owns every key, so nothing bound elsewhere can fire underneath it, and `Esc`
+is always a way out. **Delete asks for more**: it destroys the history itself, not just the
+run, so it wants the word `delete` typed.
+
+Batch operations will additionally show a `CountWorkflowExecutions` dry run and require typing
+the affected count. Every mutation appends to `~/.local/state/tmprl/audit.jsonl`, failures
+included — the question that log answers is what was *attempted*.
 
 ## Theming
 
@@ -264,7 +291,7 @@ reader.
 | `~/.config/tmprl/keys.toml` | key chord → command id — **live** |
 | `~/.config/tmprl/theme.toml` | colours — *planned* |
 | `~/.config/tmprl/views.toml` | saved visibility queries — **live** |
-| `~/.local/state/tmprl/audit.jsonl` | every mutation performed — *planned* |
+| `~/.local/state/tmprl/audit.jsonl` | every mutation attempted — **live** |
 
 The directory is `$TMPRL_CONFIG_DIR`, else `$XDG_CONFIG_HOME/tmprl`, else `~/.config/tmprl`.
 A `config.toml` points at a codec server, if the cluster uses one:
