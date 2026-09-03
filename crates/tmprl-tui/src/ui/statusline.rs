@@ -13,7 +13,7 @@ pub fn render_header(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
     // The right-hand summary is laid out first, because what is left over is the budget
     // the left side has to fit in. Rendering the left side at full length and the summary
     // on top of it is how the two collide on a narrow terminal or a long workflow id.
-    let right = match app.screen {
+    let right = match app.view.screen {
         Screen::Namespaces => namespace_summary(app, t),
         Screen::Workflows => workflow_summary(app, t),
         Screen::History => history_summary(app, t),
@@ -55,17 +55,17 @@ pub fn render_header(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
 /// listed, because the header has one line and the rows carry the namespace anyway.
 fn scope_label(app: &App) -> String {
     // On a history, the workflow being read is more use than the namespace scope.
-    if let Some(w) = &app.viewing {
+    if let Some(w) = &app.view.viewing {
         return format!("{}  {}", w.namespace, w.workflow_id);
     }
-    match app.scope.len() {
+    match app.view.scope.len() {
         0 | 1 => app.namespace().to_string(),
-        n => format!("{} +{}", app.scope[0], n - 1),
+        n => format!("{} +{}", app.view.scope[0], n - 1),
     }
 }
 
 fn namespace_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
-    let text = if app.namespaces.is_loading() {
+    let text = if app.view.namespaces.is_loading() {
         "loading…".to_string()
     } else {
         format!("{} namespaces", app.namespace_rows().len())
@@ -78,12 +78,12 @@ fn namespace_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
 /// Each tally is prefixed with the same glyph the table uses, so the header and the rows
 /// are read the same way.
 fn workflow_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
-    if let Some(e) = app.counts.error() {
+    if let Some(e) = app.view.counts.error() {
         return vec![Span::styled(format!("counts: {e}"), Style::new().fg(t.err))];
     }
-    let Some(counts) = app.counts.value() else {
+    let Some(counts) = app.view.counts.value() else {
         return vec![Span::styled(
-            if app.counts.is_loading() {
+            if app.view.counts.is_loading() {
                 "counting…"
             } else {
                 ""
@@ -110,9 +110,9 @@ fn workflow_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
 
 /// What the history header shows: what is being read, and what went wrong in it.
 fn history_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
-    let Some(outline) = app.history.value() else {
+    let Some(outline) = app.view.history.value() else {
         return vec![Span::styled(
-            if app.history.is_loading() {
+            if app.view.history.is_loading() {
                 "loading history…"
             } else {
                 ""
@@ -183,7 +183,7 @@ pub fn render_status(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
         Span::raw(" "),
     ];
     // A view that rewrites itself while you read it has to say so.
-    if app.following {
+    if app.view.following {
         spans.push(Span::styled(
             " FOLLOW ",
             Style::new()
@@ -210,7 +210,7 @@ pub fn render_status(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
                     format!("{n} selected"),
                     Style::new().fg(t.warn),
                 ));
-            } else if let Some(err) = app.namespaces.error() {
+            } else if let Some(err) = app.view.namespaces.error() {
                 spans.push(Span::styled(err.to_string(), Style::new().fg(t.err)));
             } else {
                 spans.push(Span::styled(

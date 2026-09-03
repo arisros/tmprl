@@ -21,7 +21,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let theme = Theme::default();
     // The query bar is part of the workflow screen's chrome, not an overlay: it is always
     // on screen so the query is never something you have to go and open.
-    let query_height = match app.screen {
+    let query_height = match app.view.screen {
         Screen::Workflows => 1,
         Screen::Namespaces | Screen::History => 0,
     };
@@ -34,21 +34,21 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     .areas(frame.area());
 
     // The list needs to know how tall it is so that half-page motions mean something.
-    app.page = body.height.saturating_sub(1) as usize;
+    app.view.page = body.height.saturating_sub(1) as usize;
 
     statusline::render_header(frame, header, app, &theme);
-    match app.screen {
+    match app.view.screen {
         Screen::Namespaces => namespaces::render(frame, body, app, &theme),
         Screen::Workflows => {
             query::render(frame, query_bar, app, &theme);
             workflows::render(frame, body, app, &theme);
         }
-        Screen::History if app.show_detail => {
+        Screen::History if app.view.show_detail => {
             // Roughly half each: enough list to keep your place, enough pane to read a
             // payload without scrolling for every value.
             let [list, pane] =
                 Layout::vertical([Constraint::Min(3), Constraint::Percentage(50)]).areas(body);
-            app.page = list.height.saturating_sub(1) as usize;
+            app.view.page = list.height.saturating_sub(1) as usize;
             history::render(frame, list, app, &theme);
             detail::render(frame, pane, app, &theme);
         }
@@ -131,7 +131,7 @@ mod tests {
     fn app_with_rows() -> App {
         let (tx, _rx) = unbounded_channel();
         let mut app = App::detached("prod", "default", tx);
-        app.namespaces = Loadable::loaded(vec![
+        app.view.namespaces = Loadable::loaded(vec![
             ns("default", 24),
             ns("payments", 30),
             ns("temporal-system", 7),
@@ -175,8 +175,8 @@ mod tests {
             .unwrap()
             .as_millis() as i64;
         let mut app = app_with_rows();
-        app.screen = crate::app::Screen::Workflows;
-        app.scope = scope.iter().map(|s| s.to_string()).collect();
+        app.view.screen = crate::app::Screen::Workflows;
+        app.view.scope = scope.iter().map(|s| s.to_string()).collect();
 
         let mut list = WorkflowList::default();
         list.reset(
@@ -196,8 +196,8 @@ mod tests {
             ],
             vec![],
         );
-        app.workflows = Loadable::loaded(list);
-        app.counts = Loadable::loaded(StatusCounts::new(
+        app.view.workflows = Loadable::loaded(list);
+        app.view.counts = Loadable::loaded(StatusCounts::new(
             2,
             [(WorkflowStatus::Running, 1), (WorkflowStatus::Failed, 1)],
         ));
@@ -231,10 +231,10 @@ mod tests {
         ];
 
         let mut app = app_with_workflows(&["default"]);
-        app.screen = crate::app::Screen::History;
-        app.viewing = Some(wf("default", "order-1001", WorkflowStatus::Running, 0));
+        app.view.screen = crate::app::Screen::History;
+        app.view.viewing = Some(wf("default", "order-1001", WorkflowStatus::Running, 0));
         let groups = tmprl_core::history::group_events(&events);
-        app.history = Loadable::loaded(tmprl_core::outline::Outline::new(events, groups));
+        app.view.history = Loadable::loaded(tmprl_core::outline::Outline::new(events, groups));
         app
     }
 
@@ -295,7 +295,7 @@ mod tests {
         ];
         let groups = tmprl_core::history::group_events(&events);
         let mut app = app_with_history();
-        app.history = Loadable::loaded(tmprl_core::outline::Outline::new(events, groups));
+        app.view.history = Loadable::loaded(tmprl_core::outline::Outline::new(events, groups));
 
         let out = draw(&mut app, 110, 12);
         assert!(
@@ -309,7 +309,7 @@ mod tests {
         // A workflow id can be a UUID, and the history header shows it. Rendered at full
         // length it overwrites the right-hand tallies with no separator.
         let mut app = app_with_history();
-        app.viewing = Some(wf(
+        app.view.viewing = Some(wf(
             "default",
             "a24368a8-fcaf-4c19-bc07-0334f59ee9b1-and-then-some-more",
             WorkflowStatus::Running,
@@ -392,7 +392,7 @@ mod tests {
         ];
         let groups = tmprl_core::history::group_events(&events);
         let mut app = app_with_history();
-        app.history = Loadable::loaded(tmprl_core::outline::Outline::new(events, groups));
+        app.view.history = Loadable::loaded(tmprl_core::outline::Outline::new(events, groups));
         app
     }
 
@@ -457,7 +457,7 @@ mod tests {
         // A deep value: taller than any pane on a normal terminal.
         let big: String = (0..60).map(|i| format!("\"k{i}\":{i},")).collect();
         let json = format!("{{{}\"last\":1}}", big);
-        if let Some(o) = app.history.value_mut() {
+        if let Some(o) = app.view.history.value_mut() {
             let mut events = o.events().to_vec();
             events[1].payloads = vec![(
                 "input".into(),
@@ -471,7 +471,7 @@ mod tests {
 
         let out = draw(&mut app, 110, 20);
         assert!(
-            app.detail_max_scroll > 0,
+            app.view.detail_max_scroll > 0,
             "the payload should overflow the pane"
         );
         assert!(
@@ -480,9 +480,9 @@ mod tests {
         );
 
         // And it actually scrolls.
-        let before = app.detail_scroll;
+        let before = app.view.detail_scroll;
         app.run("history.detail-down", Some(5));
-        assert!(app.detail_scroll > before);
+        assert!(app.view.detail_scroll > before);
     }
 
     #[test]
@@ -491,7 +491,7 @@ mod tests {
         let mut app = app_with_payloads();
         // Only a payload taller than the pane can be scrolled at all.
         let big: String = (0..60).map(|i| format!("\"k{i}\":{i},")).collect();
-        if let Some(o) = app.history.value_mut() {
+        if let Some(o) = app.view.history.value_mut() {
             let mut events = o.events().to_vec();
             events[1].payloads = vec![(
                 "input".into(),
@@ -504,11 +504,11 @@ mod tests {
         app.run("history.detail", None);
         let _ = draw(&mut app, 110, 20); // the renderer is what learns how far it can scroll
         app.run("history.detail-down", Some(2));
-        assert!(app.detail_scroll > 0);
+        assert!(app.view.detail_scroll > 0);
 
         app.run("motion.down", None);
         assert_eq!(
-            app.detail_scroll, 0,
+            app.view.detail_scroll, 0,
             "a different value must be shown from its start"
         );
     }
@@ -610,7 +610,7 @@ mod tests {
         let mut app = app_with_history();
         assert!(!draw(&mut app, 110, 12).contains("FOLLOW"));
 
-        app.following = true;
+        app.view.following = true;
         let out = draw(&mut app, 110, 12);
         assert!(out.contains("FOLLOW"), "follow indicator missing:\n{out}");
         assert!(out.contains("NORMAL"), "the mode is still shown:\n{out}");
@@ -670,7 +670,7 @@ mod tests {
             "query bar must be visible with an empty query"
         );
 
-        app.query = "ExecutionStatus = 'Failed'".into();
+        app.view.query = "ExecutionStatus = 'Failed'".into();
         let out = draw(&mut app, 110, 12);
         assert!(
             out.contains("ExecutionStatus = 'Failed'"),
@@ -681,7 +681,7 @@ mod tests {
     #[test]
     fn editing_the_query_shows_the_live_text_not_the_applied_one() {
         let mut app = app_with_workflows(&["default"]);
-        app.query = "A = 1".into();
+        app.view.query = "A = 1".into();
         app.run("mode.insert", None);
         for c in "23".chars() {
             app.handle(crate::app::Msg::Key(Chord::ch(c)));
@@ -726,12 +726,12 @@ mod tests {
     #[test]
     fn an_empty_result_distinguishes_no_data_from_a_filter() {
         let mut app = app_with_workflows(&["default"]);
-        app.workflows = Loadable::loaded(WorkflowList::default());
+        app.view.workflows = Loadable::loaded(WorkflowList::default());
 
         let out = draw(&mut app, 110, 12);
         assert!(out.contains("no workflows in this namespace"), "{out}");
 
-        app.query = "ExecutionStatus = 'Failed'".into();
+        app.view.query = "ExecutionStatus = 'Failed'".into();
         let out = draw(&mut app, 110, 12);
         assert!(
             out.contains("no workflows match this query"),
@@ -770,7 +770,7 @@ mod tests {
     #[test]
     fn rows_are_listed_with_a_hybrid_relative_gutter() {
         let mut app = app_with_rows();
-        app.cursor = 1;
+        app.view.cursor = 1;
         let out = draw(&mut app, 90, 12);
         assert!(out.contains("payments"), "rows missing:\n{out}");
 
@@ -906,13 +906,13 @@ mod tests {
         app.run("app.help", None);
         app.run("motion.down", None);
         assert_eq!(
-            app.cursor, 0,
+            app.view.cursor, 0,
             "help was open; the list cursor must not move"
         );
 
         app.run("app.cancel", None);
         app.run("motion.down", None);
-        assert_eq!(app.cursor, 1);
+        assert_eq!(app.view.cursor, 1);
         assert_eq!(app.help_scroll, 0, "closing help resets its scroll");
     }
 
