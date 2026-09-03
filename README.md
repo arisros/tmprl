@@ -199,7 +199,7 @@ view key is reported in the statusline at startup rather than quietly skipped.
 crates/tmprl-client   all network IO — gRPC, TLS, codec, profiles built,  43 tests
 crates/tmprl-core     domain logic — modes, keymap, histories   built, 120 tests
 crates/tmprl-tui      ratatui rendering and input               built, 109 tests
-crates/tmprl-ui       window tree — splits, tabs, focus         planned (M2)
+crates/tmprl-ui       window tree — splits, tabs, focus         built,  35 tests (not yet wired)
 ```
 
 The split exists so the hard logic — reconstructing histories, compiling visibility queries,
@@ -211,7 +211,8 @@ diffing runs — lands in a layer that needs neither a terminal nor a server to 
 - [x] **M0a** gRPC layer, profile loading, integration tests
 - [x] **M0b** event loop, command registry, modal keymap, statusline, which-key, yank
 - [x] **M1** workflow list, visibility queries, saved views, multi-namespace, `keys.toml`
-- [ ] **M2** history views, follow mode, jq, codec server *(all done)* — window tree remains
+- [ ] **M2** history views, follow mode, jq, codec server *(done)*; window tree engine
+      *(done)*, its wiring into the interface remains
 - [ ] **M3** mutations — signal, cancel, terminate, reset, update, delete
 - [ ] **M4** schedules
 - [ ] **M5** batch operations
