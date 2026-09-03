@@ -2,6 +2,7 @@
 //! is mutated except the viewport height, which the layout is what determines.
 
 mod cmdline;
+mod detail;
 mod help;
 mod history;
 mod namespaces;
@@ -41,6 +42,15 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         Screen::Workflows => {
             query::render(frame, query_bar, app, &theme);
             workflows::render(frame, body, app, &theme);
+        }
+        Screen::History if app.show_detail => {
+            // Roughly half each: enough list to keep your place, enough pane to read a
+            // payload without scrolling for every value.
+            let [list, pane] =
+                Layout::vertical([Constraint::Min(3), Constraint::Percentage(50)]).areas(body);
+            app.page = list.height.saturating_sub(1) as usize;
+            history::render(frame, list, app, &theme);
+            detail::render(frame, pane, app, &theme);
         }
         Screen::History => history::render(frame, body, app, &theme),
     }
@@ -313,6 +323,190 @@ mod tests {
         }
     }
 
+    /// A history whose activity carries a JSON input and result.
+    fn app_with_payloads() -> App {
+        use tmprl_core::history::{
+            Category as C, GroupRef as G, NormalizedEvent, Outcome as O, Role as R,
+        };
+        use tmprl_core::payload::Payload;
+
+        let mut scheduled = NormalizedEvent::new(
+            4,
+            "ACTIVITY_TASK_SCHEDULED",
+            C::Activity,
+            G::Opened(4),
+            R::Opens,
+        )
+        .with_time(Some(4_000))
+        .with_subject("ChargeCard");
+        scheduled.payloads.push((
+            "input".into(),
+            Payload::new("json/plain", br#"{"amount":100,"currency":"GBP"}"#.to_vec()),
+        ));
+        let mut completed = NormalizedEvent::new(
+            6,
+            "ACTIVITY_TASK_COMPLETED",
+            C::Activity,
+            G::Opened(4),
+            R::Closes,
+        )
+        .with_time(Some(6_000))
+        .with_outcome(O::Completed);
+        completed.payloads.push((
+            "result".into(),
+            Payload::new("json/plain", b"\"charged\"".to_vec()),
+        ));
+        let mut secret = NormalizedEvent::new(
+            7,
+            "ACTIVITY_TASK_SCHEDULED",
+            C::Activity,
+            G::Opened(7),
+            R::Opens,
+        )
+        .with_time(Some(7_000))
+        .with_subject("Secret");
+        secret.payloads.push((
+            "input".into(),
+            Payload::new("binary/encrypted", vec![0u8; 32]),
+        ));
+
+        let events = vec![
+            NormalizedEvent::new(
+                1,
+                "WORKFLOW_EXECUTION_STARTED",
+                C::Workflow,
+                G::Workflow,
+                R::Opens,
+            )
+            .with_time(Some(1_000))
+            .with_subject("OrderWorkflow"),
+            scheduled,
+            completed,
+            secret,
+        ];
+        let groups = tmprl_core::history::group_events(&events);
+        let mut app = app_with_history();
+        app.history = Loadable::loaded(tmprl_core::outline::Outline::new(events, groups));
+        app
+    }
+
+    #[test]
+    fn the_payload_pane_is_closed_until_asked_for() {
+        let mut app = app_with_payloads();
+        let out = draw(&mut app, 110, 20);
+        assert!(
+            !out.contains("payloads"),
+            "the pane should start closed:\n{out}"
+        );
+        assert!(
+            !out.contains("amount"),
+            "no payload should be shown:\n{out}"
+        );
+    }
+
+    #[test]
+    fn the_payload_pane_shows_input_and_result_for_a_group() {
+        // A group's arguments live on the event that opened it and its result on the event
+        // that closed it, so the pane has to gather from both.
+        let mut app = app_with_payloads();
+        app.run("motion.down", None); // the ChargeCard group
+        app.run("history.detail", None);
+
+        let out = draw(&mut app, 110, 20);
+        assert!(out.contains("payloads"), "pane missing:\n{out}");
+        assert!(out.contains("input"), "input label missing:\n{out}");
+        assert!(out.contains("result"), "result label missing:\n{out}");
+        assert!(
+            out.contains("\"amount\": 100"),
+            "JSON should be pretty-printed:\n{out}"
+        );
+        assert!(out.contains("charged"), "result value missing:\n{out}");
+    }
+
+    #[test]
+    fn an_encrypted_payload_says_it_needs_a_codec_rather_than_showing_bytes() {
+        let mut app = app_with_payloads();
+        app.run("motion.bottom", None); // the Secret group
+        app.run("history.detail", None);
+
+        let out = draw(&mut app, 110, 20);
+        assert!(out.contains("encrypted"), "should be labelled:\n{out}");
+        assert!(out.contains("codec"), "should say what is needed:\n{out}");
+    }
+
+    #[test]
+    fn a_row_carrying_nothing_says_so() {
+        // A pane showing only a title reads as broken; plenty of events carry no payload.
+        let mut app = app_with_payloads();
+        app.run("motion.top", None); // the workflow group, no payloads in this fixture
+        app.run("history.detail", None);
+        let out = draw(&mut app, 110, 20);
+        assert!(out.contains("no payloads on this group"), "{out}");
+    }
+
+    #[test]
+    fn a_tall_payload_scrolls_rather_than_clipping_silently() {
+        use tmprl_core::payload::Payload;
+        let mut app = app_with_payloads();
+        // A deep value: taller than any pane on a normal terminal.
+        let big: String = (0..60).map(|i| format!("\"k{i}\":{i},")).collect();
+        let json = format!("{{{}\"last\":1}}", big);
+        if let Some(o) = app.history.value_mut() {
+            let mut events = o.events().to_vec();
+            events[1].payloads = vec![(
+                "input".into(),
+                Payload::new("json/plain", json.into_bytes()),
+            )];
+            let groups = tmprl_core::history::group_events(&events);
+            o.replace(events, groups);
+        }
+        app.run("motion.down", None);
+        app.run("history.detail", None);
+
+        let out = draw(&mut app, 110, 20);
+        assert!(
+            app.detail_max_scroll > 0,
+            "the payload should overflow the pane"
+        );
+        assert!(
+            out.contains("to scroll"),
+            "an overflowing pane must say so:\n{out}"
+        );
+
+        // And it actually scrolls.
+        let before = app.detail_scroll;
+        app.run("history.detail-down", Some(5));
+        assert!(app.detail_scroll > before);
+    }
+
+    #[test]
+    fn moving_the_cursor_restarts_the_payload_pane_at_the_top() {
+        use tmprl_core::payload::Payload;
+        let mut app = app_with_payloads();
+        // Only a payload taller than the pane can be scrolled at all.
+        let big: String = (0..60).map(|i| format!("\"k{i}\":{i},")).collect();
+        if let Some(o) = app.history.value_mut() {
+            let mut events = o.events().to_vec();
+            events[1].payloads = vec![(
+                "input".into(),
+                Payload::new("json/plain", format!("{{{big}\"last\":1}}").into_bytes()),
+            )];
+            let groups = tmprl_core::history::group_events(&events);
+            o.replace(events, groups);
+        }
+        app.run("motion.down", None);
+        app.run("history.detail", None);
+        let _ = draw(&mut app, 110, 20); // the renderer is what learns how far it can scroll
+        app.run("history.detail-down", Some(2));
+        assert!(app.detail_scroll > 0);
+
+        app.run("motion.down", None);
+        assert_eq!(
+            app.detail_scroll, 0,
+            "a different value must be shown from its start"
+        );
+    }
+
     #[test]
     fn following_is_announced_in_the_statusline() {
         // A view that rewrites itself while you read it must say so, or a changing screen
@@ -557,12 +751,21 @@ mod tests {
         );
         assert!(out.contains("Application"), "first group missing:\n{out}");
 
-        // The last group is reachable by scrolling.
+        // The last group is reachable by scrolling. Whatever group is registered last, the
+        // point is that adding commands must not push one off the bottom unreachably.
         app.run("motion.bottom", None);
         let out = draw(&mut app, 90, 16);
+        let last_group = app.registry.groups().last().copied().unwrap();
+        let last_id = app
+            .registry
+            .all()
+            .iter()
+            .rfind(|c| c.group == last_group)
+            .unwrap()
+            .id;
         assert!(
-            out.contains("list.more"),
-            "the last group must be reachable:\n{out}"
+            out.contains(last_id),
+            "the last command ({last_id}) must be reachable:\n{out}"
         );
     }
 
