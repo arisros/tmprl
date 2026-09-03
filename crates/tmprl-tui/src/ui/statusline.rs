@@ -10,6 +10,24 @@ use crate::app::{App, Note, Screen};
 use crate::theme::Theme;
 
 pub fn render_header(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
+    // The right-hand summary is laid out first, because what is left over is the budget
+    // the left side has to fit in. Rendering the left side at full length and the summary
+    // on top of it is how the two collide on a narrow terminal or a long workflow id.
+    let right = match app.screen {
+        Screen::Namespaces => namespace_summary(app, t),
+        Screen::Workflows => workflow_summary(app, t),
+        Screen::History => history_summary(app, t),
+    };
+    let right_width: usize = right.iter().map(|s| s.content.chars().count()).sum();
+
+    // Everything on the left except the scope: " tmprl profile=<name>  ns=".
+    let fixed = " tmprl profile=  ns=".len() + app.profile().chars().count();
+    let budget = (area.width as usize)
+        .saturating_sub(right_width + fixed + 3)
+        .max(8);
+    // The scope is the part that varies without bound, so it is the part that gives way.
+    let scope = super::truncate(&scope_label(app), budget);
+
     let left = Line::from(vec![
         Span::styled(
             " tmprl ",
@@ -18,20 +36,15 @@ pub fn render_header(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
         Span::styled("profile=", Style::new().fg(t.faint)),
         Span::styled(app.profile().to_string(), Style::new().fg(t.fg)),
         Span::styled("  ns=", Style::new().fg(t.faint)),
-        Span::styled(scope_label(app), Style::new().fg(t.fg)),
+        Span::styled(scope, Style::new().fg(t.fg)),
     ]);
     frame.render_widget(Paragraph::new(left), area);
 
-    let right = match app.screen {
-        Screen::Namespaces => namespace_summary(app, t),
-        Screen::Workflows => workflow_summary(app, t),
-    };
-    let w: usize = right.iter().map(|s| s.content.chars().count()).sum();
-    if area.width as usize > w + 2 {
+    if area.width as usize > right_width + 2 {
         let r = Rect {
-            x: area.x + area.width - w as u16 - 1,
+            x: area.x + area.width - right_width as u16 - 1,
             y: area.y,
-            width: w as u16,
+            width: right_width as u16,
             height: 1,
         };
         frame.render_widget(Paragraph::new(Line::from(right)), r);
@@ -41,6 +54,10 @@ pub fn render_header(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
 /// What the list is scoped to. A fan-out over several namespaces is summarised rather than
 /// listed, because the header has one line and the rows carry the namespace anyway.
 fn scope_label(app: &App) -> String {
+    // On a history, the workflow being read is more use than the namespace scope.
+    if let Some(w) = &app.viewing {
+        return format!("{}  {}", w.namespace, w.workflow_id);
+    }
     match app.scope.len() {
         0 | 1 => app.namespace().to_string(),
         n => format!("{} +{}", app.scope[0], n - 1),
@@ -86,6 +103,45 @@ fn workflow_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
     // approximate, so summing them would understate the real number.
     spans.push(Span::styled(
         format!("{} total", counts.total),
+        Style::new().fg(t.dim),
+    ));
+    spans
+}
+
+/// What the history header shows: what is being read, and what went wrong in it.
+fn history_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
+    let Some(outline) = app.history.value() else {
+        return vec![Span::styled(
+            if app.history.is_loading() {
+                "loading history…"
+            } else {
+                ""
+            },
+            Style::new().fg(t.faint),
+        )];
+    };
+    let s = tmprl_core::outline::summarize(outline.groups());
+
+    let mut spans = Vec::new();
+    if s.failures > 0 {
+        // First, because it is why anyone opens a history.
+        spans.push(Span::styled(
+            format!("✗ {} failed  ", s.failures),
+            Style::new().fg(t.err).add_modifier(Modifier::BOLD),
+        ));
+    }
+    if s.in_flight > 0 {
+        spans.push(Span::styled(
+            format!("● {} running  ", s.in_flight),
+            Style::new().fg(t.accent),
+        ));
+    }
+    spans.push(Span::styled(
+        format!(
+            "{} activities  {} events",
+            s.activities,
+            outline.events().len()
+        ),
         Style::new().fg(t.dim),
     ));
     spans

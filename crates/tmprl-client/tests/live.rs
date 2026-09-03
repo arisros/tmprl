@@ -478,3 +478,106 @@ async fn paging_a_fan_out_terminates_and_visits_each_row_once() {
         "paging must visit every workflow exactly once"
     );
 }
+
+// ── history: normalisation and grouping against a real server ────────────────
+
+/// The typed history read, end to end. Event 1 is always `WorkflowExecutionStarted`, so
+/// normalisation has a fixed point to be checked against.
+#[tokio::test]
+async fn typed_history_normalises_a_real_workflow() {
+    let Some(c) = conn().await else { return };
+    let ns = c.namespace().to_string();
+
+    let page = c
+        .list_workflows(&ns, "", 1, Vec::new())
+        .await
+        .expect("list");
+    let Some(row) = page.rows.first() else {
+        eprintln!("SKIP: no workflows to read a history from");
+        return;
+    };
+
+    let hist = c
+        .get_history(&ns, &row.workflow_id, &row.run_id, 100, Vec::new())
+        .await
+        .expect("get_history");
+
+    assert!(!hist.events.is_empty(), "a history is never empty");
+
+    let first = &hist.events[0];
+    assert_eq!(first.id, 1, "history starts at event 1");
+    assert_eq!(
+        first.name, "WORKFLOW_EXECUTION_STARTED",
+        "event 1 is always WorkflowExecutionStarted"
+    );
+    assert_eq!(first.group, tmprl_core::history::GroupRef::Workflow);
+    assert_eq!(first.role, tmprl_core::history::Role::Opens);
+    assert!(
+        !first.subject.is_empty(),
+        "the start event names the workflow type"
+    );
+    assert_eq!(first.subject, row.workflow_type);
+
+    // Ids are dense and ascending — the grouping pass assumes history order.
+    let ids: Vec<i64> = hist.events.iter().map(|e| e.id).collect();
+    let mut sorted = ids.clone();
+    sorted.sort_unstable();
+    assert_eq!(ids, sorted, "events must arrive in history order");
+
+    // Every event carries a timestamp, which the group durations depend on.
+    assert!(
+        hist.events.iter().all(|e| e.time.is_some()),
+        "every history event is timestamped"
+    );
+}
+
+/// Grouping a real history. The workflow group must exist and reflect how the run ended,
+/// which is the same fact the workflow list shows — so the two must agree.
+#[tokio::test]
+async fn a_real_history_groups_consistently_with_the_list() {
+    use tmprl_core::history::{GroupRef, Outcome, group_events};
+
+    let Some(c) = conn().await else { return };
+    let ns = c.namespace().to_string();
+
+    // A closed workflow has a terminal event to check the outcome against.
+    let page = c
+        .list_workflows(&ns, "ExecutionStatus = 'Terminated'", 1, Vec::new())
+        .await
+        .expect("list terminated");
+    let Some(row) = page.rows.first() else {
+        eprintln!("SKIP: no terminated workflow to check a terminal outcome against");
+        return;
+    };
+
+    let hist = c
+        .get_history(&ns, &row.workflow_id, &row.run_id, 1000, Vec::new())
+        .await
+        .expect("get_history");
+    let groups = group_events(&hist.events);
+
+    let wf = groups
+        .iter()
+        .find(|g| g.key == GroupRef::Workflow)
+        .expect("every history has a workflow group");
+    assert_eq!(
+        wf.outcome,
+        Outcome::Terminated,
+        "the grouped outcome must match the status the list reported"
+    );
+    assert!(!wf.is_open(), "a terminated workflow is not still running");
+    assert_eq!(wf.first_event(), Some(1));
+
+    // Grouping must not lose or duplicate events.
+    let mut grouped: Vec<i64> = groups
+        .iter()
+        .flat_map(|g| g.events.iter().copied())
+        .collect();
+    grouped.sort_unstable();
+    let mut all: Vec<i64> = hist.events.iter().map(|e| e.id).collect();
+    all.sort_unstable();
+    assert_eq!(
+        grouped, all,
+        "grouping must account for every event exactly once"
+    );
+}

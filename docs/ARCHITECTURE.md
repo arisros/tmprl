@@ -1,9 +1,9 @@
 # Architecture
 
 > **Read this first.** This document mixes built code with design that is not written yet,
-> and every section says which it is. §§2–5 are implemented and tested; §§6–9 are still the
-> plan being built against, written down in advance so the shape is agreed before there is
-> code sitting on top of it.
+> and every section says which it is. §§2–6 are implemented and tested; §§7–9 are still
+> the plan being built against, written down in advance so the shape is agreed before there
+> is code sitting on top of it.
 >
 > | Marker | Meaning |
 > |---|---|
@@ -61,9 +61,9 @@ project testable:
 
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
-| `tmprl-client` | built | Integration tests against `temporal server start-dev` | 18 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 75 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 49 |
+| `tmprl-client` | built | Integration tests against `temporal server start-dev` | 27 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 99 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 69 |
 | `tmprl-ui` | planned (M2) | Plain unit tests over the layout tree | — |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -247,39 +247,76 @@ point, so the continuation token is per namespace rather than one token for the 
 
 ---
 
-## 6. Reconstructing history · PLANNED
+## 6. Reconstructing history · BUILT
 
 This is the part that makes the difference between a port and a wrapper.
 
 ### What the server sends
 
 A flat, ordered list of `HistoryEvent`. An activity that failed once and then succeeded
-produces something like:
+produces:
 
 ```
  5  ActivityTaskScheduled       activity_id="charge", type="ChargeCard"
- 6  ActivityTaskStarted         scheduled_event_id=5
- 7  ActivityTaskFailed          scheduled_event_id=5, started_event_id=6
- 8  ActivityTaskScheduled       activity_id="charge"          ← retry
- 9  ActivityTaskStarted         scheduled_event_id=8
-10  ActivityTaskCompleted       scheduled_event_id=8, started_event_id=9
+ 6  ActivityTaskStarted         scheduled_event_id=5, attempt=2,
+                                last_failure="card declined"
+ 7  ActivityTaskCompleted       scheduled_event_id=5, started_event_id=6
 ```
 
-Six rows. One thing happened.
+Three rows. One thing happened.
+
+> **Corrected.** This section previously showed the retry as a *second*
+> `ActivityTaskScheduled` at event 8, with the later events back-referencing it. That is not
+> what Temporal does. Retries are transparent: one scheduling event covers every attempt, and
+> `ActivityTaskStarted` carries `attempt` ("starting at 1, the number of times this task has
+> been attempted") together with `last_failure` ("the most recent failure details, if this
+> task has previously failed and then been retried"). Both quotes are from the protobuf
+> definitions. Grouping code written against the old sketch would have looked for a second
+> scheduling event that never arrives, and would have reported every retried activity as one
+> attempt.
+>
+> Confirmed against a real worker, not just the protobuf comments. An activity that failed
+> twice and then succeeded produces exactly the three events above — `ActivityTaskScheduled`
+> once, at event 5, with `ActivityTaskStarted` carrying `attempt=3`.
 
 ### What we build from it
 
-**Stage 1 — normalise.** Each proto event becomes a `NormalizedEvent { id, time, group_key,
-kind, title, fields, links }` through a single `match` over the attributes `oneof`.
+**Stage 1 — normalise · BUILT.** Each proto event becomes a `NormalizedEvent { id, time,
+name, category, group, role, outcome, subject, attempt, failure, fields }` through a single
+`match` over the attributes `oneof`, in `tmprl-client`. Sixty arms, one per event type.
 
 That match is **exhaustive on purpose**. Temporal adds event types over time (Nexus and
 worker-versioning events are recent additions). With a `_ => {}` arm, a new event type renders
 as a blank row and nobody notices for months. Exhaustive, it is a compile error the moment we
 bump the protos — which is exactly when we want to hear about it.
 
-**Stage 2 — group.** Events are folded into groups by following their back-references
-(`scheduled_event_id`, `initiated_event_id`, `started_event_id`). The six rows above become
-one `ActivityGroup` with two attempts, a final status of `Completed`, and a duration.
+The grouping key is not uniform across the protocol, so each arm names the back-reference it
+follows rather than sharing a guess:
+
+| Family | Key |
+|---|---|
+| activities, workflow tasks, Nexus operations | `scheduled_event_id` |
+| child and external workflows | `initiated_event_id` |
+| timers | `started_event_id` — the id of the `TimerStarted` event |
+| updates | `accepted_event_id` |
+| the workflow itself | no key; one group per execution |
+
+`workflow_task_completed_event_id` is on most of these too and is *not* the key. It points at
+the workflow task that issued the command, so following it would file every activity, timer
+and child workflow under the task that scheduled it.
+
+**Stage 2 — group · BUILT.** Normalised events are folded into groups in one forward pass,
+in `tmprl-core`, where the rules are tested with hand-built events and no server. The three
+rows above become one group with two attempts, a final outcome of `Completed`, and a duration.
+
+Groups are keyed by the id of the event that opened them, because that is what every
+back-reference in the protocol actually points at. Two properties are worth stating:
+
+- **Interleaving is normal.** Several activities run at once and their events arrive
+  interleaved, so a group is assembled by key, never by adjacency.
+- **An orphan opens its own group.** A page that starts mid-run back-references events it does
+  not contain. Dropping those would render the page empty and look like a bug in tmprl, so an
+  unmatched event opens a partial group instead.
 
 Groups are the unit of everything downstream:
 
@@ -288,10 +325,25 @@ Groups are the unit of everything downstream:
 - **Outline** — a collapsible tree of groups, for jumping around a long history
 - **Diff** — two histories aligned by group key, via LCS
 
-**Stage 3 — virtualise.** Only the visible slice is ever turned into rendered rows. Scrolling
-a 100k-event history moves an index; it does not rebuild a list. A minimap strip down the
-right edge shows failure density across the whole history, which is how you find the
-interesting part of a long run without scrolling through it.
+**Stage 3 — virtualise · BUILT.** Only the visible slice is ever turned into rendered rows.
+Scrolling a 100k-event history moves an index; it does not rebuild a list.
+
+`Outline` keeps one cumulative-offset table over the visible groups, rebuilt when the *shape*
+changes — a group folded, plumbing toggled — and never while scrolling. A row lookup is then a
+binary search over that table, so asking for row 84,102 costs the same as asking for row 0.
+`len()` is the last entry in that table rather than a count of anything.
+
+Two consequences that are easy to get wrong, both pinned by tests:
+
+- **Folding shut from inside a group** would strand the cursor past the end, so `toggle`
+  returns the row the group's own line now occupies and the cursor moves there.
+- **The summary must not count what the outline hides.** Workflow tasks are folded away by
+  default; reporting one as "running" in the header sends the reader hunting for a row that is
+  not on screen.
+
+Still planned: the minimap strip down the right edge showing failure density across the whole
+history. `]f` and `[f` already jump between failures, which serves the same need with a key
+rather than a picture.
 
 ---
 
