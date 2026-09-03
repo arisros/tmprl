@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use tmprl_client::{Codec, Conn, NamespaceInfo};
 use tmprl_core::history::{NormalizedEvent, group_events, merge_events};
+use tmprl_core::mutation::{Confirm, Mutation};
 use tmprl_core::outline::{Outline, Row};
 use tmprl_core::payload::Payload;
 use tmprl_core::{
@@ -41,6 +42,15 @@ pub enum Screen {
     History,
 }
 
+/// Which mutation a key asked for, before it is turned into a `Mutation` with a target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MutationKind {
+    Cancel,
+    Terminate,
+    Signal,
+    Delete,
+}
+
 /// What a prompt at the bottom of the screen is collecting.
 ///
 /// Both prompts edit identically — the same keys, the same backspace-on-empty-closes rule —
@@ -52,6 +62,8 @@ pub enum PromptKind {
     Command,
     /// `!` — a shell command to filter the focused payloads through.
     Pipe,
+    /// The name of a signal to send.
+    Signal,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,6 +78,7 @@ impl Prompt {
         match self.kind {
             PromptKind::Command => ":",
             PromptKind::Pipe => "!",
+            PromptKind::Signal => "signal:",
         }
     }
 }
@@ -112,6 +125,11 @@ pub enum Msg {
     },
     /// Output of an external command a `!` filter ran.
     Piped(Result<String, String>),
+    /// A mutation finished, one way or the other.
+    Mutated {
+        mutation: Box<Mutation>,
+        result: Result<(), String>,
+    },
     /// Payloads a codec server decoded, paired with the hash of what was sent.
     Decoded(Result<Vec<(u64, Payload)>, String>),
     /// A page of a workflow's history, already normalised by the client.
@@ -168,6 +186,9 @@ pub struct App {
     pub help_max_scroll: usize,
     /// `Some` while a `:` or `!` prompt is open.
     pub prompt: Option<Prompt>,
+    /// `Some` while a destructive action is waiting to be confirmed. Nothing has happened to
+    /// the cluster while this is set.
+    pub confirm: Option<Confirm>,
     pub insert_buf: String,
     pub insert_target: InsertTarget,
 
@@ -220,6 +241,7 @@ impl App {
             help_scroll: 0,
             help_max_scroll: 0,
             prompt: None,
+            confirm: None,
             insert_buf: String::new(),
             insert_target: InsertTarget::Scratch,
             note: None,
@@ -318,6 +340,28 @@ impl App {
             Msg::Key(chord) => self.on_key(chord),
             Msg::Quit => self.should_quit = true,
             Msg::Tick | Msg::Redraw => {}
+            Msg::Mutated { mutation, result } => {
+                let outcome = match &result {
+                    Ok(()) => "ok".to_string(),
+                    Err(e) => format!("failed: {e}"),
+                };
+                self.audit(&mutation, &outcome);
+                match result {
+                    Ok(()) => {
+                        self.note = Some((
+                            format!(
+                                "{}d {}",
+                                mutation.verb().to_lowercase(),
+                                mutation.workflow_id()
+                            ),
+                            Note::Info,
+                        ));
+                        // The list is now out of date about the thing just changed.
+                        self.refresh();
+                    }
+                    Err(e) => self.note = Some((e, Note::Error)),
+                }
+            }
             Msg::Piped(result) => {
                 self.view.piped = Some(result);
                 self.view.detail_scroll = 0;
@@ -434,6 +478,12 @@ impl App {
     fn on_key(&mut self, chord: Chord) {
         // The command line owns every key while it is open, so that `:` can accept a name
         // containing characters that are bound elsewhere.
+        // A pending destructive action owns every key: nothing bound elsewhere should be
+        // able to fire while one is waiting.
+        if self.confirm.is_some() {
+            self.confirm_key(chord);
+            return;
+        }
         if self.prompt.is_some() {
             self.prompt_key(chord);
             return;
@@ -579,6 +629,11 @@ impl App {
             Action::DetailDown => self.scroll_detail(n as isize),
             Action::DetailUp => self.scroll_detail(-(n as isize)),
             Action::OpenPipe => self.open_pipe(),
+
+            Action::CancelWorkflow => self.confirm_mutation(MutationKind::Cancel),
+            Action::TerminateWorkflow => self.confirm_mutation(MutationKind::Terminate),
+            Action::SignalWorkflow => self.confirm_mutation(MutationKind::Signal),
+            Action::DeleteWorkflow => self.confirm_mutation(MutationKind::Delete),
 
             Action::SplitRight => self.split(Axis::Columns),
             Action::SplitDown => self.split(Axis::Rows),
@@ -1160,6 +1215,7 @@ impl App {
                 match kind {
                     PromptKind::Command => self.run_typed_command(&entered),
                     PromptKind::Pipe => self.run_pipe(entered),
+                    PromptKind::Signal => self.confirm_signal(entered),
                 }
             }
             // Backspace on an empty line closes the prompt, as it does in vim.
@@ -1313,6 +1369,138 @@ impl App {
     /// A non-focused pane's state, for rendering it.
     pub fn parked_view(&self, id: ViewId) -> Option<&View> {
         self.parked.get(&id)
+    }
+
+    // ── mutations ────────────────────────────────────────────────────────────
+
+    /// The workflow a mutation would act on: the row under the cursor on the workflow list,
+    /// or the one whose history is open.
+    fn target_workflow(&self) -> Option<WorkflowRow> {
+        match self.view.screen {
+            Screen::Workflows => self.view.workflow_rows().get(self.view.cursor).cloned(),
+            Screen::History => self.view.viewing.clone(),
+            Screen::Namespaces => None,
+        }
+    }
+
+    /// Open the confirmation for a mutation. Nothing happens to the cluster here.
+    fn confirm_mutation(&mut self, kind: MutationKind) {
+        let Some(row) = self.target_workflow() else {
+            self.note = Some(("no workflow under the cursor".into(), Note::Warn));
+            return;
+        };
+        let (namespace, workflow_id, run_id) = (
+            row.namespace.clone(),
+            row.workflow_id.clone(),
+            row.run_id.clone(),
+        );
+
+        let mutation = match kind {
+            MutationKind::Cancel => Mutation::Cancel {
+                namespace,
+                workflow_id,
+                run_id,
+            },
+            MutationKind::Terminate => Mutation::Terminate {
+                namespace,
+                workflow_id,
+                run_id,
+                // A reason is required by the API and useful in the history. Editing it
+                // before confirming is M4 work; a default beats an empty string.
+                reason: "terminated from tmprl".into(),
+            },
+            MutationKind::Delete => Mutation::Delete {
+                namespace,
+                workflow_id,
+                run_id,
+            },
+            MutationKind::Signal => {
+                // A signal needs a name, which has to be typed. Reuse the prompt rather
+                // than inventing a second text field.
+                self.prompt = Some(Prompt {
+                    kind: PromptKind::Signal,
+                    buf: String::new(),
+                });
+                self.mode = Mode::Command;
+                return;
+            }
+        };
+        self.confirm = Some(Confirm::new(mutation));
+    }
+
+    /// Turn a typed signal name into a confirmation.
+    fn confirm_signal(&mut self, name: String) {
+        let Some(row) = self.target_workflow() else {
+            return;
+        };
+        self.confirm = Some(Confirm::new(Mutation::Signal {
+            namespace: row.namespace,
+            workflow_id: row.workflow_id,
+            run_id: row.run_id,
+            name,
+            input: None,
+        }));
+    }
+
+    /// Keys while a confirmation is up.
+    ///
+    /// This owns every key, so nothing bound elsewhere can act while a destructive action is
+    /// pending. Enter is the only way forward and Esc is always a way out.
+    fn confirm_key(&mut self, chord: Chord) {
+        use tmprl_core::Key;
+        let Some(confirm) = self.confirm.as_mut() else {
+            return;
+        };
+        match chord.key {
+            Key::Esc => {
+                self.confirm = None;
+                self.note = Some(("cancelled".into(), Note::Info));
+            }
+            Key::Enter if confirm.is_satisfied() => {
+                let mutation = confirm.mutation.clone();
+                self.confirm = None;
+                self.run_mutation(mutation);
+            }
+            // Enter with the word unfinished is not a refusal, just not yet.
+            Key::Enter => {}
+            Key::Backspace => {
+                confirm.entered.pop();
+            }
+            Key::Char(c) if chord.mods.is_none() => confirm.entered.push(c),
+            _ => {}
+        }
+    }
+
+    /// Send it. Spawned like every other RPC — a mutation must not freeze a keystroke either.
+    fn run_mutation(&mut self, mutation: Mutation) {
+        let Some(conn) = self.conn.clone() else {
+            return;
+        };
+        self.note = Some((format!("{}…", mutation.verb().to_lowercase()), Note::Info));
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            let result = conn.mutate(&mutation).await.map_err(|e| e.to_string());
+            let _ = tx.send(Msg::Mutated {
+                mutation: Box::new(mutation),
+                result,
+            });
+        });
+    }
+
+    /// Record what was attempted, whether or not it worked.
+    ///
+    /// Appended, never rewritten, and failures go in too: the log is what was *attempted*,
+    /// which is the question being asked when someone reads it.
+    fn audit(&mut self, mutation: &Mutation, outcome: &str) {
+        let at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        if let Err(e) = crate::config::append_audit(&mutation.audit_line(at, outcome)) {
+            // A failed audit write must not be silent: the log is the record that an
+            // irreversible thing happened.
+            self.note = Some((format!("audit log: {e}"), Note::Error));
+        }
     }
 
     // ── codec server ─────────────────────────────────────────────────────────
@@ -2817,6 +3005,152 @@ mod tests {
         app.run("window.close", None);
         assert!(!app.view.following, "the survivor was never following");
         assert_eq!(app.tabs.current().len(), 1);
+    }
+
+    // ── mutations ────────────────────────────────────────────────────────────
+
+    fn on_a_workflow() -> App {
+        let mut app = app();
+        loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
+        app
+    }
+
+    #[test]
+    fn a_mutation_key_only_opens_a_confirmation() {
+        // Nothing reaches the cluster until the reader says yes.
+        let mut app = on_a_workflow();
+        app.run("workflow.terminate", None);
+
+        let c = app.confirm.clone().expect("a confirmation should open");
+        assert_eq!(c.mutation.verb(), "Terminate");
+        assert_eq!(c.mutation.workflow_id(), "order-r1");
+        assert_eq!(c.mutation.namespace(), "default");
+    }
+
+    #[test]
+    fn a_confirmation_owns_every_key_while_it_is_up() {
+        // Nothing bound elsewhere may fire while a destructive action is pending.
+        let mut app = on_a_workflow();
+        let before = app.view.cursor;
+        app.run("workflow.terminate", None);
+
+        app.handle(Msg::Key(Chord::ch('j')));
+        assert_eq!(app.view.cursor, before, "j must not move the cursor");
+        assert!(
+            app.confirm.is_some(),
+            "and must not dismiss the confirmation"
+        );
+
+        app.handle(Msg::Key(Chord::ch(' ')));
+        assert!(
+            app.which_key.is_empty(),
+            "the leader must not open which-key"
+        );
+    }
+
+    #[test]
+    fn escape_always_backs_out() {
+        let mut app = on_a_workflow();
+        app.run("workflow.terminate", None);
+        app.handle(Msg::Key(Chord::plain(tmprl_core::Key::Esc)));
+
+        assert!(app.confirm.is_none());
+        let (msg, _) = app.note.clone().unwrap();
+        assert_eq!(msg, "cancelled");
+    }
+
+    #[test]
+    fn deleting_costs_a_word_and_nearly_is_not_enough() {
+        let mut app = on_a_workflow();
+        app.run("workflow.delete", None);
+        let c = app.confirm.clone().unwrap();
+        assert_eq!(c.typed_word.as_deref(), Some("delete"));
+
+        // Enter with the word unfinished is not a refusal, just not yet.
+        for ch in "delet".chars() {
+            app.handle(Msg::Key(Chord::ch(ch)));
+        }
+        app.handle(Msg::Key(Chord::plain(tmprl_core::Key::Enter)));
+        assert!(app.confirm.is_some(), "still waiting for the word");
+
+        app.handle(Msg::Key(Chord::ch('e')));
+        assert!(app.confirm.clone().unwrap().is_satisfied());
+    }
+
+    #[test]
+    fn a_mutation_needs_something_under_the_cursor() {
+        let mut app = app(); // namespace screen, nothing selected
+        app.run("workflow.terminate", None);
+        assert!(app.confirm.is_none());
+        assert!(matches!(app.note, Some((_, Note::Warn))));
+    }
+
+    #[test]
+    fn a_history_screen_mutates_the_workflow_it_is_showing() {
+        let mut app = on_a_workflow();
+        app.run("nav.open", None);
+        assert_eq!(app.view.screen, Screen::History);
+
+        app.run("workflow.cancel", None);
+        let c = app
+            .confirm
+            .clone()
+            .expect("the open workflow is the target");
+        assert_eq!(c.mutation.workflow_id(), "order-r1");
+    }
+
+    #[test]
+    fn a_signal_asks_for_its_name_before_confirming() {
+        let mut app = on_a_workflow();
+        app.run("workflow.signal", None);
+        assert!(app.confirm.is_none(), "a signal needs a name first");
+        assert_eq!(app.prompt.clone().unwrap().kind, PromptKind::Signal);
+
+        for ch in "retry".chars() {
+            app.handle(Msg::Key(Chord::ch(ch)));
+        }
+        app.handle(Msg::Key(Chord::plain(tmprl_core::Key::Enter)));
+
+        let c = app.confirm.clone().expect("now it can be confirmed");
+        assert!(
+            c.mutation.cli().contains("--name retry"),
+            "{}",
+            c.mutation.cli()
+        );
+        assert!(!c.mutation.is_destructive(), "a signal is not a loss");
+    }
+
+    #[test]
+    fn a_finished_mutation_reports_and_refreshes() {
+        let mut app = on_a_workflow();
+        let m = Mutation::Cancel {
+            namespace: "default".into(),
+            workflow_id: "order-r1".into(),
+            run_id: "r1".into(),
+        };
+        app.handle(Msg::Mutated {
+            mutation: Box::new(m),
+            result: Ok(()),
+        });
+        let (msg, kind) = app.note.clone().unwrap();
+        assert_eq!(kind, Note::Info);
+        assert!(msg.contains("order-r1"), "got {msg}");
+    }
+
+    #[test]
+    fn a_failed_mutation_shows_the_servers_reason() {
+        let mut app = on_a_workflow();
+        app.handle(Msg::Mutated {
+            mutation: Box::new(Mutation::Cancel {
+                namespace: "default".into(),
+                workflow_id: "w".into(),
+                run_id: "r".into(),
+            }),
+            result: Err("PermissionDenied: not allowed".into()),
+        });
+        let (msg, kind) = app.note.clone().unwrap();
+        assert_eq!(kind, Note::Error);
+        assert!(msg.contains("PermissionDenied"), "got {msg}");
     }
 
     #[test]

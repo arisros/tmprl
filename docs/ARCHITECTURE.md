@@ -1,9 +1,9 @@
 # Architecture
 
 > **Read this first.** This document mixes built code with design that is not written yet,
-> and every section says which it is. §§2–6 and §8 are implemented and tested; §7 and §9
-> are still the plan being built against, written down in advance so the shape is agreed
-> before there is code sitting on top of it.
+> and every section says which it is. §§2–8 are implemented and tested and §9 partly so;
+> what remains is written down in advance so the shape is agreed before there is code
+> sitting on top of it.
 >
 > | Marker | Meaning |
 > |---|---|
@@ -61,9 +61,9 @@ project testable:
 
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
-| `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 43 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 120 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 118 |
+| `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 46 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 131 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 127 |
 | `tmprl-ui` | built | Plain unit tests over the layout tree | 35 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -508,7 +508,7 @@ Two failure modes are refused rather than guessed around:
 
 ---
 
-## 9. Mutations · PLANNED
+## 9. Mutations · PARTLY BUILT (single workflows; batch is M5)
 
 `tmprl` can terminate workflows and run batch operations across thousands of them. The
 safety design is deliberate:
@@ -520,6 +520,28 @@ safety design is deliberate:
 - Batch operations show a `CountWorkflowExecutions` **dry run** first — how many workflows the
   query actually matches — and require typing that count to proceed.
 - Every mutation appends to `~/.local/state/tmprl/audit.jsonl`.
+
+Built: **cancel, terminate, signal and delete**, on one workflow at a time. Reset and update
+are not; they need more than an execution id — a reset needs an event to go back to, and an
+update needs a handler and a reply to wait for.
+
+The rendered command has to be *right*, because someone will copy it and run it. The flags are
+checked against `temporal workflow --help` rather than remembered, and values are shell-quoted:
+a workflow id containing a space or a `;` must not turn into two commands. That quoting is
+tested, not assumed.
+
+Delete is the one action that asks for more than a keypress — it destroys the history itself,
+not just the run, so it wants the word `delete` typed. Everything else is one confirmation, as
+above. While a confirmation is up it owns every key, so nothing bound elsewhere can fire
+underneath it.
+
+Every request carries an `identity` of `tmprl@$USER`, which Temporal records on the resulting
+event. A workflow terminated from here says so in its own history rather than appearing to
+have stopped on its own.
+
+The audit log is appended to, never rewritten, and **failures go in too** — the question it
+answers is what was *attempted*. A failed write to it is surfaced rather than swallowed,
+because that log is the record that an irreversible thing happened.
 
 The batch flow is reached through the quickfix list: select workflows in the table, `<C-q>` to
 stage them, then run an operation over the staged set. Staging is a visible, editable list
