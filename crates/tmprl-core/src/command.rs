@@ -42,6 +42,14 @@ pub enum Action {
     /// Fetch the next page of the workflow list. Driven by scrolling rather than by a key,
     /// but it is a command so that `:` and macros reach it like anything else.
     LoadMore,
+
+    // History
+    ToggleFold,
+    ExpandAll,
+    CollapseAll,
+    TogglePlumbing,
+    NextFailure,
+    PrevFailure,
     /// Apply the saved view bound to this digit. Carries the digit because the views come
     /// from `views.toml` and cannot be enumerated at compile time.
     SelectView(char),
@@ -98,6 +106,13 @@ impl Registry {
             "yank.record",        "Yank",        "Yank the row as JSON"      => YankRecord;
 
             "list.more",          "List",        "Load the next page"        => LoadMore;
+
+            "history.fold",       "History",     "Fold a group open or shut" => ToggleFold;
+            "history.expand-all", "History",     "Expand every group"        => ExpandAll;
+            "history.collapse-all","History",    "Collapse every group"      => CollapseAll;
+            "history.plumbing",   "History",     "Show/hide workflow tasks"  => TogglePlumbing;
+            "history.next-failure","History",    "Jump to the next failure"  => NextFailure;
+            "history.prev-failure","History",    "Jump to the previous failure" => PrevFailure;
         };
         Self { commands }
     }

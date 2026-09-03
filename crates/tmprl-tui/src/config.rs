@@ -4,20 +4,38 @@
 //! — an unknown command id, a malformed chord, two views on one key — is decided in
 //! `tmprl_core::config`, where it is unit tested without touching a disk.
 
-use std::path::PathBuf;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 
 /// `$TMPRL_CONFIG_DIR`, else `$XDG_CONFIG_HOME/tmprl`, else `~/.config/tmprl`.
 ///
 /// `HOME` is read rather than pulled from a crate: this is the only path lookup tmprl does,
 /// and it is not worth a dependency.
 pub fn config_dir() -> Option<PathBuf> {
-    if let Some(dir) = std::env::var_os("TMPRL_CONFIG_DIR") {
+    resolve_dir(
+        std::env::var_os("TMPRL_CONFIG_DIR"),
+        std::env::var_os("XDG_CONFIG_HOME"),
+        std::env::var_os("HOME"),
+    )
+}
+
+/// The precedence rule, with the environment passed in.
+///
+/// Split out so it can be tested as a function. Reading the real environment in a test
+/// means mutating process-global state, which races against every other test in the binary
+/// — tests run in parallel threads, and a flaky suite is worse than an untested one.
+fn resolve_dir(
+    explicit: Option<OsString>,
+    xdg: Option<OsString>,
+    home: Option<OsString>,
+) -> Option<PathBuf> {
+    if let Some(dir) = explicit {
         return Some(PathBuf::from(dir));
     }
-    if let Some(dir) = std::env::var_os("XDG_CONFIG_HOME") {
+    if let Some(dir) = xdg {
         return Some(PathBuf::from(dir).join("tmprl"));
     }
-    std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config").join("tmprl"))
+    home.map(|h| PathBuf::from(h).join(".config").join("tmprl"))
 }
 
 /// Read a config file, or `None` if it is absent.
@@ -25,9 +43,14 @@ pub fn config_dir() -> Option<PathBuf> {
 /// An unreadable file is reported rather than treated as absent — "I wrote a keys.toml and
 /// nothing happened" is the failure this exists to prevent.
 pub fn read(name: &str) -> Result<Option<String>, String> {
-    let Some(path) = config_dir().map(|d| d.join(name)) else {
-        return Ok(None);
-    };
+    match config_dir() {
+        Some(dir) => read_from(&dir, name),
+        None => Ok(None),
+    }
+}
+
+fn read_from(dir: &Path, name: &str) -> Result<Option<String>, String> {
+    let path = dir.join(name);
     match std::fs::read_to_string(&path) {
         Ok(s) => Ok(Some(s)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -39,41 +62,52 @@ pub fn read(name: &str) -> Result<Option<String>, String> {
 mod tests {
     use super::*;
 
-    /// The env vars are process-global, so the precedence cases run in one test rather than
-    /// racing each other across threads.
+    fn os(s: &str) -> Option<OsString> {
+        Some(OsString::from(s))
+    }
+
     #[test]
-    fn config_dir_follows_the_documented_precedence() {
-        // SAFETY: single-threaded within this test; no other test reads these vars.
-        unsafe {
-            std::env::set_var("HOME", "/home/someone");
-            std::env::remove_var("XDG_CONFIG_HOME");
-            std::env::remove_var("TMPRL_CONFIG_DIR");
-        }
+    fn an_explicit_directory_wins() {
         assert_eq!(
-            config_dir(),
+            resolve_dir(os("/explicit"), os("/xdg"), os("/home/someone")),
+            Some(PathBuf::from("/explicit"))
+        );
+    }
+
+    #[test]
+    fn xdg_is_used_when_there_is_no_explicit_override() {
+        assert_eq!(
+            resolve_dir(None, os("/xdg"), os("/home/someone")),
+            Some(PathBuf::from("/xdg/tmprl"))
+        );
+    }
+
+    #[test]
+    fn home_is_the_fallback() {
+        assert_eq!(
+            resolve_dir(None, None, os("/home/someone")),
             Some(PathBuf::from("/home/someone/.config/tmprl"))
         );
+    }
 
-        unsafe { std::env::set_var("XDG_CONFIG_HOME", "/xdg") };
-        assert_eq!(config_dir(), Some(PathBuf::from("/xdg/tmprl")));
-
-        unsafe { std::env::set_var("TMPRL_CONFIG_DIR", "/explicit") };
-        assert_eq!(
-            config_dir(),
-            Some(PathBuf::from("/explicit")),
-            "an explicit override wins over XDG"
-        );
-
-        unsafe {
-            std::env::remove_var("TMPRL_CONFIG_DIR");
-            std::env::remove_var("XDG_CONFIG_HOME");
-        }
+    #[test]
+    fn with_no_environment_at_all_there_is_no_config_dir() {
+        assert_eq!(resolve_dir(None, None, None), None);
     }
 
     #[test]
     fn an_absent_file_is_not_an_error() {
-        unsafe { std::env::set_var("TMPRL_CONFIG_DIR", "/nonexistent-tmprl-config-dir") };
-        assert_eq!(read("keys.toml"), Ok(None));
-        unsafe { std::env::remove_var("TMPRL_CONFIG_DIR") };
+        let dir = PathBuf::from("/nonexistent-tmprl-config-dir");
+        assert_eq!(read_from(&dir, "keys.toml"), Ok(None));
+    }
+
+    #[test]
+    fn a_file_that_exists_is_read() {
+        let dir = std::env::temp_dir().join("tmprl-config-read-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("views.toml"), "# hello\n").unwrap();
+
+        assert_eq!(read_from(&dir, "views.toml"), Ok(Some("# hello\n".into())));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -227,6 +227,19 @@ pub fn default_keymap() -> Keymap {
     }
     bind(Mode::Normal, "-", "nav.up");
 
+    // Folds use vim's `z` family, so the which-key popup on `z` reads like vim's does.
+    // `zp` is not a vim binding, but it sits in the same namespace as the folds it
+    // resembles: it folds away the workflow-task plumbing.
+    for mode in [Mode::Normal, Mode::Visual, Mode::VisualLine] {
+        bind(mode, "za", "history.fold");
+        bind(mode, "zR", "history.expand-all");
+        bind(mode, "zM", "history.collapse-all");
+        bind(mode, "zp", "history.plumbing");
+        // vim-unimpaired's bracket motions: `]f` / `[f` for the next and previous failure.
+        bind(mode, "]f", "history.next-failure");
+        bind(mode, "[f", "history.prev-failure");
+    }
+
     bind(Mode::Normal, "i", "mode.insert");
     bind(Mode::Normal, "v", "mode.visual");
     bind(Mode::Normal, "V", "mode.visual-line");

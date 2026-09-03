@@ -1,8 +1,8 @@
 # Interface design
 
 > **Status: partly implemented.** The modal core, the namespace and workflow lists, the
-> visibility query bar, saved views, counts, which-key, the `:` command line, the help
-> overlay and yank all work today. Bindings for features that do not exist yet (histories,
+> workflow history outline, the visibility query bar, saved views, counts, which-key, the
+> `:` command line, the help overlay and yank all work today. Bindings for features that do not exist yet (histories,
 > splits, pickers, follow mode) are **specified here but deliberately not bound** — a key
 > that opens an empty screen is worse than a key that does nothing at all. The keymap
 > tables below mark which is which.
@@ -86,7 +86,7 @@ Leader is `Space`. A which-key-style popup appears after 500ms on an incomplete 
 |---|---|---|
 | `j` `k` `gg` `G` `<C-d>` `<C-u>` | move, with counts | **live** |
 | `<Down>` `<Up>` | move | **live** |
-| `Enter` | open the focused item — namespace → workflow list | **live** |
+| `Enter` | open the focused item — namespace → workflows → history | **live** |
 | `Enter` (in Visual) | open every selected namespace as one merged list | **live** |
 | `-` | **go up a level** — run → workflow → namespace → cluster | **live** |
 | `<leader>-` | floating object browser | M2 |
@@ -148,11 +148,26 @@ All of this arrives with the window tree in M2; none of it is bound today.
 Two workflow-detail views in a split, with linked scrolling, *is* the diff feature. There is
 no separate diff screen.
 
+### Reading a history
+
+Events are folded into groups: an activity that was scheduled, started and completed is one
+row, not three, and it carries its own retry count and failure message. Workflow tasks — the
+worker polling — are the majority of events in a real history and almost never what you came
+to read, so they are folded away until `zp`.
+
+The fold bindings are vim's `z` family deliberately, so the which-key popup on `z` reads the
+way vim's does. `zp` is not a vim binding, but it sits in the same namespace as the folds it
+resembles. `]f` / `[f` follow vim-unimpaired's bracket-motion convention.
+
 ### Inspecting
 
 | Key | Action | |
 |---|---|---|
 | `y` / `Y` | yank field / whole record as JSON | **live** |
+| `za` | fold a history group open or shut | **live** |
+| `zR` / `zM` | expand / collapse every group | **live** |
+| `zp` | show or hide the workflow-task plumbing | **live** |
+| `]f` / `[f` | jump to the next / previous failure | **live** |
 | `F` | follow — tail a running workflow | M2 |
 | `<leader>cs` | call stack (`__stack_trace` query) | M2 |
 | `<leader>cq` | send a query to the workflow | M2 |
