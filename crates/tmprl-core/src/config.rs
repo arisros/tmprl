@@ -118,6 +118,84 @@ pub fn parse_views(src: &str) -> Result<Vec<SavedView>, ConfigError> {
     Ok(views)
 }
 
+// ── config.toml ──────────────────────────────────────────────────────────────
+
+/// Where the codec server lives, if the cluster uses one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodecConfig {
+    /// Base URL. `/decode` is appended to it, per Temporal's contract.
+    pub endpoint: String,
+    /// Sent verbatim as `Authorization`. Optional, and deliberately *not* defaulted from
+    /// anything: a codec server is a service the user runs, and quietly forwarding a
+    /// credential they did not ask us to send would be a surprise.
+    pub auth: Option<String>,
+}
+
+/// `config.toml`. Everything in it is optional.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Config {
+    pub codec: Option<CodecConfig>,
+}
+
+/// Parse `config.toml`:
+///
+/// ```toml
+/// [codec]
+/// endpoint = "http://localhost:8081"
+/// auth     = "Bearer …"          # optional
+/// ```
+pub fn parse_config(src: &str) -> Result<Config, ConfigError> {
+    const FILE: &str = "config.toml";
+    let table: toml::Table = toml::from_str(src).map_err(|e| ConfigError::Syntax {
+        file: FILE,
+        message: e.message().to_string(),
+    })?;
+
+    let Some(raw) = table.get("codec") else {
+        return Ok(Config::default());
+    };
+    let codec = raw.as_table().ok_or(ConfigError::Type {
+        file: FILE,
+        path: "codec".into(),
+        expected: "a table",
+    })?;
+
+    let endpoint = codec
+        .get("endpoint")
+        .and_then(|v| v.as_str())
+        .ok_or(ConfigError::Type {
+            file: FILE,
+            path: "codec.endpoint".into(),
+            expected: "a string",
+        })?
+        .trim_end_matches('/')
+        .to_string();
+    if endpoint.is_empty() {
+        return Err(ConfigError::Type {
+            file: FILE,
+            path: "codec.endpoint".into(),
+            expected: "a non-empty URL",
+        });
+    }
+
+    let auth = match codec.get("auth") {
+        None => None,
+        Some(v) => Some(
+            v.as_str()
+                .ok_or(ConfigError::Type {
+                    file: FILE,
+                    path: "codec.auth".into(),
+                    expected: "a string",
+                })?
+                .to_string(),
+        ),
+    };
+
+    Ok(Config {
+        codec: Some(CodecConfig { endpoint, auth }),
+    })
+}
+
 // ── keys.toml ────────────────────────────────────────────────────────────────
 
 /// Apply `keys.toml` on top of a keymap:
@@ -334,6 +412,45 @@ mod tests {
             Resolution::Unbound { .. } => {}
             other => panic!("<leader>4 should be unbound, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_codec_endpoint_is_read_and_normalised() {
+        let c = parse_config(
+            r#"
+            [codec]
+            endpoint = "http://localhost:8081/"
+            auth = "Bearer abc"
+            "#,
+        )
+        .unwrap();
+        let codec = c.codec.unwrap();
+        // The trailing slash goes, because `/decode` is appended and `//decode` is not the
+        // same path to every server.
+        assert_eq!(codec.endpoint, "http://localhost:8081");
+        assert_eq!(codec.auth.as_deref(), Some("Bearer abc"));
+    }
+
+    #[test]
+    fn auth_is_optional_and_never_invented() {
+        let c = parse_config("[codec]\nendpoint = \"http://x\"\n").unwrap();
+        assert_eq!(c.codec.unwrap().auth, None);
+    }
+
+    #[test]
+    fn no_codec_section_means_no_codec() {
+        assert_eq!(parse_config("").unwrap(), Config::default());
+        assert_eq!(parse_config("# nothing\n").unwrap().codec, None);
+    }
+
+    #[test]
+    fn a_codec_section_without_an_endpoint_is_an_error() {
+        // Silently ignoring it would leave encrypted payloads unreadable with no clue why.
+        let err = parse_config("[codec]\nauth = \"x\"\n").unwrap_err();
+        assert!(err.to_string().contains("codec.endpoint"), "got {err}");
+
+        let err = parse_config("[codec]\nendpoint = \"\"\n").unwrap_err();
+        assert!(err.to_string().contains("codec.endpoint"), "got {err}");
     }
 
     #[test]

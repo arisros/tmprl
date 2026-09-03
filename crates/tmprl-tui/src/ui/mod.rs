@@ -514,6 +514,39 @@ mod tests {
     }
 
     #[test]
+    fn an_encrypted_payload_points_at_the_config_when_no_codec_is_set() {
+        // "needs a codec server" is not actionable; naming the file and key is.
+        let mut app = app_with_payloads();
+        app.run("motion.bottom", None);
+        app.run("history.detail", None);
+        let out = draw(&mut app, 110, 20);
+        assert!(out.contains("encrypted"), "{out}");
+        assert!(
+            out.contains("config.toml"),
+            "should say where to set it:\n{out}"
+        );
+    }
+
+    /// Async because opening the pane with a codec configured spawns the decode request.
+    #[tokio::test]
+    async fn a_configured_codec_stops_claiming_one_is_needed() {
+        let mut app = app_with_payloads();
+        app.apply_config(
+            None,
+            None,
+            Some("[codec]\nendpoint = \"http://localhost:8081\"\n"),
+        );
+        app.run("motion.bottom", None);
+        app.run("history.detail", None);
+
+        let out = draw(&mut app, 110, 20);
+        assert!(
+            !out.contains("config.toml"),
+            "a codec is configured; it must not still ask for one:\n{out}"
+        );
+    }
+
+    #[test]
     fn a_filter_result_replaces_the_payloads_in_the_pane() {
         // You asked to see the filtered value; showing it under the raw payloads would bury
         // the thing you asked for.
@@ -836,7 +869,7 @@ mod tests {
     fn a_long_binding_list_never_runs_into_the_title_column() {
         // Three bindings on one command is ordinary once keys.toml adds to the defaults.
         let mut app = app_with_rows();
-        app.apply_config(Some("[normal]\n\"ZZ\" = \"app.quit\"\n"), None);
+        app.apply_config(Some("[normal]\n\"ZZ\" = \"app.quit\"\n"), None, None);
         app.run("app.help", None);
 
         let out = draw(&mut app, 90, 60);
