@@ -58,6 +58,33 @@ fn read_from(dir: &Path, name: &str) -> Result<Option<String>, String> {
     }
 }
 
+/// Append one line to `~/.local/state/tmprl/audit.jsonl`.
+///
+/// State, not config: `$XDG_STATE_HOME` else `~/.local/state`, per the XDG spec. The file is
+/// opened in append mode every time rather than held open, so an external `tail -f` sees each
+/// line as it lands and nothing is lost if tmprl is killed.
+pub fn append_audit(line: &str) -> Result<(), String> {
+    use std::io::Write;
+
+    let dir = match std::env::var_os("XDG_STATE_HOME") {
+        Some(d) => PathBuf::from(d).join("tmprl"),
+        None => match std::env::var_os("HOME") {
+            Some(h) => PathBuf::from(h).join(".local").join("state").join("tmprl"),
+            None => return Err("no HOME to write an audit log under".into()),
+        },
+    };
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("could not create {}: {e}", dir.display()))?;
+
+    let path = dir.join("audit.jsonl");
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|e| format!("could not open {}: {e}", path.display()))?;
+    writeln!(file, "{line}").map_err(|e| format!("could not write {}: {e}", path.display()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

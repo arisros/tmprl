@@ -69,6 +69,12 @@ pub enum Action {
     GrowRight,
     GrowUp,
     GrowDown,
+    // Mutations. Each opens a confirmation; none acts on its own.
+    CancelWorkflow,
+    TerminateWorkflow,
+    SignalWorkflow,
+    DeleteWorkflow,
+
     NewTab,
     CloseTab,
     NextTab,
@@ -154,6 +160,11 @@ impl Registry {
             "window.grow-right",  "Windows",     "Widen to the right"        => GrowRight;
             "window.grow-up",     "Windows",     "Grow upwards"              => GrowUp;
             "window.grow-down",   "Windows",     "Grow downwards"            => GrowDown;
+
+            "workflow.cancel",    "Mutate",      "Cancel this workflow"      => CancelWorkflow;
+            "workflow.terminate", "Mutate",      "Terminate this workflow"   => TerminateWorkflow;
+            "workflow.signal",    "Mutate",      "Signal this workflow"      => SignalWorkflow;
+            "workflow.delete",    "Mutate",      "Delete this workflow"      => DeleteWorkflow;
 
             "tab.new",            "Tabs",        "Open a tab"                => NewTab;
             "tab.close",          "Tabs",        "Close this tab"            => CloseTab;

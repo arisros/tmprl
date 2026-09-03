@@ -264,6 +264,13 @@ pub fn default_keymap() -> Keymap {
         bind(mode, "<leader>rj", "window.grow-down");
         bind(mode, "<leader>rk", "window.grow-up");
         bind(mode, "<leader>rl", "window.grow-right");
+        // Mutations live under `<leader>m` — for "mutate", and clear of bare `m`, which
+        // marks reserve. Every one of them opens a confirmation rather than acting.
+        bind(mode, "<leader>mc", "workflow.cancel");
+        bind(mode, "<leader>mt", "workflow.terminate");
+        bind(mode, "<leader>ms", "workflow.signal");
+        bind(mode, "<leader>md", "workflow.delete");
+
         bind(mode, "<leader>to", "tab.new");
         bind(mode, "<leader>tx", "tab.close");
         bind(mode, "<leader>tn", "tab.next");
