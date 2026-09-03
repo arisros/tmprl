@@ -1,8 +1,8 @@
 # Interface design
 
 > **Status: partly implemented.** The modal core, the namespace and workflow lists, the
-> workflow history outline, follow mode, the visibility query bar, saved views, counts,
-> which-key, the `:` command line, the help overlay and yank all work today. Bindings for features that do not exist yet (histories,
+> workflow history outline, follow mode, payload rendering, the visibility query bar, saved
+> views, counts, which-key, the `:` command line, the help overlay and yank all work today. Bindings for features that do not exist yet (histories,
 > splits, pickers, follow mode) are **specified here but deliberately not bound** — a key
 > that opens an empty screen is worse than a key that does nothing at all. The keymap
 > tables below mark which is which.
@@ -179,6 +179,8 @@ closed is refused with a message instead of polling for events that can never ar
 | `<leader>cs` | call stack (`__stack_trace` query) | M2 |
 | `<leader>cq` | send a query to the workflow | M2 |
 | `!` | pipe selection through `jq` | M2 |
+| `K` | show the payloads under the cursor | **live** |
+| `<C-e>` / `<C-y>` | scroll the payload pane | **live** |
 | `<leader>e` | open the payload in `$EDITOR` | M2 |
 
 ### Acting

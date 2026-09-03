@@ -239,6 +239,13 @@ pub fn default_keymap() -> Keymap {
         bind(mode, "]f", "history.next-failure");
         bind(mode, "[f", "history.prev-failure");
         bind(mode, "F", "history.follow");
+        // `K` is vim's "look up what is under the cursor", which is exactly what the detail
+        // pane does — it shows the payloads of the focused event or group.
+        bind(mode, "K", "history.detail");
+        // vim scrolls a window by a line with <C-e>/<C-y>; here they scroll the payload
+        // pane, which is the only thing on screen tall enough to need it.
+        bind(mode, "<C-e>", "history.detail-down");
+        bind(mode, "<C-y>", "history.detail-up");
     }
 
     bind(Mode::Normal, "i", "mode.insert");

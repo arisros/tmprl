@@ -27,6 +27,9 @@ thiserror = "2"
 # keys.toml / views.toml parsing. Pure string -> struct, so it lives in tmprl-core;
 # reading the files is the TUI's job.
 toml = "0.9"
+# Payload rendering: pretty-printing a json/plain payload, and deciding whether one is
+# valid JSON before it is piped anywhere. Parsing only — no derives.
+serde_json = "1"
 
 # Debug info for 227 crates (temporalio-protos especially) does not fit in the
 # 4.6G free on this box. Keep dev builds lean; use `--profile dbg` when a real
