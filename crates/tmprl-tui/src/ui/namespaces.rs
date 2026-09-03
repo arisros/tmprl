@@ -13,17 +13,18 @@ use ratatui::widgets::Paragraph;
 use super::truncate;
 use crate::app::App;
 use crate::theme::Theme;
+use crate::view::View;
 
-pub fn render(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
+pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) {
     if area.height == 0 {
         return;
     }
-    let rows = app.namespace_rows();
+    let rows = view.namespace_rows();
 
     if rows.is_empty() {
-        let msg = if app.namespaces.is_loading() {
+        let msg = if view.namespaces.is_loading() {
             "loading namespaces…"
-        } else if app.namespaces.error().is_some() {
+        } else if view.namespaces.error().is_some() {
             "could not load namespaces — R to retry"
         } else {
             "no namespaces"
@@ -38,6 +39,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
     // Scroll so the cursor stays on screen.
     let height = area.height as usize;
     let first = app
+        .view
         .cursor
         .saturating_sub(height.saturating_sub(1) / 2)
         .min(rows.len().saturating_sub(height));
@@ -48,12 +50,12 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
         .skip(first)
         .take(height)
         .map(|(i, ns)| {
-            let focused = i == app.cursor;
-            let gutter = super::gutter(i, app.cursor);
+            let focused = i == view.cursor;
+            let gutter = super::gutter(i, view.cursor);
 
             let base = if focused {
                 Style::new().fg(t.fg).bg(t.sel).add_modifier(Modifier::BOLD)
-            } else if app.is_selected(i) {
+            } else if view.is_selected(i) {
                 Style::new().fg(t.fg).bg(t.sel)
             } else {
                 Style::new().fg(t.fg)

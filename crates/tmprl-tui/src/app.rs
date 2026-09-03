@@ -17,6 +17,9 @@ use tmprl_core::{
 };
 use tokio::sync::mpsc::UnboundedSender;
 
+use crate::view::View;
+use tmprl_ui::{Axis, Direction, Rect as UiRect, Tabs, ViewId};
+
 /// Rows fetched per namespace per page. Large enough that scrolling rarely waits, small
 /// enough that the first screen arrives promptly on a slow link.
 const PAGE_SIZE: i32 = 50;
@@ -126,27 +129,27 @@ pub enum Note {
 }
 
 pub struct App {
+    /// The focused pane's state, held directly rather than looked up.
+    ///
+    /// Every command in the reducer acts on the focused window, so keeping it here means
+    /// the whole reducer reads `self.view` without a lookup that could fail. The other
+    /// panes wait in `parked`, and focus changes swap between the two.
+    pub view: View,
+    /// The panes that are not focused, by id.
+    parked: std::collections::HashMap<ViewId, View>,
+    /// The window tree: which panes exist, where they sit, which is focused.
+    pub tabs: Tabs,
+    /// Ids are handed out and never reused, so a stale reference cannot silently resolve
+    /// to a different pane.
+    next_view_id: u64,
+    /// The body area the panes were last laid out in, so focus movement is geometric
+    /// against what is actually on screen.
+    frame: UiRect,
+
     pub mode: Mode,
     pub pending: Pending,
     pub registry: Registry,
     pub keymap: Keymap,
-
-    pub screen: Screen,
-    pub namespaces: Loadable<Vec<NamespaceInfo>>,
-    pub workflows: Loadable<WorkflowList>,
-    pub counts: Loadable<StatusCounts>,
-    pub history: Loadable<Outline>,
-    /// The workflow whose history is on screen.
-    pub viewing: Option<WorkflowRow>,
-    /// Whether the history is being tailed. Shown in the statusline, because a view that
-    /// silently changes under you is worse than one that does not update.
-    pub following: bool,
-    /// Whether the payload pane is open under the history list.
-    pub show_detail: bool,
-    /// Output of the last `!` filter, shown in the pane in place of the payloads. `Err` is
-    /// the command's own stderr, which is the only useful thing to show when jq rejects a
-    /// filter.
-    pub piped: Option<Result<String, String>>,
     /// Payloads a codec server has already decoded, keyed by the hash of the encrypted
     /// bytes. Decoding is a network hop per payload, and scrolling back over a row that has
     /// already been decoded should cost nothing.
@@ -154,24 +157,7 @@ pub struct App {
     /// Requests in flight, so a cursor resting on a row does not ask repeatedly.
     decoding: HashSet<u64>,
     codec: Option<Arc<Codec>>,
-    /// First visible line of the payload pane, and how far it can usefully go. A payload can
-    /// be far taller than the pane — clipping a stack trace silently hides its end, which is
-    /// the part worth reading.
-    pub detail_scroll: usize,
-    pub detail_max_scroll: usize,
-
-    /// The visibility query, verbatim. This string is the interface: everything that
-    /// filters the list compiles into it, and it is always on screen and always editable.
-    pub query: String,
-    /// Namespaces the workflow list is fanned out over.
-    pub scope: Vec<String>,
     pub views: Vec<SavedView>,
-
-    pub cursor: usize,
-    /// Where a visual selection started, if one is active.
-    pub anchor: Option<usize>,
-    /// Rows the list pane can show — set by the renderer, used by half-page motions.
-    pub page: usize,
 
     pub which_key: Vec<PendingEntry>,
     pub show_help: bool,
@@ -188,28 +174,6 @@ pub struct App {
     pub note: Option<(String, Note)>,
     pub should_quit: bool,
     pub dirty: bool,
-
-    /// The row the cursor is on, by identity rather than by index. Rows arrive above the
-    /// cursor on a live list, so an index silently drifts onto a different workflow.
-    cursor_key: Option<(String, String)>,
-    /// Cursor position on the namespace screen, restored by `-`.
-    namespace_cursor: usize,
-    /// Cursor position on the workflow list, restored by `-` from a history.
-    workflow_cursor: usize,
-    /// Bumped whenever the query or scope changes. Replies carrying an older generation
-    /// belong to a query the user has already moved on from.
-    generation: u64,
-    /// Every history event loaded so far, for re-grouping when a page arrives.
-    history_events: Vec<NormalizedEvent>,
-    /// Continuation token for the history being read. Empty means fully loaded.
-    history_token: Vec<u8>,
-    /// The last *non-empty* token seen. Follow resumes from here: an empty token restarts
-    /// from event 1, and paging leaves the token empty once it has caught up.
-    history_resume: Vec<u8>,
-    /// The follow task, so toggling off — or leaving the screen — actually stops the poll.
-    follow_task: Option<tokio::task::JoinHandle<()>>,
-    /// A page request is in flight; scrolling must not queue a second one.
-    loading_more: bool,
 
     profile: String,
     namespace: String,
@@ -238,30 +202,19 @@ impl App {
         tx: UnboundedSender<Msg>,
     ) -> Self {
         Self {
+            view: View::new(&namespace),
+            parked: std::collections::HashMap::new(),
+            tabs: Tabs::new(ViewId(0)),
+            next_view_id: 1,
+            frame: UiRect::new(0, 0, 80, 24),
             mode: Mode::Normal,
             pending: Pending::default(),
             registry: Registry::builtin(),
             keymap: default_keymap(),
-            screen: Screen::Namespaces,
-            namespaces: Loadable::NotAsked,
-            workflows: Loadable::NotAsked,
-            counts: Loadable::NotAsked,
-            history: Loadable::NotAsked,
-            viewing: None,
-            following: false,
-            show_detail: false,
-            piped: None,
             decoded: HashMap::new(),
             decoding: HashSet::new(),
             codec: None,
-            detail_scroll: 0,
-            detail_max_scroll: 0,
-            query: String::new(),
-            scope: vec![namespace.clone()],
             views: Vec::new(),
-            cursor: 0,
-            anchor: None,
-            page: 10,
             which_key: Vec::new(),
             show_help: false,
             help_scroll: 0,
@@ -272,15 +225,6 @@ impl App {
             note: None,
             should_quit: false,
             dirty: true,
-            cursor_key: None,
-            namespace_cursor: 0,
-            workflow_cursor: 0,
-            generation: 0,
-            history_events: Vec::new(),
-            history_token: Vec::new(),
-            history_resume: Vec::new(),
-            follow_task: None,
-            loading_more: false,
             profile,
             namespace,
             conn,
@@ -328,53 +272,42 @@ impl App {
     }
 
     pub fn namespace_rows(&self) -> &[NamespaceInfo] {
-        self.namespaces.value().map(Vec::as_slice).unwrap_or(&[])
+        self.view
+            .namespaces
+            .value()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
     }
 
     pub fn workflow_rows(&self) -> &[WorkflowRow] {
-        self.workflows
+        self.view
+            .workflows
             .value()
             .map(WorkflowList::rows)
             .unwrap_or(&[])
     }
 
-    /// How many rows the focused screen has.
     pub fn row_count(&self) -> usize {
-        match self.screen {
-            Screen::Namespaces => self.namespace_rows().len(),
-            Screen::Workflows => self.workflow_rows().len(),
-            Screen::History => self.history.value().map(Outline::len).unwrap_or(0),
-        }
-    }
-
-    /// Whether the workflow list is fanned out over more than one namespace, which is when
-    /// rows need to say which namespace they came from.
-    pub fn is_fanned_out(&self) -> bool {
-        self.scope.len() > 1
-    }
-
-    /// The query text to display: the live edit while Insert mode owns it, otherwise the
-    /// applied query.
-    pub fn query_display(&self) -> &str {
-        if self.mode == Mode::Insert && self.insert_target == InsertTarget::Query {
-            &self.insert_buf
-        } else {
-            &self.query
-        }
+        self.view.row_count()
     }
 
     pub fn is_editing_query(&self) -> bool {
         self.mode == Mode::Insert && self.insert_target == InsertTarget::Query
     }
 
-    /// The inclusive row range currently selected, if in a visual mode.
-    pub fn selection(&self) -> Option<(usize, usize)> {
-        let a = self.anchor?;
-        Some((a.min(self.cursor), a.max(self.cursor)))
+    /// The query text to show: the live edit while Insert mode owns it, otherwise what is
+    /// applied. Used by the tests and by anything that needs the focused pane's query.
+    pub fn query_display(&self) -> &str {
+        if self.is_editing_query() {
+            &self.insert_buf
+        } else {
+            &self.view.query
+        }
     }
 
-    pub fn is_selected(&self, i: usize) -> bool {
-        self.selection().is_some_and(|(lo, hi)| i >= lo && i <= hi)
+    /// The inclusive row range selected in the focused pane, if a visual mode is active.
+    pub fn selection(&self) -> Option<(usize, usize)> {
+        self.view.selection()
     }
 
     // ── the reducer ──────────────────────────────────────────────────────────
@@ -386,8 +319,8 @@ impl App {
             Msg::Quit => self.should_quit = true,
             Msg::Tick | Msg::Redraw => {}
             Msg::Piped(result) => {
-                self.piped = Some(result);
-                self.detail_scroll = 0;
+                self.view.piped = Some(result);
+                self.view.detail_scroll = 0;
             }
             Msg::Decoded(Ok(pairs)) => {
                 for (key, payload) in pairs {
@@ -403,30 +336,30 @@ impl App {
                 self.note = Some((e, Note::Error));
             }
             Msg::Namespaces(Ok(list)) => {
-                self.namespaces = Loadable::loaded(list);
+                self.view.namespaces = Loadable::loaded(list);
                 self.clamp_cursor();
             }
             Msg::Namespaces(Err(e)) => {
                 self.note = Some((e.clone(), Note::Error));
-                self.namespaces = Loadable::Failed(e);
+                self.view.namespaces = Loadable::Failed(e);
             }
             Msg::Workflows {
                 generation,
                 append,
                 result,
             } => {
-                if generation != self.generation {
+                if generation != self.view.generation {
                     return; // a reply for a query the user has already replaced
                 }
-                self.loading_more = false;
+                self.view.loading_more = false;
                 match result {
                     Ok((rows, tokens)) => {
-                        match (append, self.workflows.value_mut()) {
+                        match (append, self.view.workflows.value_mut()) {
                             (true, Some(list)) => list.append(rows, tokens),
                             _ => {
                                 let mut list = WorkflowList::default();
                                 list.reset(rows, tokens);
-                                self.workflows = Loadable::loaded(list);
+                                self.view.workflows = Loadable::loaded(list);
                             }
                         }
                         // A later page can carry a payload already decoded from an
@@ -439,21 +372,21 @@ impl App {
                         // Keep whatever is already on screen when a *further* page fails;
                         // only a failed first page leaves the list with nothing to show.
                         if !append {
-                            self.workflows = Loadable::Failed(e);
+                            self.view.workflows = Loadable::Failed(e);
                         }
                     }
                 }
             }
             Msg::History { generation, result } => {
-                if generation != self.generation {
+                if generation != self.view.generation {
                     return;
                 }
-                self.loading_more = false;
+                self.view.loading_more = false;
                 match result {
                     Ok((events, token)) => {
                         if !token.is_empty() {
-                            self.history_resume = token.clone();
-                        } else if self.following {
+                            self.view.history_resume = token.clone();
+                        } else if self.view.following {
                             // Follow only ever sees an empty token when the workflow has
                             // closed. There is nothing further to tail, so stop rather than
                             // spin on a call that now returns instantly.
@@ -461,34 +394,36 @@ impl App {
                             self.note =
                                 Some(("workflow closed — follow stopped".into(), Note::Info));
                         }
-                        self.history_token = token;
+                        self.view.history_token = token;
                         // Merged, not appended: a resumed follow replays the page its token
                         // sat in, and listing those events twice would inflate every group.
-                        merge_events(&mut self.history_events, events);
+                        merge_events(&mut self.view.history_events, events);
                         // Re-group the whole accumulated history rather than patching: a
                         // page boundary can land in the middle of a group, so the last
                         // group of a page is routinely completed by the next one.
-                        let groups = group_events(&self.history_events);
-                        let events = self.history_events.clone();
-                        match self.history.value_mut() {
+                        let groups = group_events(&self.view.history_events);
+                        let events = self.view.history_events.clone();
+                        match self.view.history.value_mut() {
                             Some(outline) => outline.replace(events, groups),
-                            None => self.history = Loadable::loaded(Outline::new(events, groups)),
+                            None => {
+                                self.view.history = Loadable::loaded(Outline::new(events, groups))
+                            }
                         }
                         self.clamp_cursor();
                     }
                     Err(e) => {
                         self.note = Some((e.clone(), Note::Error));
-                        if self.history_events.is_empty() {
-                            self.history = Loadable::Failed(e);
+                        if self.view.history_events.is_empty() {
+                            self.view.history = Loadable::Failed(e);
                         }
                     }
                 }
             }
             Msg::Counts { generation, result } => {
-                if generation != self.generation {
+                if generation != self.view.generation {
                     return;
                 }
-                self.counts = match result {
+                self.view.counts = match result {
                     Ok(c) => Loadable::loaded(c),
                     Err(e) => Loadable::Failed(e),
                 };
@@ -553,7 +488,7 @@ impl App {
                     self.show_help = false;
                     self.help_scroll = 0;
                 } else {
-                    self.anchor = None;
+                    self.view.anchor = None;
                     self.mode = Mode::Normal;
                     self.pending.clear();
                     self.which_key.clear();
@@ -568,18 +503,18 @@ impl App {
             Action::MoveTop if self.show_help => self.help_scroll = 0,
             Action::MoveBottom if self.show_help => self.help_scroll = self.help_max_scroll,
             Action::HalfPageDown if self.show_help => {
-                self.scroll_help((self.page / 2).max(1) as isize)
+                self.scroll_help((self.view.page / 2).max(1) as isize)
             }
             Action::HalfPageUp if self.show_help => {
-                self.scroll_help(-((self.page / 2).max(1) as isize))
+                self.scroll_help(-((self.view.page / 2).max(1) as isize))
             }
 
             Action::MoveDown => self.move_cursor(n as isize),
             Action::MoveUp => self.move_cursor(-(n as isize)),
             Action::MoveTop => self.set_cursor(0),
             Action::MoveBottom => self.set_cursor(self.row_count().saturating_sub(1)),
-            Action::HalfPageDown => self.move_cursor((self.page / 2).max(1) as isize),
-            Action::HalfPageUp => self.move_cursor(-((self.page / 2).max(1) as isize)),
+            Action::HalfPageDown => self.move_cursor((self.view.page / 2).max(1) as isize),
+            Action::HalfPageUp => self.move_cursor(-((self.view.page / 2).max(1) as isize)),
 
             Action::OpenItem => self.open_focused(),
             Action::GoUp => self.go_up(),
@@ -589,9 +524,9 @@ impl App {
                 // On the workflow list the only text field is the query bar, so that is
                 // what Insert mode edits. It is seeded with the applied query so `i` is an
                 // edit, not a retype.
-                if self.screen == Screen::Workflows {
+                if self.view.screen == Screen::Workflows {
                     self.insert_target = InsertTarget::Query;
-                    self.insert_buf = self.query.clone();
+                    self.insert_buf = self.view.query.clone();
                 } else {
                     self.insert_target = InsertTarget::Scratch;
                     self.insert_buf.clear();
@@ -606,11 +541,11 @@ impl App {
             }
             Action::EnterVisual => {
                 self.mode = Mode::Visual;
-                self.anchor = Some(self.cursor);
+                self.view.anchor = Some(self.view.cursor);
             }
             Action::EnterVisualLine => {
                 self.mode = Mode::VisualLine;
-                self.anchor = Some(self.cursor);
+                self.view.anchor = Some(self.view.cursor);
             }
 
             Action::YankField => self.yank(self.field_under_cursor()),
@@ -623,7 +558,11 @@ impl App {
             Action::ExpandAll => self.with_outline(|o| o.expand_all()),
             Action::CollapseAll => self.with_outline(|o| o.collapse_all()),
             Action::TogglePlumbing => {
-                let showing = self.history.value().is_some_and(Outline::show_plumbing);
+                let showing = self
+                    .view
+                    .history
+                    .value()
+                    .is_some_and(Outline::show_plumbing);
                 self.with_outline(|o| o.set_show_plumbing(!showing));
                 self.note = Some((
                     if showing {
@@ -640,11 +579,28 @@ impl App {
             Action::DetailDown => self.scroll_detail(n as isize),
             Action::DetailUp => self.scroll_detail(-(n as isize)),
             Action::OpenPipe => self.open_pipe(),
+
+            Action::SplitRight => self.split(Axis::Columns),
+            Action::SplitDown => self.split(Axis::Rows),
+            Action::CloseWindow => self.close_window(),
+            Action::EqualizeWindows => self.tabs.current_mut().equalize(),
+            Action::FocusLeft => self.focus_window(Direction::Left),
+            Action::FocusRight => self.focus_window(Direction::Right),
+            Action::FocusUp => self.focus_window(Direction::Up),
+            Action::FocusDown => self.focus_window(Direction::Down),
+            Action::GrowLeft => self.resize_window(Direction::Left),
+            Action::GrowRight => self.resize_window(Direction::Right),
+            Action::GrowUp => self.resize_window(Direction::Up),
+            Action::GrowDown => self.resize_window(Direction::Down),
+            Action::NewTab => self.new_tab(),
+            Action::CloseTab => self.close_tab(),
+            Action::NextTab => self.switch_tab(true),
+            Action::PrevTab => self.switch_tab(false),
             Action::ToggleDetail => {
-                if self.screen == Screen::History {
-                    self.show_detail = !self.show_detail;
-                    self.detail_scroll = 0;
-                    self.piped = None;
+                if self.view.screen == Screen::History {
+                    self.view.show_detail = !self.view.show_detail;
+                    self.view.detail_scroll = 0;
+                    self.view.piped = None;
                     self.maybe_decode();
                 } else {
                     self.note = Some((
@@ -660,12 +616,14 @@ impl App {
     // ── navigation ───────────────────────────────────────────────────────────
 
     fn open_focused(&mut self) {
-        match self.screen {
+        match self.view.screen {
             Screen::Namespaces => {
                 // A visual selection opens every namespace in it as one merged list. That
                 // is the whole multi-namespace fan-out: `V j j <CR>`, using the selection
                 // machinery that already exists rather than a separate picker.
-                let (lo, hi) = self.selection().unwrap_or((self.cursor, self.cursor));
+                let (lo, hi) = self
+                    .selection()
+                    .unwrap_or((self.view.cursor, self.view.cursor));
                 let scope: Vec<String> = self
                     .namespace_rows()
                     .iter()
@@ -678,26 +636,26 @@ impl App {
                     return;
                 }
 
-                self.namespace_cursor = self.cursor;
-                self.anchor = None;
+                self.view.namespace_cursor = self.view.cursor;
+                self.view.anchor = None;
                 self.mode = Mode::Normal;
-                self.screen = Screen::Workflows;
-                self.scope = scope;
-                self.cursor = 0;
-                self.cursor_key = None;
+                self.view.screen = Screen::Workflows;
+                self.view.scope = scope;
+                self.view.cursor = 0;
+                self.view.cursor_key = None;
                 self.load_workflows(false);
             }
             Screen::Workflows => {
-                let Some(row) = self.workflow_rows().get(self.cursor).cloned() else {
+                let Some(row) = self.workflow_rows().get(self.view.cursor).cloned() else {
                     self.note = Some(("nothing to open".into(), Note::Warn));
                     return;
                 };
-                self.workflow_cursor = self.cursor;
-                self.anchor = None;
+                self.view.workflow_cursor = self.view.cursor;
+                self.view.anchor = None;
                 self.mode = Mode::Normal;
-                self.screen = Screen::History;
-                self.viewing = Some(row);
-                self.cursor = 0;
+                self.view.screen = Screen::History;
+                self.view.viewing = Some(row);
+                self.view.cursor = 0;
                 self.load_history();
             }
             // On the history screen, "open the focused item" is folding a group open.
@@ -706,22 +664,22 @@ impl App {
     }
 
     fn go_up(&mut self) {
-        match self.screen {
+        match self.view.screen {
             Screen::History => {
                 self.stop_following();
-                self.screen = Screen::Workflows;
-                self.cursor = self.workflow_cursor;
-                self.viewing = None;
-                self.history = Loadable::NotAsked;
-                self.history_events.clear();
-                self.history_token.clear();
-                self.history_resume.clear();
+                self.view.screen = Screen::Workflows;
+                self.view.cursor = self.view.workflow_cursor;
+                self.view.viewing = None;
+                self.view.history = Loadable::NotAsked;
+                self.view.history_events.clear();
+                self.view.history_token.clear();
+                self.view.history_resume.clear();
                 self.restore_cursor();
             }
             Screen::Workflows => {
-                self.screen = Screen::Namespaces;
-                self.cursor = self.namespace_cursor;
-                self.anchor = None;
+                self.view.screen = Screen::Namespaces;
+                self.view.cursor = self.view.namespace_cursor;
+                self.view.anchor = None;
                 self.clamp_cursor();
             }
             Screen::Namespaces => {
@@ -735,7 +693,7 @@ impl App {
     /// The group the cursor is on, whether it sits on the group's own line or on one of its
     /// events. Folding from inside an expanded group is what a reader expects.
     fn group_under_cursor(&self) -> Option<usize> {
-        match self.history.value()?.row_at(self.cursor)? {
+        match self.view.history.value()?.row_at(self.view.cursor)? {
             Row::Group { group, .. } | Row::Event { group, .. } => Some(group),
         }
     }
@@ -746,10 +704,10 @@ impl App {
         };
         // Folding shut from inside a group would otherwise strand the cursor past the end;
         // `toggle` hands back where the group's own line is now, so it moves there.
-        if let Some(outline) = self.history.value_mut()
+        if let Some(outline) = self.view.history.value_mut()
             && let Some(row) = outline.toggle(group)
         {
-            self.cursor = row;
+            self.view.cursor = row;
         }
         self.clamp_cursor();
     }
@@ -759,36 +717,37 @@ impl App {
     /// arbitrary.
     fn with_outline(&mut self, f: impl FnOnce(&mut Outline)) {
         let was = self.group_under_cursor();
-        let Some(outline) = self.history.value_mut() else {
+        let Some(outline) = self.view.history.value_mut() else {
             return;
         };
         f(outline);
-        self.cursor = was
+        self.view.cursor = was
             .and_then(|g| outline.row_of_group(g))
-            .unwrap_or(self.cursor);
+            .unwrap_or(self.view.cursor);
         self.clamp_cursor();
     }
 
     // ── follow mode ──────────────────────────────────────────────────────────
 
     fn scroll_detail(&mut self, delta: isize) {
-        let next = (self.detail_scroll as isize + delta).clamp(0, self.detail_max_scroll as isize);
-        self.detail_scroll = next as usize;
+        let next = (self.view.detail_scroll as isize + delta)
+            .clamp(0, self.view.detail_max_scroll as isize);
+        self.view.detail_scroll = next as usize;
     }
 
     fn toggle_follow(&mut self) {
-        if self.screen != Screen::History {
+        if self.view.screen != Screen::History {
             self.note = Some(("follow applies to a workflow history".into(), Note::Warn));
             return;
         }
-        if self.following {
+        if self.view.following {
             self.stop_following();
             self.note = Some(("follow stopped".into(), Note::Info));
             return;
         }
         // Following a workflow that has already finished would poll forever for events that
         // can never arrive, so say so instead.
-        if self.history_token.is_empty() && self.workflow_is_closed() {
+        if self.view.history_token.is_empty() && self.workflow_is_closed() {
             self.note = Some((
                 "this workflow has closed — nothing to follow".into(),
                 Note::Warn,
@@ -800,7 +759,8 @@ impl App {
 
     /// Whether the run itself has ended, as opposed to merely being caught up.
     fn workflow_is_closed(&self) -> bool {
-        self.history
+        self.view
+            .history
             .value()
             .map(|o| tmprl_core::outline::summarize(o.groups()))
             .is_some_and(|s| s.outcome != tmprl_core::history::Outcome::Pending)
@@ -812,19 +772,19 @@ impl App {
     /// events comes back as an ordinary `Msg`. That is the whole reason a sixty-second long
     /// poll cannot freeze a keystroke.
     fn start_following(&mut self) {
-        let Some(row) = self.viewing.clone() else {
+        let Some(row) = self.view.viewing.clone() else {
             return;
         };
-        self.following = true;
+        self.view.following = true;
         self.note = Some(("following — F to stop".into(), Note::Info));
 
         let Some(conn) = self.conn.clone() else {
             return;
         };
-        let (tx, generation) = (self.tx.clone(), self.generation);
-        let mut token = self.history_resume.clone();
+        let (tx, generation) = (self.tx.clone(), self.view.generation);
+        let mut token = self.view.history_resume.clone();
 
-        self.follow_task = Some(tokio::spawn(async move {
+        self.view.follow_task = Some(tokio::spawn(async move {
             loop {
                 let result = conn
                     .follow_history(&row.namespace, &row.workflow_id, &row.run_id, token.clone())
@@ -861,23 +821,20 @@ impl App {
     /// Stop tailing. Aborting matters: the task is parked inside a long poll and would
     /// otherwise keep a request open and keep pushing events into a screen that has moved on.
     fn stop_following(&mut self) {
-        self.following = false;
-        if let Some(task) = self.follow_task.take() {
-            task.abort();
-        }
+        self.view.stop_following();
     }
 
     fn jump_failure(&mut self, forward: bool) {
-        let Some(outline) = self.history.value() else {
+        let Some(outline) = self.view.history.value() else {
             return;
         };
         let found = if forward {
-            outline.next_failure(self.cursor)
+            outline.next_failure(self.view.cursor)
         } else {
-            outline.prev_failure(self.cursor)
+            outline.prev_failure(self.view.cursor)
         };
         match found {
-            Some(row) => self.cursor = row,
+            Some(row) => self.view.cursor = row,
             None => {
                 self.note = Some((
                     if forward {
@@ -898,22 +855,22 @@ impl App {
         };
         let (name, query) = (view.name.clone(), view.query.clone());
         // A view is a bookmark, not a mode: it fills the query bar, which stays editable.
-        self.query = query;
-        if self.screen == Screen::Namespaces {
-            self.screen = Screen::Workflows;
+        self.view.query = query;
+        if self.view.screen == Screen::Namespaces {
+            self.view.screen = Screen::Workflows;
         }
         self.note = Some((format!("view: {name}"), Note::Info));
         self.load_workflows(false);
     }
 
     fn refresh(&mut self) {
-        match self.screen {
+        match self.view.screen {
             Screen::Namespaces => self.load_namespaces(),
             Screen::Workflows => self.load_workflows(false),
             Screen::History => {
-                self.history_events.clear();
-                self.history_token.clear();
-                self.history_resume.clear();
+                self.view.history_events.clear();
+                self.view.history_token.clear();
+                self.view.history_resume.clear();
                 self.load_history();
             }
         }
@@ -929,23 +886,23 @@ impl App {
     fn move_cursor(&mut self, delta: isize) {
         let len = self.row_count();
         if len == 0 {
-            self.cursor = 0;
+            self.view.cursor = 0;
             return;
         }
-        let next = (self.cursor as isize + delta).clamp(0, len as isize - 1);
+        let next = (self.view.cursor as isize + delta).clamp(0, len as isize - 1);
         self.set_cursor(next as usize);
     }
 
     fn set_cursor(&mut self, at: usize) {
-        if at != self.cursor {
+        if at != self.view.cursor {
             // The pane now shows a different value; keeping the old offset would open it
             // part-way down something the reader has not seen the start of. A filter result
             // belonged to the row it was run on, so it goes too rather than sitting under a
             // heading that no longer describes it.
-            self.detail_scroll = 0;
-            self.piped = None;
+            self.view.detail_scroll = 0;
+            self.view.piped = None;
         }
-        self.cursor = at;
+        self.view.cursor = at;
         self.maybe_decode();
         self.remember_cursor();
         self.maybe_load_more();
@@ -953,54 +910,59 @@ impl App {
 
     /// Record which row the cursor is on, by identity. This is what a refresh restores.
     fn remember_cursor(&mut self) {
-        if self.screen == Screen::Workflows {
-            self.cursor_key = self
+        if self.view.screen == Screen::Workflows {
+            self.view.cursor_key = self
                 .workflow_rows()
-                .get(self.cursor)
+                .get(self.view.cursor)
                 .map(|r| (r.namespace.clone(), r.run_id.clone()));
         }
     }
 
     /// Put the cursor back on the row it was on, wherever that row has moved to.
     fn restore_cursor(&mut self) {
-        let Some((ns, run)) = self.cursor_key.clone() else {
+        let Some((ns, run)) = self.view.cursor_key.clone() else {
             self.clamp_cursor();
             return;
         };
-        if let Some(list) = self.workflows.value()
+        if let Some(list) = self.view.workflows.value()
             && let Some(at) = list.position_of((&ns, &run))
         {
-            self.cursor = at;
+            self.view.cursor = at;
         }
         self.clamp_cursor();
     }
 
     fn clamp_cursor(&mut self) {
         let len = self.row_count();
-        self.cursor = self.cursor.min(len.saturating_sub(1));
+        self.view.cursor = self.view.cursor.min(len.saturating_sub(1));
         if len == 0 {
-            self.cursor = 0;
+            self.view.cursor = 0;
         }
     }
 
     /// Infinite scroll: fetch the next page once the cursor is within a screen of the end.
     fn maybe_load_more(&mut self) {
-        if self.loading_more {
+        if self.view.loading_more {
             return;
         }
         let len = self.row_count();
-        let near_end = self.cursor + self.page.max(1) >= len;
+        let near_end = self.view.cursor + self.view.page.max(1) >= len;
         if !near_end {
             return;
         }
-        match self.screen {
+        match self.view.screen {
             Screen::Workflows => {
-                if self.workflows.value().is_some_and(WorkflowList::has_more) {
+                if self
+                    .view
+                    .workflows
+                    .value()
+                    .is_some_and(WorkflowList::has_more)
+                {
                     self.load_more();
                 }
             }
             Screen::History => {
-                if !self.history_token.is_empty() {
+                if !self.view.history_token.is_empty() {
                     self.load_history();
                 }
             }
@@ -1011,16 +973,16 @@ impl App {
     // ── yanking ──────────────────────────────────────────────────────────────
 
     fn field_under_cursor(&self) -> String {
-        match self.screen {
+        match self.view.screen {
             Screen::Namespaces => self
                 .namespace_rows()
-                .get(self.cursor)
+                .get(self.view.cursor)
                 .map(|n| n.name.clone())
                 .unwrap_or_default(),
             // The workflow id is the field you actually want to paste into a CLI command.
             Screen::Workflows => self
                 .workflow_rows()
-                .get(self.cursor)
+                .get(self.view.cursor)
                 .map(|w| w.workflow_id.clone())
                 .unwrap_or_default(),
             Screen::History => self.history_field_under_cursor(),
@@ -1030,10 +992,10 @@ impl App {
     /// On a group line, the thing it is about; on an event line, the event's own name. Both
     /// are what you would paste into a search or a CLI command.
     fn history_field_under_cursor(&self) -> String {
-        let Some(outline) = self.history.value() else {
+        let Some(outline) = self.view.history.value() else {
             return String::new();
         };
-        match outline.row_at(self.cursor) {
+        match outline.row_at(self.view.cursor) {
             Some(Row::Group { group, .. }) => outline
                 .group(group)
                 .map(|g| {
@@ -1054,9 +1016,11 @@ impl App {
 
     /// The selected rows as JSON, or just the row under the cursor when nothing is selected.
     fn records_selected(&self) -> String {
-        let (lo, hi) = self.selection().unwrap_or((self.cursor, self.cursor));
+        let (lo, hi) = self
+            .selection()
+            .unwrap_or((self.view.cursor, self.view.cursor));
         let take = hi.saturating_sub(lo) + 1;
-        let picked: Vec<String> = match self.screen {
+        let picked: Vec<String> = match self.view.screen {
             Screen::Namespaces => self
                 .namespace_rows()
                 .iter()
@@ -1101,7 +1065,7 @@ impl App {
     /// The selected history rows as JSON. A group serialises as the summary the compact
     /// view shows; an event as its own fields.
     fn history_records(&self, lo: usize, take: usize) -> Vec<String> {
-        let Some(outline) = self.history.value() else {
+        let Some(outline) = self.view.history.value() else {
             return Vec::new();
         };
         (lo..lo.saturating_add(take))
@@ -1138,7 +1102,7 @@ impl App {
         match crate::clipboard::yank(&text) {
             Ok(()) => {
                 self.note = Some((format!("yanked {n} bytes to clipboard"), Note::Info));
-                self.anchor = None;
+                self.view.anchor = None;
                 self.mode = Mode::Normal;
             }
             Err(e) => self.note = Some((format!("yank failed: {e}"), Note::Error)),
@@ -1170,7 +1134,7 @@ impl App {
         if self.insert_target != InsertTarget::Query {
             return;
         }
-        self.query = self.insert_buf.clone();
+        self.view.query = self.insert_buf.clone();
         self.mode = Mode::Normal;
         self.insert_target = InsertTarget::Scratch;
         self.insert_buf.clear();
@@ -1206,6 +1170,151 @@ impl App {
         }
     }
 
+    // ── windows ──────────────────────────────────────────────────────────────
+
+    /// Park the focused pane and take up whichever one the tree now points at.
+    ///
+    /// The reducer always acts on `self.view`, so every operation that can move focus ends
+    /// here. Swapping rather than looking up is what lets the rest of the reducer stay
+    /// unaware that there is more than one pane.
+    fn refocus(&mut self, previous: ViewId) {
+        let now = self.tabs.current().focused();
+        if now == previous {
+            return;
+        }
+        let namespace = self.namespace.clone();
+        let incoming = self
+            .parked
+            .remove(&now)
+            .unwrap_or_else(|| View::new(&namespace));
+        let outgoing = std::mem::replace(&mut self.view, incoming);
+        self.parked.insert(previous, outgoing);
+    }
+
+    fn fresh_view_id(&mut self) -> ViewId {
+        let id = ViewId(self.next_view_id);
+        self.next_view_id += 1;
+        id
+    }
+
+    /// Split the focused window. The new pane starts where this one is, which is almost
+    /// always what you wanted it for — comparing two histories means opening the same place
+    /// twice and then navigating one of them away.
+    fn split(&mut self, axis: Axis) {
+        let previous = self.tabs.current().focused();
+        let id = self.fresh_view_id();
+        let forked = self.view.fork();
+        self.parked.insert(id, forked);
+        self.tabs.current_mut().split(axis, id);
+        self.refocus(previous);
+        // The new pane knows where it is but has fetched nothing yet.
+        self.load_for_screen();
+        self.note = Some((format!("{} windows", self.tabs.current().len()), Note::Info));
+    }
+
+    fn close_window(&mut self) {
+        let previous = self.tabs.current().focused();
+        if !self.tabs.current_mut().close() {
+            self.note = Some(("last window — <Space>q to quit tmprl".into(), Note::Warn));
+            return;
+        }
+        // Its state goes with it, and View's Drop stops any follow poll it had running.
+        self.parked.remove(&previous);
+        let now = self.tabs.current().focused();
+        let namespace = self.namespace.clone();
+        let incoming = self
+            .parked
+            .remove(&now)
+            .unwrap_or_else(|| View::new(&namespace));
+        self.view = incoming;
+    }
+
+    fn focus_window(&mut self, dir: Direction) {
+        let previous = self.tabs.current().focused();
+        if self.tabs.current_mut().focus_direction(dir, self.frame) {
+            self.refocus(previous);
+        }
+    }
+
+    fn resize_window(&mut self, dir: Direction) {
+        // Ten cells' worth, as `<leader>r{hjkl}` promises. Weights are relative, so this is
+        // a nudge rather than an exact cell count.
+        self.tabs.current_mut().resize(dir, 10);
+    }
+
+    fn new_tab(&mut self) {
+        let previous = self.tabs.current().focused();
+        let id = self.fresh_view_id();
+        self.parked.insert(
+            previous,
+            std::mem::replace(&mut self.view, View::new(&self.namespace)),
+        );
+        self.tabs.open(id);
+        // The new tab's view is the one we just made; nothing to take from `parked`.
+        let _ = previous;
+        self.load_for_screen();
+    }
+
+    fn close_tab(&mut self) {
+        if self.tabs.len() == 1 {
+            self.note = Some(("last tab — <Space>q to quit tmprl".into(), Note::Warn));
+            return;
+        }
+        // Every pane in the tab goes, along with whatever each was polling.
+        for id in self.tabs.current().views() {
+            self.parked.remove(&id);
+        }
+        self.tabs.close();
+        let now = self.tabs.current().focused();
+        let namespace = self.namespace.clone();
+        self.view = self
+            .parked
+            .remove(&now)
+            .unwrap_or_else(|| View::new(&namespace));
+    }
+
+    fn switch_tab(&mut self, forward: bool) {
+        if self.tabs.len() == 1 {
+            return;
+        }
+        let previous = self.tabs.current().focused();
+        self.parked.insert(
+            previous,
+            std::mem::replace(&mut self.view, View::new(&self.namespace)),
+        );
+        if forward {
+            self.tabs.next();
+        } else {
+            self.tabs.previous();
+        }
+        let now = self.tabs.current().focused();
+        let namespace = self.namespace.clone();
+        self.view = self
+            .parked
+            .remove(&now)
+            .unwrap_or_else(|| View::new(&namespace));
+    }
+
+    /// Load whatever the focused pane's screen needs. A fresh pane has asked for nothing.
+    fn load_for_screen(&mut self) {
+        match self.view.screen {
+            Screen::Namespaces => self.load_namespaces(),
+            Screen::Workflows => self.load_workflows(false),
+            Screen::History => self.load_history(),
+        }
+    }
+
+    /// Record the area the panes were laid out in, so focus movement is geometric against
+    /// what is actually on screen rather than against a guess.
+    pub fn set_frame(&mut self, area: UiRect) {
+        self.frame = area;
+    }
+
+    /// A non-focused pane's state, for rendering it.
+    pub fn parked_view(&self, id: ViewId) -> Option<&View> {
+        self.parked.get(&id)
+    }
+
     // ── codec server ─────────────────────────────────────────────────────────
 
     /// Identity of an encrypted payload, for the decode cache.
@@ -1239,7 +1348,7 @@ impl App {
     /// Lazy on purpose: only what the pane is actually showing. Decoding a whole history
     /// up front would be thousands of round trips for values nobody looked at.
     fn maybe_decode(&mut self) {
-        if !self.show_detail || self.screen != Screen::History {
+        if !self.view.show_detail || self.view.screen != Screen::History {
             return;
         }
         let Some(codec) = self.codec.clone() else {
@@ -1265,6 +1374,7 @@ impl App {
         }
         let keys: Vec<u64> = wanted.iter().map(Self::payload_key).collect();
         let namespace = self
+            .view
             .viewing
             .as_ref()
             .map(|w| w.namespace.clone())
@@ -1292,7 +1402,7 @@ impl App {
             return;
         }
         let mut changed = false;
-        for event in &mut self.history_events {
+        for event in &mut self.view.history_events {
             for (_, p) in &mut event.payloads {
                 if !p.needs_codec() {
                     continue;
@@ -1306,11 +1416,11 @@ impl App {
         if !changed {
             return;
         }
-        let groups = group_events(&self.history_events);
-        let events = self.history_events.clone();
-        match self.history.value_mut() {
+        let groups = group_events(&self.view.history_events);
+        let events = self.view.history_events.clone();
+        match self.view.history.value_mut() {
             Some(outline) => outline.replace(events, groups),
-            None => self.history = Loadable::loaded(Outline::new(events, groups)),
+            None => self.view.history = Loadable::loaded(Outline::new(events, groups)),
         }
     }
 
@@ -1321,10 +1431,10 @@ impl App {
     /// For a group that is its input *and* its result, which live on two different events —
     /// the same pair the payload pane shows.
     fn payloads_under_cursor(&self) -> Vec<(String, tmprl_core::payload::Payload)> {
-        let Some(outline) = self.history.value() else {
+        let Some(outline) = self.view.history.value() else {
             return Vec::new();
         };
-        match outline.row_at(self.cursor) {
+        match outline.row_at(self.view.cursor) {
             Some(Row::Event { event, .. }) => outline
                 .event(event)
                 .map(|e| e.payloads.clone())
@@ -1347,7 +1457,7 @@ impl App {
 
     /// Open the `!` prompt, if there is anything under the cursor worth piping.
     fn open_pipe(&mut self) {
-        if self.screen != Screen::History {
+        if self.view.screen != Screen::History {
             self.note = Some(("piping applies to a workflow history".into(), Note::Warn));
             return;
         }
@@ -1393,9 +1503,9 @@ impl App {
 
         // The output replaces the pane, so open it if it is shut — otherwise the result
         // would land somewhere the reader cannot see.
-        self.show_detail = true;
-        self.detail_scroll = 0;
-        self.piped = Some(Ok(format!("running `{command}`…")));
+        self.view.show_detail = true;
+        self.view.detail_scroll = 0;
+        self.view.piped = Some(Ok(format!("running `{command}`…")));
 
         let tx = self.tx.clone();
         tokio::spawn(async move {
@@ -1448,7 +1558,7 @@ impl App {
         let Some(conn) = self.conn.clone() else {
             return;
         };
-        self.namespaces.begin_refresh();
+        self.view.namespaces.begin_refresh();
         let tx = self.tx.clone();
         tokio::spawn(async move {
             let res = conn.list_namespaces().await.map_err(|e| e.to_string());
@@ -1462,15 +1572,15 @@ impl App {
     /// harmless: it arrives, does not match, and is dropped.
     pub fn load_workflows(&mut self, append: bool) {
         if !append {
-            self.generation = self.generation.wrapping_add(1);
-            self.workflows.begin_refresh();
-            self.counts.begin_refresh();
+            self.view.generation = self.view.generation.wrapping_add(1);
+            self.view.workflows.begin_refresh();
+            self.view.counts.begin_refresh();
             self.load_counts();
         }
 
         // Set before the connection guard: this records the decision to fetch, which is
         // what stops a second page being queued while the first is still in flight.
-        self.loading_more = true;
+        self.view.loading_more = true;
 
         let Some(conn) = self.conn.clone() else {
             return;
@@ -1479,7 +1589,8 @@ impl App {
         // whole scope would hand an exhausted namespace an empty token, which the server
         // reads as "start again" — so it would never finish.
         let tokens: Tokens = if append {
-            self.workflows
+            self.view
+                .workflows
                 .value()
                 .map(|l| l.tokens().to_vec())
                 .unwrap_or_default()
@@ -1489,9 +1600,9 @@ impl App {
 
         let (tx, generation, scope, query) = (
             self.tx.clone(),
-            self.generation,
-            self.scope.clone(),
-            self.query.clone(),
+            self.view.generation,
+            self.view.scope.clone(),
+            self.view.query.clone(),
         );
         tokio::spawn(async move {
             let result = if append {
@@ -1515,20 +1626,23 @@ impl App {
     /// re-grouped whenever one lands, because a page boundary routinely falls inside a
     /// group.
     pub fn load_history(&mut self) {
-        let Some(row) = self.viewing.clone() else {
+        let Some(row) = self.view.viewing.clone() else {
             return;
         };
-        if self.history_events.is_empty() {
-            self.generation = self.generation.wrapping_add(1);
-            self.history.begin_refresh();
+        if self.view.history_events.is_empty() {
+            self.view.generation = self.view.generation.wrapping_add(1);
+            self.view.history.begin_refresh();
         }
-        self.loading_more = true;
+        self.view.loading_more = true;
 
         let Some(conn) = self.conn.clone() else {
             return;
         };
-        let (tx, generation, token) =
-            (self.tx.clone(), self.generation, self.history_token.clone());
+        let (tx, generation, token) = (
+            self.tx.clone(),
+            self.view.generation,
+            self.view.history_token.clone(),
+        );
         tokio::spawn(async move {
             let result = conn
                 .get_history(
@@ -1546,7 +1660,11 @@ impl App {
     }
 
     fn load_more(&mut self) {
-        let has_more = self.workflows.value().is_some_and(WorkflowList::has_more);
+        let has_more = self
+            .view
+            .workflows
+            .value()
+            .is_some_and(WorkflowList::has_more);
         if has_more {
             self.load_workflows(true);
         }
@@ -1558,9 +1676,9 @@ impl App {
         };
         let (tx, generation, scope, query) = (
             self.tx.clone(),
-            self.generation,
-            self.scope.clone(),
-            self.query.clone(),
+            self.view.generation,
+            self.view.scope.clone(),
+            self.view.query.clone(),
         );
         tokio::spawn(async move {
             let result = conn
@@ -1661,9 +1779,9 @@ mod tests {
     }
 
     fn loaded(app: &mut App, rows: Vec<WorkflowRow>, tokens: Tokens) {
-        app.screen = Screen::Workflows;
+        app.view.screen = Screen::Workflows;
         app.handle(Msg::Workflows {
-            generation: app.generation,
+            generation: app.view.generation,
             append: false,
             result: Ok((rows, tokens)),
         });
@@ -1689,18 +1807,21 @@ mod tests {
         let mut app = app();
         loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
         app.run("motion.top", None);
-        assert_eq!(app.workflow_rows()[app.cursor].run_id, "r1");
+        assert_eq!(app.workflow_rows()[app.view.cursor].run_id, "r1");
 
         app.handle(Msg::Workflows {
-            generation: app.generation,
+            generation: app.view.generation,
             append: false,
             result: Ok((
                 vec![wf("default", "r9", 900), wf("default", "r1", 100)],
                 vec![],
             )),
         });
-        assert_eq!(app.cursor, 1, "cursor should have followed r1 down a row");
-        assert_eq!(app.workflow_rows()[app.cursor].run_id, "r1");
+        assert_eq!(
+            app.view.cursor, 1,
+            "cursor should have followed r1 down a row"
+        );
+        assert_eq!(app.workflow_rows()[app.view.cursor].run_id, "r1");
     }
 
     #[test]
@@ -1709,11 +1830,11 @@ mod tests {
         // repaint the table with rows the user is no longer looking at.
         let mut app = app();
         loaded(&mut app, vec![wf("default", "old", 100)], vec![]);
-        let stale = app.generation;
+        let stale = app.view.generation;
 
-        app.query = "WorkflowType = 'New'".into();
+        app.view.query = "WorkflowType = 'New'".into();
         app.load_workflows(false);
-        assert_ne!(app.generation, stale);
+        assert_ne!(app.view.generation, stale);
 
         app.handle(Msg::Workflows {
             generation: stale,
@@ -1736,7 +1857,7 @@ mod tests {
             vec![("default".into(), vec![1])],
         );
         app.handle(Msg::Workflows {
-            generation: app.generation,
+            generation: app.view.generation,
             append: true,
             result: Err("connection reset".into()),
         });
@@ -1747,19 +1868,19 @@ mod tests {
     #[test]
     fn a_failed_first_page_shows_the_error_state() {
         let mut app = app();
-        app.screen = Screen::Workflows;
+        app.view.screen = Screen::Workflows;
         app.handle(Msg::Workflows {
-            generation: app.generation,
+            generation: app.view.generation,
             append: false,
             result: Err("permission denied".into()),
         });
-        assert_eq!(app.workflows.error(), Some("permission denied"));
+        assert_eq!(app.view.workflows.error(), Some("permission denied"));
     }
 
     #[test]
     fn enter_opens_a_namespace_and_dash_goes_back() {
         let mut app = app();
-        app.namespaces = Loadable::loaded(vec![
+        app.view.namespaces = Loadable::loaded(vec![
             NamespaceInfo {
                 name: "alpha".into(),
                 state: "Registered".into(),
@@ -1776,22 +1897,22 @@ mod tests {
         app.run("motion.bottom", None);
         app.run("nav.open", None);
 
-        assert_eq!(app.screen, Screen::Workflows);
+        assert_eq!(app.view.screen, Screen::Workflows);
         assert_eq!(
-            app.scope,
+            app.view.scope,
             ["beta"],
             "the focused namespace becomes the scope"
         );
 
         app.run("nav.up", None);
-        assert_eq!(app.screen, Screen::Namespaces);
-        assert_eq!(app.cursor, 1, "the namespace cursor is restored");
+        assert_eq!(app.view.screen, Screen::Namespaces);
+        assert_eq!(app.view.cursor, 1, "the namespace cursor is restored");
     }
 
     #[test]
     fn a_visual_selection_of_namespaces_opens_a_fan_out() {
         let mut app = app();
-        app.namespaces = Loadable::loaded(
+        app.view.namespaces = Loadable::loaded(
             ["alpha", "beta", "gamma"]
                 .iter()
                 .map(|n| NamespaceInfo {
@@ -1815,34 +1936,34 @@ mod tests {
             app.handle(Msg::Key(chord));
         }
 
-        assert_eq!(app.scope, ["alpha", "beta"]);
+        assert_eq!(app.view.scope, ["alpha", "beta"]);
         assert!(
-            app.is_fanned_out(),
+            app.view.is_fanned_out(),
             "rows must be tagged with their namespace"
         );
         assert_eq!(app.mode, Mode::Normal, "opening ends the selection");
-        assert!(app.anchor.is_none());
+        assert!(app.view.anchor.is_none());
     }
 
     #[test]
     fn opening_without_a_selection_scopes_to_one_namespace() {
         let mut app = app();
-        app.namespaces = Loadable::loaded(vec![NamespaceInfo {
+        app.view.namespaces = Loadable::loaded(vec![NamespaceInfo {
             name: "alpha".into(),
             state: "Registered".into(),
             retention_days: 1,
             description: String::new(),
         }]);
         app.run("nav.open", None);
-        assert_eq!(app.scope, ["alpha"]);
-        assert!(!app.is_fanned_out());
+        assert_eq!(app.view.scope, ["alpha"]);
+        assert!(!app.view.is_fanned_out());
     }
 
     #[test]
     fn insert_mode_edits_the_query_on_the_workflow_screen() {
         let mut app = app();
         loaded(&mut app, vec![], vec![]);
-        app.query = "A = 1".into();
+        app.view.query = "A = 1".into();
 
         app.run("mode.insert", None);
         assert!(app.is_editing_query());
@@ -1853,7 +1974,7 @@ mod tests {
         assert_eq!(app.query_display(), "A = 2");
 
         app.handle(Msg::Key(Chord::plain(Key::Enter)));
-        assert_eq!(app.query, "A = 2", "Enter applies the query");
+        assert_eq!(app.view.query, "A = 2", "Enter applies the query");
         assert_eq!(app.mode, Mode::Normal);
     }
 
@@ -1861,13 +1982,13 @@ mod tests {
     fn escape_abandons_a_query_edit() {
         let mut app = app();
         loaded(&mut app, vec![], vec![]);
-        app.query = "A = 1".into();
+        app.view.query = "A = 1".into();
 
         app.run("mode.insert", None);
         type_chars(&mut app, "999");
         app.handle(Msg::Key(Chord::plain(Key::Esc)));
 
-        assert_eq!(app.query, "A = 1", "Esc must not apply the edit");
+        assert_eq!(app.view.query, "A = 1", "Esc must not apply the edit");
         assert_eq!(app.query_display(), "A = 1");
     }
 
@@ -1878,7 +1999,7 @@ mod tests {
         assert!(!app.is_editing_query());
         type_chars(&mut app, "xy");
         assert_eq!(app.insert_buf, "xy");
-        assert_eq!(app.query, "", "the namespace screen has no query bar");
+        assert_eq!(app.view.query, "", "the namespace screen has no query bar");
     }
 
     #[test]
@@ -1893,8 +2014,8 @@ mod tests {
         app.views = views;
 
         app.run("view.1", None);
-        assert_eq!(app.query, "ExecutionStatus = 'Failed'");
-        assert_eq!(app.screen, Screen::Workflows);
+        assert_eq!(app.view.query, "ExecutionStatus = 'Failed'");
+        assert_eq!(app.view.screen, Screen::Workflows);
 
         // Still text, still editable — a view is a bookmark, not a mode.
         app.run("mode.insert", None);
@@ -1904,38 +2025,41 @@ mod tests {
     #[test]
     fn scrolling_near_the_end_asks_for_the_next_page_once() {
         let mut app = app();
-        app.page = 2;
+        app.view.page = 2;
         let rows: Vec<WorkflowRow> = (0..10)
             .map(|i| wf("default", &format!("r{i}"), 1000 - i))
             .collect();
         loaded(&mut app, rows, vec![("default".into(), vec![7])]);
         assert!(
-            !app.loading_more,
+            !app.view.loading_more,
             "a completed load clears the in-flight flag"
         );
 
         app.run("motion.bottom", None);
         assert!(
-            app.loading_more,
+            app.view.loading_more,
             "reaching the end should request the next page"
         );
 
         // A second motion while that request is in flight must not queue another.
         app.run("motion.up", None);
         app.run("motion.bottom", None);
-        assert!(app.loading_more);
+        assert!(app.view.loading_more);
     }
 
     #[test]
     fn scrolling_does_not_page_when_the_list_is_complete() {
         let mut app = app();
-        app.page = 2;
+        app.view.page = 2;
         let rows: Vec<WorkflowRow> = (0..5)
             .map(|i| wf("default", &format!("r{i}"), 1000 - i))
             .collect();
         loaded(&mut app, rows, vec![]);
         app.run("motion.bottom", None);
-        assert!(!app.loading_more, "no token means nothing left to fetch");
+        assert!(
+            !app.view.loading_more,
+            "no token means nothing left to fetch"
+        );
     }
 
     #[test]
@@ -2003,9 +2127,9 @@ mod tests {
         let mut app = app();
         loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
         app.run("nav.open", None);
-        assert_eq!(app.screen, Screen::History);
+        assert_eq!(app.view.screen, Screen::History);
         app.handle(Msg::History {
-            generation: app.generation,
+            generation: app.view.generation,
             result: Ok((history_events(), Vec::new())),
         });
         app
@@ -2014,7 +2138,7 @@ mod tests {
     #[test]
     fn opening_a_workflow_reads_its_history() {
         let app = viewing_history();
-        assert_eq!(app.viewing.as_ref().unwrap().run_id, "r1");
+        assert_eq!(app.view.viewing.as_ref().unwrap().run_id, "r1");
         // Three groups: the workflow and two activities. The workflow task is plumbing.
         assert_eq!(app.row_count(), 3);
     }
@@ -2023,10 +2147,10 @@ mod tests {
     fn dash_returns_to_the_workflow_it_came_from() {
         let mut app = viewing_history();
         app.run("nav.up", None);
-        assert_eq!(app.screen, Screen::Workflows);
-        assert!(app.viewing.is_none());
+        assert_eq!(app.view.screen, Screen::Workflows);
+        assert!(app.view.viewing.is_none());
         assert!(
-            app.history.value().is_none(),
+            app.view.history.value().is_none(),
             "leaving must drop the history rather than show a stale one on re-entry"
         );
     }
@@ -2036,18 +2160,21 @@ mod tests {
         let mut app = viewing_history();
         app.run("motion.down", None); // onto the "Charge" activity
         let before = app.row_count();
-        let at = app.cursor;
+        let at = app.view.cursor;
 
         app.run("history.fold", None);
         assert_eq!(app.row_count(), before + 3, "its three events appeared");
-        assert_eq!(app.cursor, at, "the cursor stays on the group's own line");
+        assert_eq!(
+            app.view.cursor, at,
+            "the cursor stays on the group's own line"
+        );
 
         // Folding shut from *inside* the group must not strand the cursor past the end.
         app.run("motion.down", None);
         app.run("motion.down", None);
         app.run("history.fold", None);
         assert_eq!(app.row_count(), before);
-        assert_eq!(app.cursor, at);
+        assert_eq!(app.view.cursor, at);
     }
 
     #[test]
@@ -2087,7 +2214,7 @@ mod tests {
         app.run("history.next-failure", None);
 
         let group = app.group_under_cursor().expect("on a group");
-        let outline = app.history.value().unwrap();
+        let outline = app.view.history.value().unwrap();
         assert_eq!(outline.group(group).unwrap().subject, "Ship");
 
         // Saying so beats moving the cursor nowhere and looking broken.
@@ -2103,18 +2230,18 @@ mod tests {
 
         // First page stops mid-group: "Charge" is scheduled but has not finished.
         app.handle(Msg::History {
-            generation: app.generation,
+            generation: app.view.generation,
             result: Ok((history_events()[..5].to_vec(), vec![7])),
         });
-        let charge = app.history.value().unwrap().group(2).unwrap().clone();
+        let charge = app.view.history.value().unwrap().group(2).unwrap().clone();
         assert!(charge.is_open(), "the group is incomplete on page one");
 
         // The rest arrives and completes it — which is why pages are re-grouped whole.
         app.handle(Msg::History {
-            generation: app.generation,
+            generation: app.view.generation,
             result: Ok((history_events()[5..].to_vec(), Vec::new())),
         });
-        let charge = app.history.value().unwrap().group(2).unwrap();
+        let charge = app.view.history.value().unwrap().group(2).unwrap();
         assert!(!charge.is_open(), "the second page closed the group");
         assert_eq!(app.row_count(), 3);
     }
@@ -2122,8 +2249,8 @@ mod tests {
     #[test]
     fn a_stale_history_reply_is_dropped() {
         let mut app = viewing_history();
-        let stale = app.generation;
-        app.generation = app.generation.wrapping_add(1);
+        let stale = app.view.generation;
+        app.view.generation = app.view.generation.wrapping_add(1);
 
         app.handle(Msg::History {
             generation: stale,
@@ -2163,7 +2290,7 @@ mod tests {
         loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
         app.run("nav.open", None);
         app.handle(Msg::History {
-            generation: app.generation,
+            generation: app.view.generation,
             // A non-empty token is what a running workflow returns.
             result: Ok((running_history(), vec![9])),
         });
@@ -2173,14 +2300,14 @@ mod tests {
     #[test]
     fn follow_starts_and_stops_on_the_same_key() {
         let mut app = viewing_running();
-        assert!(!app.following);
+        assert!(!app.view.following);
 
         app.run("history.follow", None);
-        assert!(app.following, "F should start following");
+        assert!(app.view.following, "F should start following");
         assert!(matches!(app.note, Some((_, Note::Info))));
 
         app.run("history.follow", None);
-        assert!(!app.following, "F again should stop");
+        assert!(!app.view.following, "F again should stop");
     }
 
     #[test]
@@ -2195,14 +2322,14 @@ mod tests {
         let mut events = history_events();
         events.push(hev(9, G::Workflow, R::Closes, C::Workflow).with_outcome(O::Completed));
         app.handle(Msg::History {
-            generation: app.generation,
+            generation: app.view.generation,
             result: Ok((events, Vec::new())),
         });
 
-        assert!(app.history_token.is_empty());
+        assert!(app.view.history_token.is_empty());
         app.run("history.follow", None);
 
-        assert!(!app.following, "there is nothing to follow");
+        assert!(!app.view.following, "there is nothing to follow");
         let (msg, kind) = app.note.clone().unwrap();
         assert_eq!(kind, Note::Warn);
         assert!(msg.contains("closed"), "got {msg}");
@@ -2213,7 +2340,7 @@ mod tests {
         let mut app = app();
         loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
         app.run("history.follow", None);
-        assert!(!app.following);
+        assert!(!app.view.following);
         assert!(matches!(app.note, Some((_, Note::Warn))));
     }
 
@@ -2221,19 +2348,22 @@ mod tests {
     fn an_empty_token_while_following_means_the_workflow_closed() {
         let mut app = viewing_running();
         app.run("history.follow", None);
-        assert!(app.following);
+        assert!(app.view.following);
 
         // The long poll returns the terminal event with no continuation token.
         use tmprl_core::history::{Category as C, GroupRef as G, Outcome as O, Role as R};
         app.handle(Msg::History {
-            generation: app.generation,
+            generation: app.view.generation,
             result: Ok((
                 vec![hev(9, G::Workflow, R::Closes, C::Workflow).with_outcome(O::Completed)],
                 Vec::new(),
             )),
         });
 
-        assert!(!app.following, "follow must stop when the workflow closes");
+        assert!(
+            !app.view.following,
+            "follow must stop when the workflow closes"
+        );
         let (msg, _) = app.note.clone().unwrap();
         assert!(msg.contains("closed"), "got {msg}");
     }
@@ -2242,14 +2372,14 @@ mod tests {
     fn replayed_events_do_not_duplicate_when_follow_resumes() {
         // Follow resumes from the last non-empty token, which replays that page.
         let mut app = viewing_running();
-        let before = app.history_events.len();
+        let before = app.view.history_events.len();
 
         app.handle(Msg::History {
-            generation: app.generation,
+            generation: app.view.generation,
             result: Ok((running_history(), vec![9])),
         });
         assert_eq!(
-            app.history_events.len(),
+            app.view.history_events.len(),
             before,
             "a replayed page must not be appended twice"
         );
@@ -2260,15 +2390,15 @@ mod tests {
         // Paging leaves history_token empty once caught up; following from that would
         // restart the read at event 1.
         let mut app = viewing_running();
-        assert_eq!(app.history_resume, vec![9]);
+        assert_eq!(app.view.history_resume, vec![9]);
 
         app.handle(Msg::History {
-            generation: app.generation,
+            generation: app.view.generation,
             result: Ok((Vec::new(), Vec::new())),
         });
-        assert!(app.history_token.is_empty(), "caught up");
+        assert!(app.view.history_token.is_empty(), "caught up");
         assert_eq!(
-            app.history_resume,
+            app.view.history_resume,
             vec![9],
             "the resume point is remembered"
         );
@@ -2278,14 +2408,14 @@ mod tests {
     fn leaving_the_history_stops_following() {
         let mut app = viewing_running();
         app.run("history.follow", None);
-        assert!(app.following);
+        assert!(app.view.following);
 
         app.run("nav.up", None);
         assert!(
-            !app.following,
+            !app.view.following,
             "a poll must not outlive the screen it feeds"
         );
-        assert!(app.history_resume.is_empty());
+        assert!(app.view.history_resume.is_empty());
     }
 
     // ── piping ───────────────────────────────────────────────────────────────
@@ -2314,7 +2444,7 @@ mod tests {
         loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
         app.run("nav.open", None);
         app.handle(Msg::History {
-            generation: app.generation,
+            generation: app.view.generation,
             result: Ok((
                 vec![
                     hev(1, G::Workflow, R::Opens, C::Workflow).with_subject("Order"),
@@ -2386,17 +2516,17 @@ mod tests {
         // heading would be a lie.
         let mut app = viewing_payloads();
         app.run("motion.down", None);
-        app.piped = Some(Ok("{}".into()));
+        app.view.piped = Some(Ok("{}".into()));
         app.run("motion.down", None);
-        assert!(app.piped.is_none());
+        assert!(app.view.piped.is_none());
     }
 
     #[test]
     fn a_pipe_result_message_opens_the_pane_and_lands() {
         let mut app = viewing_payloads();
         app.handle(Msg::Piped(Ok("42\n".into())));
-        assert_eq!(app.piped, Some(Ok("42\n".into())));
-        assert_eq!(app.detail_scroll, 0);
+        assert_eq!(app.view.piped, Some(Ok("42\n".into())));
+        assert_eq!(app.view.detail_scroll, 0);
     }
 
     #[test]
@@ -2565,6 +2695,130 @@ mod tests {
         assert!(app.codec.is_some());
     }
 
+    // ── windows ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn splitting_keeps_the_old_pane_and_focuses_a_fresh_one() {
+        let mut app = app();
+        app.view.namespaces = Loadable::loaded(vec![NamespaceInfo {
+            name: "alpha".into(),
+            state: "Registered".into(),
+            retention_days: 1,
+            description: String::new(),
+        }]);
+
+        app.run("window.split-right", None);
+        assert_eq!(app.tabs.current().len(), 2);
+
+        // The focused pane is the new one and starts empty.
+        assert_eq!(app.view.namespace_rows().len(), 0);
+
+        // The pane we came from must still hold what it had loaded.
+        let others: Vec<_> = app
+            .tabs
+            .current()
+            .views()
+            .into_iter()
+            .filter_map(|id| app.parked_view(id))
+            .collect();
+        assert_eq!(others.len(), 1, "exactly one pane is parked");
+        assert_eq!(
+            others[0].namespace_rows().len(),
+            1,
+            "the original pane kept its namespaces"
+        );
+    }
+
+    #[test]
+    fn a_new_pane_opens_where_you_split_from() {
+        // Splitting is almost always "show me this again so I can take one of them
+        // elsewhere". Landing back at the namespace list would make the diff case two
+        // navigations instead of one keystroke.
+        let mut app = app();
+        app.view.screen = Screen::Workflows;
+        app.view.query = "ExecutionStatus = 'Failed'".into();
+        app.view.scope = vec!["payments".into()];
+
+        app.run("window.split-right", None);
+        assert_eq!(app.view.screen, Screen::Workflows);
+        assert_eq!(app.view.query, "ExecutionStatus = 'Failed'");
+        assert_eq!(app.view.scope, ["payments"]);
+        // But none of the other pane's loaded data came with it.
+        assert!(app.view.workflows.value().is_none());
+    }
+
+    #[test]
+    fn focus_moves_between_panes_and_carries_their_state() {
+        let mut app = app();
+        app.view.query = "left".into();
+        app.run("window.split-right", None);
+        app.view.query = "right".into();
+
+        app.run("window.focus-left", None);
+        assert_eq!(app.view.query, "left", "each pane keeps its own query");
+        app.run("window.focus-right", None);
+        assert_eq!(app.view.query, "right");
+    }
+
+    #[test]
+    fn closing_a_window_leaves_the_survivor_focused_with_its_own_state() {
+        let mut app = app();
+        app.view.query = "kept".into();
+        app.run("window.split-right", None);
+        app.view.query = "doomed".into();
+
+        app.run("window.close", None);
+        assert_eq!(app.tabs.current().len(), 1);
+        assert_eq!(app.view.query, "kept");
+    }
+
+    #[test]
+    fn the_last_window_refuses_to_close_and_says_how_to_quit() {
+        let mut app = app();
+        app.run("window.close", None);
+        assert_eq!(app.tabs.current().len(), 1);
+        let (msg, kind) = app.note.clone().unwrap();
+        assert_eq!(kind, Note::Warn);
+        assert!(msg.contains("quit"), "should point at the way out: {msg}");
+    }
+
+    #[test]
+    fn tabs_keep_separate_windows_and_state() {
+        let mut app = app();
+        app.view.query = "first tab".into();
+        app.run("window.split-right", None);
+        assert_eq!(app.tabs.current().len(), 2);
+
+        app.run("tab.new", None);
+        assert_eq!(app.tabs.len(), 2);
+        assert_eq!(app.tabs.current().len(), 1, "a new tab has one window");
+        assert_eq!(app.view.query, "", "and a fresh view");
+
+        app.run("tab.previous", None);
+        assert_eq!(app.tabs.current().len(), 2, "the split is still there");
+        assert_eq!(app.view.query, "first tab");
+    }
+
+    #[test]
+    fn the_last_tab_refuses_to_close() {
+        let mut app = app();
+        app.run("tab.close", None);
+        assert_eq!(app.tabs.len(), 1);
+        assert!(matches!(app.note, Some((_, Note::Warn))));
+    }
+
+    #[test]
+    fn a_closed_window_stops_the_poll_it_was_running() {
+        // View's Drop aborts the follow task. Without it a closed pane keeps a long poll
+        // open and keeps pushing events at a pane that no longer exists.
+        let mut app = app();
+        app.run("window.split-right", None);
+        app.view.following = true;
+        app.run("window.close", None);
+        assert!(!app.view.following, "the survivor was never following");
+        assert_eq!(app.tabs.current().len(), 1);
+    }
+
     #[test]
     fn config_errors_are_surfaced_rather_than_swallowed() {
         let mut app = app();
@@ -2587,14 +2841,14 @@ mod tests {
 
         app.handle(Msg::Key(Chord::ch(' ')));
         app.handle(Msg::Key(Chord::ch('1')));
-        assert_eq!(app.query, "ExecutionStatus = 'Running'");
+        assert_eq!(app.view.query, "ExecutionStatus = 'Running'");
     }
 
     #[test]
     fn opening_nothing_says_so_instead_of_changing_screen() {
         let mut app = app();
         app.run("nav.open", None);
-        assert_eq!(app.screen, Screen::Namespaces);
+        assert_eq!(app.view.screen, Screen::Namespaces);
         assert!(matches!(app.note, Some((_, Note::Warn))));
     }
 
@@ -2602,7 +2856,7 @@ mod tests {
     fn going_up_from_the_top_level_says_so() {
         let mut app = app();
         app.run("nav.up", None);
-        assert_eq!(app.screen, Screen::Namespaces);
+        assert_eq!(app.view.screen, Screen::Namespaces);
         assert!(matches!(app.note, Some((_, Note::Warn))));
     }
 }
