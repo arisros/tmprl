@@ -46,12 +46,46 @@ impl HistoryPage {
 }
 
 impl Conn {
+    /// One long-poll step of follow mode.
+    ///
+    /// This is [`Conn::get_history`] with `wait_new_event: true`, which makes the call
+    /// **block until the workflow does something** — up to about a minute, then it returns
+    /// empty-handed and you call again. Never reach for this outside a task dedicated to
+    /// following; anything else it is on will simply stop.
+    ///
+    /// The behaviour of the continuation token differs from paging, and follow mode is built
+    /// on the difference. Measured against a dev server:
+    ///
+    /// | | `wait_new_event: false` | `wait_new_event: true` |
+    /// |---|---|---|
+    /// | running workflow, caught up | returns 0 events, **empty** token | blocks, then returns new events, token stays non-empty |
+    /// | closed workflow | empty token | empty token, terminal event last |
+    ///
+    /// So an **empty token here means the workflow has closed** and there is nothing further
+    /// to follow — that is the loop's termination condition, and it is authoritative in a way
+    /// that inspecting the last event's type is not.
+    ///
+    /// Passing an empty token restarts from event 1, so a caller resuming a follow should
+    /// hand back the last non-empty token it saw. The page that token sits in is replayed,
+    /// which is why events are merged rather than appended — see
+    /// `tmprl_core::history::merge_events`.
+    pub async fn follow_history(
+        &self,
+        namespace: &str,
+        workflow_id: &str,
+        run_id: &str,
+        next_page_token: Vec<u8>,
+    ) -> Result<HistoryPage, OpError> {
+        self.history_request(namespace, workflow_id, run_id, 100, next_page_token, true)
+            .await
+    }
+
     /// One page of history, normalised.
     ///
-    /// `wait_new_event` is hard-coded false here. Setting it true turns this into a long
-    /// poll that does not return until something happens, which is correct for follow mode
-    /// and a hang everywhere else — so follow mode gets its own entry point rather than a
-    /// flag on this one that is easy to pass by accident.
+    /// `wait_new_event` is false here. Setting it true turns this into a long poll that does
+    /// not return until something happens, which is correct for follow mode and a hang
+    /// everywhere else — so follow mode gets [`Conn::follow_history`] rather than a flag on
+    /// this one that is easy to pass by accident.
     pub async fn get_history(
         &self,
         namespace: &str,
@@ -59,6 +93,26 @@ impl Conn {
         run_id: &str,
         page_size: i32,
         next_page_token: Vec<u8>,
+    ) -> Result<HistoryPage, OpError> {
+        self.history_request(
+            namespace,
+            workflow_id,
+            run_id,
+            page_size,
+            next_page_token,
+            false,
+        )
+        .await
+    }
+
+    async fn history_request(
+        &self,
+        namespace: &str,
+        workflow_id: &str,
+        run_id: &str,
+        page_size: i32,
+        next_page_token: Vec<u8>,
+        wait_new_event: bool,
     ) -> Result<HistoryPage, OpError> {
         let resp = self
             .wf()
@@ -70,7 +124,7 @@ impl Conn {
                 }),
                 maximum_page_size: page_size,
                 next_page_token,
-                wait_new_event: false,
+                wait_new_event,
                 history_event_filter_type: HistoryEventFilterType::AllEvent as i32,
                 skip_archival: false,
             }))
