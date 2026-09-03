@@ -1,9 +1,9 @@
 # Architecture
 
 > **Read this first.** This document mixes built code with design that is not written yet,
-> and every section says which it is. §§2–6 are implemented and tested and §8 partly so;
-> §7 and §9 are still the plan being built against, written down in advance so the shape is
-> agreed before there is code sitting on top of it.
+> and every section says which it is. §§2–6 and §8 are implemented and tested; §7 and §9
+> are still the plan being built against, written down in advance so the shape is agreed
+> before there is code sitting on top of it.
 >
 > | Marker | Meaning |
 > |---|---|
@@ -61,9 +61,9 @@ project testable:
 
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
-| `tmprl-client` | built | Integration tests against `temporal server start-dev` | 31 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 116 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 99 |
+| `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 43 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 120 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 109 |
 | `tmprl-ui` | planned (M2) | Plain unit tests over the layout tree | — |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -384,7 +384,7 @@ two views, not just the pair someone anticipated.
 
 ---
 
-## 8. Payloads and the codec server · PARTLY BUILT (rendering; the codec is not)
+## 8. Payloads and the codec server · BUILT
 
 Temporal payloads are opaque bytes plus metadata. When a cluster uses a codec server, they are
 also encrypted, and decoding requires an HTTP round trip to a service the user runs.
@@ -419,7 +419,7 @@ piping "the payload" would have to pick one arbitrarily. Keyed, `jq .result` pic
 explicitly. The command runs through a shell so that pipelines work, on a spawned task so that
 a slow filter cannot freeze a keystroke, and its output arrives as an ordinary message.
 
-### Decoding · PLANNED
+### Decoding · BUILT
 
 Decoding is:
 
@@ -429,10 +429,34 @@ Decoding is:
   place when the decode resolves, following the same `Loadable` pattern as everything else
 
 The wire contract is Temporal's: `POST {endpoint}/decode`, proto3-JSON `Payloads` in the body,
-`X-Namespace` header, optional `Authorization`.
+`X-Namespace` header, optional `Authorization`. The endpoint comes from `config.toml`.
 
-Until that is built, an encrypted payload renders as its badge and says it needs a codec
-server — the value is not lost, it is not readable yet, and the interface says which.
+**proto3-JSON is the trap.** Every `bytes` field is base64 — the payload data *and each
+metadata value*. Sending `metadata.encoding` as the plain string `binary/encrypted` produces a
+body that looks right to a reader and is wrong on the wire: a conforming server base64-decodes
+it, gets nonsense, and refuses the payload. Unit tests assert the shape; a second set runs the
+client against a real socket and asserts what the server actually receives, because a shape
+assertion can agree with itself while the wire is still wrong.
+
+A decoded payload is swapped into the history *in place* rather than kept in a cache the views
+consult. That way the pane, `!` piping and yanking all read the plaintext without knowing a
+codec exists, and it is why the swap runs again after each history page — a later page can
+carry a value already decoded from an earlier one.
+
+Verified against Temporal's own `converter.NewPayloadCodecHTTPHandler` — the reference
+implementation of this contract — with a worker whose data converter genuinely encrypts. That
+matters more than it sounds: testing a client against one's own reading of a spec proves only
+that the reading is self-consistent. A history carrying four `binary/encrypted` payloads shows
+the badge with no endpoint set, and their plaintext once one is. `!` piping then works on the
+decoded values without knowing a codec was involved, which is the in-place swap doing its job.
+
+Two failure modes are refused rather than guessed around:
+
+- **A short response.** The server must return as many payloads as it was given, in order.
+  Pairing two sent with one returned would show one value's plaintext under another's label.
+- **No credential of our own.** `Authorization` is sent only when `config.toml` sets it. A
+  codec server is a service the user runs, and forwarding a credential they did not configure
+  would be a surprise.
 
 ---
 
