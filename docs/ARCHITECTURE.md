@@ -443,6 +443,13 @@ consult. That way the pane, `!` piping and yanking all read the plaintext withou
 codec exists, and it is why the swap runs again after each history page — a later page can
 carry a value already decoded from an earlier one.
 
+Verified against Temporal's own `converter.NewPayloadCodecHTTPHandler` — the reference
+implementation of this contract — with a worker whose data converter genuinely encrypts. That
+matters more than it sounds: testing a client against one's own reading of a spec proves only
+that the reading is self-consistent. A history carrying four `binary/encrypted` payloads shows
+the badge with no endpoint set, and their plaintext once one is. `!` piping then works on the
+decoded values without knowing a codec was involved, which is the in-place swap doing its job.
+
 Two failure modes are refused rather than guessed around:
 
 - **A short response.** The server must return as many payloads as it was given, in order.
