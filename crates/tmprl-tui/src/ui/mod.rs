@@ -14,7 +14,7 @@ mod workflows;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout};
 
-use crate::app::{App, Screen};
+use crate::app::{App, PromptKind, Screen};
 use crate::theme::Theme;
 
 pub fn render(frame: &mut Frame, app: &mut App) {
@@ -57,7 +57,13 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     statusline::render_status(frame, status, app, &theme);
 
     // Overlays, outermost last.
-    if app.cmdline.is_some() {
+    // Only `:` has completions to show; `!` takes a shell command and draws in the
+    // statusline alone.
+    if app
+        .prompt
+        .as_ref()
+        .is_some_and(|p| p.kind == PromptKind::Command)
+    {
         cmdline::render(frame, app, &theme);
     }
     if !app.which_key.is_empty() {
@@ -504,6 +510,63 @@ mod tests {
         assert_eq!(
             app.detail_scroll, 0,
             "a different value must be shown from its start"
+        );
+    }
+
+    #[test]
+    fn a_filter_result_replaces_the_payloads_in_the_pane() {
+        // You asked to see the filtered value; showing it under the raw payloads would bury
+        // the thing you asked for.
+        let mut app = app_with_payloads();
+        app.run("motion.down", None);
+        app.run("history.detail", None);
+        assert!(draw(&mut app, 110, 20).contains("amount"));
+
+        app.handle(crate::app::Msg::Piped(Ok("\"charged\"".into())));
+        let out = draw(&mut app, 110, 20);
+        assert!(out.contains("filtered"), "pane should say so:\n{out}");
+        assert!(out.contains("charged"), "output missing:\n{out}");
+        assert!(
+            !out.contains("amount"),
+            "raw payloads should give way:\n{out}"
+        );
+    }
+
+    #[test]
+    fn a_failed_filter_shows_the_commands_own_message() {
+        let mut app = app_with_payloads();
+        app.run("motion.down", None);
+        app.run("history.detail", None);
+        app.handle(crate::app::Msg::Piped(Err(
+            "jq: error: syntax error, unexpected INVALID_CHARACTER".into(),
+        )));
+
+        let out = draw(&mut app, 110, 20);
+        assert!(out.contains("filter failed"), "{out}");
+        assert!(out.contains("syntax error"), "jq's own diagnosis:\n{out}");
+    }
+
+    #[test]
+    fn a_filter_with_no_output_says_so_rather_than_looking_broken() {
+        let mut app = app_with_payloads();
+        app.run("motion.down", None);
+        app.run("history.detail", None);
+        app.handle(crate::app::Msg::Piped(Ok(String::new())));
+        assert!(draw(&mut app, 110, 20).contains("no output"));
+    }
+
+    #[test]
+    fn the_pipe_prompt_is_drawn_with_its_own_sigil() {
+        let mut app = app_with_payloads();
+        app.run("motion.down", None);
+        app.run("payload.pipe", None);
+
+        let out = draw(&mut app, 110, 20);
+        assert!(out.contains("!jq ."), "the ! prompt should show:\n{out}");
+        // `:` completions have no business appearing over a shell command.
+        assert!(
+            !out.contains("app.quit"),
+            "a pipe prompt must not offer command completions:\n{out}"
         );
     }
 
