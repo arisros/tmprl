@@ -1,8 +1,9 @@
 # Interface design
 
 > **Status: partly implemented.** The modal core, the namespace and workflow lists, the
-> workflow history outline, follow mode, payload rendering, the visibility query bar, saved
-> views, counts, which-key, the `:` command line, the help overlay and yank all work today. Bindings for features that do not exist yet (histories,
+> workflow history outline, follow mode, payload rendering and piping, the visibility query
+> bar, saved views, counts, which-key, the `:` command line, the help overlay and yank all
+> work today. Bindings for features that do not exist yet (histories,
 > splits, pickers, follow mode) are **specified here but deliberately not bound** — a key
 > that opens an empty screen is worse than a key that does nothing at all. The keymap
 > tables below mark which is which.
@@ -159,6 +160,21 @@ The fold bindings are vim's `z` family deliberately, so the which-key popup on `
 way vim's does. `zp` is not a vim binding, but it sits in the same namespace as the folds it
 resembles. `]f` / `[f` follow vim-unimpaired's bracket-motion convention.
 
+`!` filters what the cursor is on through an external command, the way vim's `!` filters
+lines. The prompt opens pre-filled with `jq .`, because that is what it is for and an empty
+prompt means retyping the same three characters every time.
+
+A row usually carries more than one payload — an activity has both an `input` and a `result` —
+so "pipe the payload" would be ambiguous. What is piped is a JSON object keyed by label, which
+makes the obvious expressions work: `jq .` shows everything, `jq .result` picks one,
+`jq .input[1]` picks an argument. A payload that is encrypted or binary is left out and the
+statusline says which, because piping ciphertext into `jq` produces a parse error that
+explains nothing.
+
+The command runs through a shell, so `!jq .result | head -20` works. Its output replaces the
+payload pane; a failure shows the command's own stderr, since when a `jq` expression is wrong
+jq's message is the entire diagnosis.
+
 `F` tails a running workflow, the way `tail -f` does. The statusline carries a **FOLLOW**
 badge while it is on, because a view that rewrites itself under you needs to say so — a
 screen that changes on its own otherwise reads as a glitch. Following stops on `F`, on leaving
@@ -178,7 +194,7 @@ closed is refused with a message instead of polling for events that can never ar
 | `F` | follow — tail a running workflow | **live** |
 | `<leader>cs` | call stack (`__stack_trace` query) | M2 |
 | `<leader>cq` | send a query to the workflow | M2 |
-| `!` | pipe selection through `jq` | M2 |
+| `!` | pipe the focused payloads through a command | **live** |
 | `K` | show the payloads under the cursor | **live** |
 | `<C-e>` / `<C-y>` | scroll the payload pane | **live** |
 | `<leader>e` | open the payload in `$EDITOR` | M2 |

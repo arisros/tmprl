@@ -24,6 +24,12 @@ pub fn render(frame: &mut Frame, area: Rect, app: &mut App, t: &Theme) {
     if area.height < 2 {
         return;
     }
+    // A filter result replaces the payloads: you asked to see the filtered value, and
+    // showing both would bury it.
+    if let Some(piped) = app.piped.clone() {
+        return render_piped(frame, area, app, &piped, t);
+    }
+
     let Some(outline) = app.history.value() else {
         return;
     };
@@ -171,4 +177,54 @@ fn payload_lines<'a>(e: &'a NormalizedEvent, t: &Theme) -> Vec<Line<'a>> {
         }
     }
     lines
+}
+
+/// The output of a `!` filter.
+///
+/// Failure is rendered as the command's own stderr rather than a message of ours: when a jq
+/// expression is wrong, jq's diagnosis is the entire answer and paraphrasing it loses the
+/// line and column.
+fn render_piped(
+    frame: &mut Frame,
+    area: Rect,
+    app: &mut App,
+    piped: &Result<String, String>,
+    t: &Theme,
+) {
+    let (body, style, label) = match piped {
+        Ok(out) => (out, Style::new().fg(t.fg), "filtered"),
+        Err(err) => (err, Style::new().fg(t.err), "filter failed"),
+    };
+    let lines: Vec<Line> = if body.trim().is_empty() {
+        vec![Line::from(Span::styled(
+            "  (no output)",
+            Style::new().fg(t.faint),
+        ))]
+    } else {
+        body.lines()
+            .map(|l| Line::from(Span::styled(format!("  {l}"), style)))
+            .collect()
+    };
+
+    let visible = area.height.saturating_sub(1) as usize;
+    app.detail_max_scroll = lines.len().saturating_sub(visible);
+    let scroll = app.detail_scroll.min(app.detail_max_scroll);
+    app.detail_scroll = scroll;
+
+    let title = if app.detail_max_scroll == 0 {
+        format!(" {label} — K to close ")
+    } else {
+        format!(
+            " {label} — <C-e>/<C-y> to scroll ({}/{}) — K to close ",
+            scroll + 1,
+            app.detail_max_scroll + 1
+        )
+    };
+    let block = Block::default()
+        .borders(Borders::TOP)
+        .border_style(Style::new().fg(if piped.is_err() { t.err } else { t.faint }))
+        .title(Span::styled(title, Style::new().fg(t.accent)));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, 0)), inner);
 }
