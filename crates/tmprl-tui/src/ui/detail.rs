@@ -17,7 +17,7 @@ use tmprl_core::history::NormalizedEvent;
 use tmprl_core::outline::{Outline, Row};
 use tmprl_core::payload::Rendered;
 
-use crate::app::App;
+use crate::app::{App, DecodeState};
 use crate::theme::Theme;
 
 pub fn render(frame: &mut Frame, area: Rect, app: &mut App, t: &Theme) {
@@ -36,9 +36,9 @@ pub fn render(frame: &mut Frame, area: Rect, app: &mut App, t: &Theme) {
     let lines = match outline.row_at(app.cursor) {
         Some(Row::Event { event, .. }) => outline
             .event(event)
-            .map(|e| event_lines(e, t))
+            .map(|e| event_lines(e, app, t))
             .unwrap_or_default(),
-        Some(Row::Group { group, .. }) => group_lines(outline, group, t),
+        Some(Row::Group { group, .. }) => group_lines(outline, group, app, t),
         None => Vec::new(),
     };
 
@@ -78,7 +78,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &mut App, t: &Theme) {
 
 /// The events whose payloads a group cares about: the one that opened it and the one that
 /// closed it. The middle of a group is task plumbing and carries nothing.
-fn group_lines<'a>(outline: &'a Outline, group: usize, t: &Theme) -> Vec<Line<'a>> {
+fn group_lines<'a>(outline: &'a Outline, group: usize, app: &App, t: &Theme) -> Vec<Line<'a>> {
     let Some(g) = outline.group(group) else {
         return Vec::new();
     };
@@ -107,7 +107,7 @@ fn group_lines<'a>(outline: &'a Outline, group: usize, t: &Theme) -> Vec<Line<'a
         if e.payloads.is_empty() {
             continue;
         }
-        lines.extend(payload_lines(e, t));
+        lines.extend(payload_lines(e, app, t));
     }
     if lines.len() == before {
         // A pane showing nothing but a title reads as broken. Plenty of events genuinely
@@ -120,7 +120,7 @@ fn group_lines<'a>(outline: &'a Outline, group: usize, t: &Theme) -> Vec<Line<'a
     lines
 }
 
-fn event_lines<'a>(e: &'a NormalizedEvent, t: &Theme) -> Vec<Line<'a>> {
+fn event_lines<'a>(e: &'a NormalizedEvent, app: &App, t: &Theme) -> Vec<Line<'a>> {
     let mut lines = vec![Line::from(vec![
         Span::styled(
             format!("  {} ", e.name),
@@ -140,11 +140,11 @@ fn event_lines<'a>(e: &'a NormalizedEvent, t: &Theme) -> Vec<Line<'a>> {
             Style::new().fg(t.err),
         )));
     }
-    lines.extend(payload_lines(e, t));
+    lines.extend(payload_lines(e, app, t));
     lines
 }
 
-fn payload_lines<'a>(e: &'a NormalizedEvent, t: &Theme) -> Vec<Line<'a>> {
+fn payload_lines<'a>(e: &'a NormalizedEvent, app: &App, t: &Theme) -> Vec<Line<'a>> {
     let mut lines = Vec::new();
     for (label, p) in &e.payloads {
         lines.push(Line::from(Span::styled(
@@ -170,10 +170,25 @@ fn payload_lines<'a>(e: &'a NormalizedEvent, t: &Theme) -> Vec<Line<'a>> {
                 format!("    {encoding}, {bytes} bytes — not shown"),
                 Style::new().fg(t.faint),
             ))),
-            Rendered::Encrypted { bytes } => lines.push(Line::from(Span::styled(
-                format!("    🔒 encrypted, {bytes} bytes — needs a codec server"),
-                Style::new().fg(t.warn),
-            ))),
+            Rendered::Encrypted { bytes } => {
+                let (what, style) = match app.decode_state(p) {
+                    DecodeState::NoCodec => (
+                        format!(
+                            "    🔒 encrypted, {bytes} bytes — set [codec] endpoint in config.toml"
+                        ),
+                        Style::new().fg(t.warn),
+                    ),
+                    DecodeState::InFlight => (
+                        format!("    🔒 encrypted, {bytes} bytes — decoding…"),
+                        Style::new().fg(t.dim),
+                    ),
+                    DecodeState::Idle => (
+                        format!("    🔒 encrypted, {bytes} bytes"),
+                        Style::new().fg(t.warn),
+                    ),
+                };
+                lines.push(Line::from(Span::styled(what, style)));
+            }
         }
     }
     lines

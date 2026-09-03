@@ -258,13 +258,24 @@ reader.
 
 | File | Holds |
 |---|---|
-| `~/.config/tmprl/config.toml` | codec server endpoint, refresh intervals, defaults — *planned* |
+| `~/.config/tmprl/config.toml` | codec server endpoint — **live**; refresh intervals and defaults *planned* |
 | `~/.config/tmprl/keys.toml` | key chord → command id — **live** |
 | `~/.config/tmprl/theme.toml` | colours — *planned* |
 | `~/.config/tmprl/views.toml` | saved visibility queries — **live** |
 | `~/.local/state/tmprl/audit.jsonl` | every mutation performed — *planned* |
 
 The directory is `$TMPRL_CONFIG_DIR`, else `$XDG_CONFIG_HOME/tmprl`, else `~/.config/tmprl`.
+A `config.toml` points at a codec server, if the cluster uses one:
+
+```toml
+[codec]
+endpoint = "http://localhost:8081"
+auth     = "Bearer …"   # optional; sent verbatim as Authorization
+```
+
+Encrypted payloads are decoded lazily — only what the pane is showing, never a whole history —
+and cached, so scrolling back over a row costs nothing. Without an endpoint the badge says
+where to set one.
 A `views.toml` looks like:
 
 ```toml
