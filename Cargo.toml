@@ -15,7 +15,8 @@ temporalio-common = "=0.7.0"
 # `prost_types::Timestamp` — temporalio-protos generates against prost-wkt-types and
 # re-exports neither. Mapping a start time to epoch millis needs this crate by name.
 prost-wkt-types = "0.7"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "signal"] }
+# "process" is for `!` — filtering a payload through an external command such as jq.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "signal", "process", "io-util"] }
 ratatui = "0.30"
 # ratatui pulls crossterm but not these two features: `event-stream` gives the async
 # EventStream the select! loop needs, `osc52` gives clipboard writes that survive SSH.

@@ -62,8 +62,8 @@ project testable:
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
 | `tmprl-client` | built | Integration tests against `temporal server start-dev` | 31 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 111 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 83 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 116 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 99 |
 | `tmprl-ui` | planned (M2) | Plain unit tests over the layout tree | — |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -412,6 +412,12 @@ unparseable.
 `K` opens the pane on the focused row. For a group it gathers the input from the event that
 opened the group and the result from the event that closed it, because those are two different
 events and showing only the row you happen to be on would hide one of them.
+
+`!` filters that same set through an external command. What goes down the pipe is a JSON
+object keyed by payload label rather than a single value — a row carries more than one, so
+piping "the payload" would have to pick one arbitrarily. Keyed, `jq .result` picks it
+explicitly. The command runs through a shell so that pipelines work, on a spawned task so that
+a slow filter cannot freeze a keystroke, and its output arrives as an ordinary message.
 
 ### Decoding · PLANNED
 
