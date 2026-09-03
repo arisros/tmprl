@@ -32,11 +32,11 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
     let rows = app.workflow_rows();
 
     if rows.is_empty() {
-        let msg = if app.workflows.is_loading() {
+        let msg = if app.view.workflows.is_loading() {
             "loading workflows…".to_string()
-        } else if let Some(e) = app.workflows.error() {
+        } else if let Some(e) = app.view.workflows.error() {
             format!("{e} — R to retry")
-        } else if app.query.trim().is_empty() {
+        } else if app.view.query.trim().is_empty() {
             "no workflows in this namespace".to_string()
         } else {
             // Distinguish "nothing here" from "your filter excluded everything", which is
@@ -58,6 +58,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
     let now = now_millis();
     let height = area.height as usize;
     let first = app
+        .view
         .cursor
         .saturating_sub(height.saturating_sub(1) / 2)
         .min(rows.len().saturating_sub(height));
@@ -68,7 +69,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
         .skip(first)
         .take(height)
         .map(|(i, w)| {
-            let focused = i == app.cursor;
+            let focused = i == app.view.cursor;
             let base = if focused {
                 Style::new().fg(t.fg).bg(t.sel).add_modifier(Modifier::BOLD)
             } else if app.is_selected(i) {
@@ -79,7 +80,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
 
             let mut spans = vec![
                 Span::styled(
-                    super::gutter(i, app.cursor),
+                    super::gutter(i, app.view.cursor),
                     Style::new().fg(if focused { t.warn } else { t.faint }),
                 ),
                 Span::styled(
