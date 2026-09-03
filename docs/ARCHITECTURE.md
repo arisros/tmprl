@@ -63,14 +63,13 @@ project testable:
 |---|---|---|---|
 | `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 43 |
 | `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 120 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 109 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 118 |
 | `tmprl-ui` | built | Plain unit tests over the layout tree | 35 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
 arrangement working as intended.
 
-`tmprl-ui` is built and tested but **not yet wired into the interface** — see §7. Nothing
-renders through it today.
+Every pane on screen is a leaf of `tmprl-ui`'s tree — see §7.
 
 The bulk of the difficult logic lives in `tmprl-core`, the layer that needs *nothing* to
 test — no server, no terminal, no async runtime.
@@ -363,7 +362,7 @@ rather than a picture.
 
 ---
 
-## 7. The window model · PARTLY BUILT (the tree; not yet wired to the interface)
+## 7. The window model · BUILT
 
 `tmprl-ui` holds a layout tree, not a fixed master-detail arrangement:
 
@@ -405,10 +404,31 @@ run is just two workflow-detail views in a vertical split with linked scrolling,
 compact-group key. There is no separate diff screen to build, and the comparison works for any
 two views, not just the pair someone anticipated.
 
-**What is not built:** the wiring. Every screen still renders into the whole frame, the
-application holds one of each rather than a view per pane, and no split or tab key is bound —
-binding one now would put an empty pane on screen, which is worse than a key that does
-nothing. That is the next piece of work.
+### Wiring it in
+
+The application used to hold one cursor and one history, which is what made a second pane
+impossible rather than merely unwritten. Everything a window owns now lives in a `View` —
+screen, cursor, query, scope, history, follow task, paging tokens, payload pane — and
+everything belonging to the session stays on `App`: the mode, the keymap, the prompt, the
+note line, the codec cache. There is one keyboard and one status line however many panes are
+open, and one decode cache is right because the same payload in two panes should cost one
+round trip.
+
+The focused pane's `View` is held directly on `App` and the others wait in a map; moving focus
+swaps between the two. That is what lets the whole reducer keep saying `self.view` without a
+lookup that could fail.
+
+Two consequences worth stating:
+
+- **`generation` is per pane.** Two panes fetching at once must not invalidate each other's
+  replies, which one shared counter would do.
+- **`View` has a `Drop` that aborts its follow task.** Closing a window must not leave a long
+  poll running against a pane that no longer exists.
+
+A split forks the pane's *navigation* — screen, scope, query, which workflow — but none of its
+loaded data. Splitting is almost always "show me this again so I can take one of them
+somewhere else", and landing back at the namespace list would make the diff case two
+navigations instead of one keystroke.
 
 ---
 

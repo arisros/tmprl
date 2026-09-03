@@ -19,21 +19,22 @@ use tmprl_core::payload::Rendered;
 
 use crate::app::{App, DecodeState};
 use crate::theme::Theme;
+use crate::view::View;
 
-pub fn render(frame: &mut Frame, area: Rect, app: &mut App, t: &Theme) {
+pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) -> usize {
     if area.height < 2 {
-        return;
+        return 0;
     }
     // A filter result replaces the payloads: you asked to see the filtered value, and
     // showing both would bury it.
-    if let Some(piped) = app.view.piped.clone() {
-        return render_piped(frame, area, app, &piped, t);
+    if let Some(piped) = view.piped.clone() {
+        return render_piped(frame, area, view, &piped, t);
     }
 
-    let Some(outline) = app.view.history.value() else {
-        return;
+    let Some(outline) = view.history.value() else {
+        return 0;
     };
-    let lines = match outline.row_at(app.view.cursor) {
+    let lines = match outline.row_at(view.cursor) {
         Some(Row::Event { event, .. }) => outline
             .event(event)
             .map(|e| event_lines(e, app, t))
@@ -54,17 +55,16 @@ pub fn render(frame: &mut Frame, area: Rect, app: &mut App, t: &Theme) {
     // A payload can be far taller than the pane. Clipping it silently would hide the end of
     // a stack trace, which is the part worth reading, so the pane scrolls and says so.
     let visible = area.height.saturating_sub(1) as usize;
-    app.view.detail_max_scroll = lines.len().saturating_sub(visible);
-    let scroll = app.view.detail_scroll.min(app.view.detail_max_scroll);
-    app.view.detail_scroll = scroll;
+    let max_scroll = lines.len().saturating_sub(visible);
+    let scroll = view.detail_scroll.min(max_scroll);
 
-    let title = if app.view.detail_max_scroll == 0 {
+    let title = if max_scroll == 0 {
         " payloads — K to close ".to_string()
     } else {
         format!(
             " payloads — <C-e>/<C-y> to scroll ({}/{}) — K to close ",
             scroll + 1,
-            app.view.detail_max_scroll + 1
+            max_scroll + 1
         )
     };
     let block = Block::default()
@@ -74,6 +74,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &mut App, t: &Theme) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
     frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, 0)), inner);
+    max_scroll
 }
 
 /// The events whose payloads a group cares about: the one that opened it and the one that
@@ -202,10 +203,10 @@ fn payload_lines<'a>(e: &'a NormalizedEvent, app: &App, t: &Theme) -> Vec<Line<'
 fn render_piped(
     frame: &mut Frame,
     area: Rect,
-    app: &mut App,
+    view: &View,
     piped: &Result<String, String>,
     t: &Theme,
-) {
+) -> usize {
     let (body, style, label) = match piped {
         Ok(out) => (out, Style::new().fg(t.fg), "filtered"),
         Err(err) => (err, Style::new().fg(t.err), "filter failed"),
@@ -222,17 +223,16 @@ fn render_piped(
     };
 
     let visible = area.height.saturating_sub(1) as usize;
-    app.view.detail_max_scroll = lines.len().saturating_sub(visible);
-    let scroll = app.view.detail_scroll.min(app.view.detail_max_scroll);
-    app.view.detail_scroll = scroll;
+    let max_scroll = lines.len().saturating_sub(visible);
+    let scroll = view.detail_scroll.min(max_scroll);
 
-    let title = if app.view.detail_max_scroll == 0 {
+    let title = if max_scroll == 0 {
         format!(" {label} — K to close ")
     } else {
         format!(
             " {label} — <C-e>/<C-y> to scroll ({}/{}) — K to close ",
             scroll + 1,
-            app.view.detail_max_scroll + 1
+            max_scroll + 1
         )
     };
     let block = Block::default()
@@ -242,4 +242,5 @@ fn render_piped(
     let inner = block.inner(area);
     frame.render_widget(block, area);
     frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, 0)), inner);
+    max_scroll
 }

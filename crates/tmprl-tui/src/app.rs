@@ -18,6 +18,7 @@ use tmprl_core::{
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::view::View;
+use tmprl_ui::{Axis, Direction, Rect as UiRect, Tabs, ViewId};
 
 /// Rows fetched per namespace per page. Large enough that scrolling rarely waits, small
 /// enough that the first screen arrives promptly on a slow link.
@@ -128,9 +129,22 @@ pub enum Note {
 }
 
 pub struct App {
-    /// What the focused pane is showing. One today; a tree of them once the window
-    /// bindings land.
+    /// The focused pane's state, held directly rather than looked up.
+    ///
+    /// Every command in the reducer acts on the focused window, so keeping it here means
+    /// the whole reducer reads `self.view` without a lookup that could fail. The other
+    /// panes wait in `parked`, and focus changes swap between the two.
     pub view: View,
+    /// The panes that are not focused, by id.
+    parked: std::collections::HashMap<ViewId, View>,
+    /// The window tree: which panes exist, where they sit, which is focused.
+    pub tabs: Tabs,
+    /// Ids are handed out and never reused, so a stale reference cannot silently resolve
+    /// to a different pane.
+    next_view_id: u64,
+    /// The body area the panes were last laid out in, so focus movement is geometric
+    /// against what is actually on screen.
+    frame: UiRect,
 
     pub mode: Mode,
     pub pending: Pending,
@@ -189,6 +203,10 @@ impl App {
     ) -> Self {
         Self {
             view: View::new(&namespace),
+            parked: std::collections::HashMap::new(),
+            tabs: Tabs::new(ViewId(0)),
+            next_view_id: 1,
+            frame: UiRect::new(0, 0, 80, 24),
             mode: Mode::Normal,
             pending: Pending::default(),
             registry: Registry::builtin(),
@@ -269,43 +287,27 @@ impl App {
             .unwrap_or(&[])
     }
 
-    /// How many rows the focused screen has.
     pub fn row_count(&self) -> usize {
-        match self.view.screen {
-            Screen::Namespaces => self.namespace_rows().len(),
-            Screen::Workflows => self.workflow_rows().len(),
-            Screen::History => self.view.history.value().map(Outline::len).unwrap_or(0),
-        }
-    }
-
-    /// Whether the workflow list is fanned out over more than one namespace, which is when
-    /// rows need to say which namespace they came from.
-    pub fn is_fanned_out(&self) -> bool {
-        self.view.scope.len() > 1
-    }
-
-    /// The query text to display: the live edit while Insert mode owns it, otherwise the
-    /// applied query.
-    pub fn query_display(&self) -> &str {
-        if self.mode == Mode::Insert && self.insert_target == InsertTarget::Query {
-            &self.insert_buf
-        } else {
-            &self.view.query
-        }
+        self.view.row_count()
     }
 
     pub fn is_editing_query(&self) -> bool {
         self.mode == Mode::Insert && self.insert_target == InsertTarget::Query
     }
 
-    /// The inclusive row range currently selected, if in a visual mode.
-    pub fn selection(&self) -> Option<(usize, usize)> {
-        let a = self.view.anchor?;
-        Some((a.min(self.view.cursor), a.max(self.view.cursor)))
+    /// The query text to show: the live edit while Insert mode owns it, otherwise what is
+    /// applied. Used by the tests and by anything that needs the focused pane's query.
+    pub fn query_display(&self) -> &str {
+        if self.is_editing_query() {
+            &self.insert_buf
+        } else {
+            &self.view.query
+        }
     }
 
-    pub fn is_selected(&self, i: usize) -> bool {
-        self.selection().is_some_and(|(lo, hi)| i >= lo && i <= hi)
+    /// The inclusive row range selected in the focused pane, if a visual mode is active.
+    pub fn selection(&self) -> Option<(usize, usize)> {
+        self.view.selection()
     }
 
     // ── the reducer ──────────────────────────────────────────────────────────
@@ -577,6 +579,23 @@ impl App {
             Action::DetailDown => self.scroll_detail(n as isize),
             Action::DetailUp => self.scroll_detail(-(n as isize)),
             Action::OpenPipe => self.open_pipe(),
+
+            Action::SplitRight => self.split(Axis::Columns),
+            Action::SplitDown => self.split(Axis::Rows),
+            Action::CloseWindow => self.close_window(),
+            Action::EqualizeWindows => self.tabs.current_mut().equalize(),
+            Action::FocusLeft => self.focus_window(Direction::Left),
+            Action::FocusRight => self.focus_window(Direction::Right),
+            Action::FocusUp => self.focus_window(Direction::Up),
+            Action::FocusDown => self.focus_window(Direction::Down),
+            Action::GrowLeft => self.resize_window(Direction::Left),
+            Action::GrowRight => self.resize_window(Direction::Right),
+            Action::GrowUp => self.resize_window(Direction::Up),
+            Action::GrowDown => self.resize_window(Direction::Down),
+            Action::NewTab => self.new_tab(),
+            Action::CloseTab => self.close_tab(),
+            Action::NextTab => self.switch_tab(true),
+            Action::PrevTab => self.switch_tab(false),
             Action::ToggleDetail => {
                 if self.view.screen == Screen::History {
                     self.view.show_detail = !self.view.show_detail;
@@ -1149,6 +1168,151 @@ impl App {
             Key::Char(c) if chord.mods.is_none() => prompt.buf.push(c),
             _ => {}
         }
+    }
+
+    // ── windows ──────────────────────────────────────────────────────────────
+
+    /// Park the focused pane and take up whichever one the tree now points at.
+    ///
+    /// The reducer always acts on `self.view`, so every operation that can move focus ends
+    /// here. Swapping rather than looking up is what lets the rest of the reducer stay
+    /// unaware that there is more than one pane.
+    fn refocus(&mut self, previous: ViewId) {
+        let now = self.tabs.current().focused();
+        if now == previous {
+            return;
+        }
+        let namespace = self.namespace.clone();
+        let incoming = self
+            .parked
+            .remove(&now)
+            .unwrap_or_else(|| View::new(&namespace));
+        let outgoing = std::mem::replace(&mut self.view, incoming);
+        self.parked.insert(previous, outgoing);
+    }
+
+    fn fresh_view_id(&mut self) -> ViewId {
+        let id = ViewId(self.next_view_id);
+        self.next_view_id += 1;
+        id
+    }
+
+    /// Split the focused window. The new pane starts where this one is, which is almost
+    /// always what you wanted it for — comparing two histories means opening the same place
+    /// twice and then navigating one of them away.
+    fn split(&mut self, axis: Axis) {
+        let previous = self.tabs.current().focused();
+        let id = self.fresh_view_id();
+        let forked = self.view.fork();
+        self.parked.insert(id, forked);
+        self.tabs.current_mut().split(axis, id);
+        self.refocus(previous);
+        // The new pane knows where it is but has fetched nothing yet.
+        self.load_for_screen();
+        self.note = Some((format!("{} windows", self.tabs.current().len()), Note::Info));
+    }
+
+    fn close_window(&mut self) {
+        let previous = self.tabs.current().focused();
+        if !self.tabs.current_mut().close() {
+            self.note = Some(("last window — <Space>q to quit tmprl".into(), Note::Warn));
+            return;
+        }
+        // Its state goes with it, and View's Drop stops any follow poll it had running.
+        self.parked.remove(&previous);
+        let now = self.tabs.current().focused();
+        let namespace = self.namespace.clone();
+        let incoming = self
+            .parked
+            .remove(&now)
+            .unwrap_or_else(|| View::new(&namespace));
+        self.view = incoming;
+    }
+
+    fn focus_window(&mut self, dir: Direction) {
+        let previous = self.tabs.current().focused();
+        if self.tabs.current_mut().focus_direction(dir, self.frame) {
+            self.refocus(previous);
+        }
+    }
+
+    fn resize_window(&mut self, dir: Direction) {
+        // Ten cells' worth, as `<leader>r{hjkl}` promises. Weights are relative, so this is
+        // a nudge rather than an exact cell count.
+        self.tabs.current_mut().resize(dir, 10);
+    }
+
+    fn new_tab(&mut self) {
+        let previous = self.tabs.current().focused();
+        let id = self.fresh_view_id();
+        self.parked.insert(
+            previous,
+            std::mem::replace(&mut self.view, View::new(&self.namespace)),
+        );
+        self.tabs.open(id);
+        // The new tab's view is the one we just made; nothing to take from `parked`.
+        let _ = previous;
+        self.load_for_screen();
+    }
+
+    fn close_tab(&mut self) {
+        if self.tabs.len() == 1 {
+            self.note = Some(("last tab — <Space>q to quit tmprl".into(), Note::Warn));
+            return;
+        }
+        // Every pane in the tab goes, along with whatever each was polling.
+        for id in self.tabs.current().views() {
+            self.parked.remove(&id);
+        }
+        self.tabs.close();
+        let now = self.tabs.current().focused();
+        let namespace = self.namespace.clone();
+        self.view = self
+            .parked
+            .remove(&now)
+            .unwrap_or_else(|| View::new(&namespace));
+    }
+
+    fn switch_tab(&mut self, forward: bool) {
+        if self.tabs.len() == 1 {
+            return;
+        }
+        let previous = self.tabs.current().focused();
+        self.parked.insert(
+            previous,
+            std::mem::replace(&mut self.view, View::new(&self.namespace)),
+        );
+        if forward {
+            self.tabs.next();
+        } else {
+            self.tabs.previous();
+        }
+        let now = self.tabs.current().focused();
+        let namespace = self.namespace.clone();
+        self.view = self
+            .parked
+            .remove(&now)
+            .unwrap_or_else(|| View::new(&namespace));
+    }
+
+    /// Load whatever the focused pane's screen needs. A fresh pane has asked for nothing.
+    fn load_for_screen(&mut self) {
+        match self.view.screen {
+            Screen::Namespaces => self.load_namespaces(),
+            Screen::Workflows => self.load_workflows(false),
+            Screen::History => self.load_history(),
+        }
+    }
+
+    /// Record the area the panes were laid out in, so focus movement is geometric against
+    /// what is actually on screen rather than against a guess.
+    pub fn set_frame(&mut self, area: UiRect) {
+        self.frame = area;
+    }
+
+    /// A non-focused pane's state, for rendering it.
+    pub fn parked_view(&self, id: ViewId) -> Option<&View> {
+        self.parked.get(&id)
     }
 
     // ── codec server ─────────────────────────────────────────────────────────
@@ -1774,7 +1938,7 @@ mod tests {
 
         assert_eq!(app.view.scope, ["alpha", "beta"]);
         assert!(
-            app.is_fanned_out(),
+            app.view.is_fanned_out(),
             "rows must be tagged with their namespace"
         );
         assert_eq!(app.mode, Mode::Normal, "opening ends the selection");
@@ -1792,7 +1956,7 @@ mod tests {
         }]);
         app.run("nav.open", None);
         assert_eq!(app.view.scope, ["alpha"]);
-        assert!(!app.is_fanned_out());
+        assert!(!app.view.is_fanned_out());
     }
 
     #[test]
@@ -2529,6 +2693,130 @@ mod tests {
         );
         assert!(app.note.is_none());
         assert!(app.codec.is_some());
+    }
+
+    // ── windows ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn splitting_keeps_the_old_pane_and_focuses_a_fresh_one() {
+        let mut app = app();
+        app.view.namespaces = Loadable::loaded(vec![NamespaceInfo {
+            name: "alpha".into(),
+            state: "Registered".into(),
+            retention_days: 1,
+            description: String::new(),
+        }]);
+
+        app.run("window.split-right", None);
+        assert_eq!(app.tabs.current().len(), 2);
+
+        // The focused pane is the new one and starts empty.
+        assert_eq!(app.view.namespace_rows().len(), 0);
+
+        // The pane we came from must still hold what it had loaded.
+        let others: Vec<_> = app
+            .tabs
+            .current()
+            .views()
+            .into_iter()
+            .filter_map(|id| app.parked_view(id))
+            .collect();
+        assert_eq!(others.len(), 1, "exactly one pane is parked");
+        assert_eq!(
+            others[0].namespace_rows().len(),
+            1,
+            "the original pane kept its namespaces"
+        );
+    }
+
+    #[test]
+    fn a_new_pane_opens_where_you_split_from() {
+        // Splitting is almost always "show me this again so I can take one of them
+        // elsewhere". Landing back at the namespace list would make the diff case two
+        // navigations instead of one keystroke.
+        let mut app = app();
+        app.view.screen = Screen::Workflows;
+        app.view.query = "ExecutionStatus = 'Failed'".into();
+        app.view.scope = vec!["payments".into()];
+
+        app.run("window.split-right", None);
+        assert_eq!(app.view.screen, Screen::Workflows);
+        assert_eq!(app.view.query, "ExecutionStatus = 'Failed'");
+        assert_eq!(app.view.scope, ["payments"]);
+        // But none of the other pane's loaded data came with it.
+        assert!(app.view.workflows.value().is_none());
+    }
+
+    #[test]
+    fn focus_moves_between_panes_and_carries_their_state() {
+        let mut app = app();
+        app.view.query = "left".into();
+        app.run("window.split-right", None);
+        app.view.query = "right".into();
+
+        app.run("window.focus-left", None);
+        assert_eq!(app.view.query, "left", "each pane keeps its own query");
+        app.run("window.focus-right", None);
+        assert_eq!(app.view.query, "right");
+    }
+
+    #[test]
+    fn closing_a_window_leaves_the_survivor_focused_with_its_own_state() {
+        let mut app = app();
+        app.view.query = "kept".into();
+        app.run("window.split-right", None);
+        app.view.query = "doomed".into();
+
+        app.run("window.close", None);
+        assert_eq!(app.tabs.current().len(), 1);
+        assert_eq!(app.view.query, "kept");
+    }
+
+    #[test]
+    fn the_last_window_refuses_to_close_and_says_how_to_quit() {
+        let mut app = app();
+        app.run("window.close", None);
+        assert_eq!(app.tabs.current().len(), 1);
+        let (msg, kind) = app.note.clone().unwrap();
+        assert_eq!(kind, Note::Warn);
+        assert!(msg.contains("quit"), "should point at the way out: {msg}");
+    }
+
+    #[test]
+    fn tabs_keep_separate_windows_and_state() {
+        let mut app = app();
+        app.view.query = "first tab".into();
+        app.run("window.split-right", None);
+        assert_eq!(app.tabs.current().len(), 2);
+
+        app.run("tab.new", None);
+        assert_eq!(app.tabs.len(), 2);
+        assert_eq!(app.tabs.current().len(), 1, "a new tab has one window");
+        assert_eq!(app.view.query, "", "and a fresh view");
+
+        app.run("tab.previous", None);
+        assert_eq!(app.tabs.current().len(), 2, "the split is still there");
+        assert_eq!(app.view.query, "first tab");
+    }
+
+    #[test]
+    fn the_last_tab_refuses_to_close() {
+        let mut app = app();
+        app.run("tab.close", None);
+        assert_eq!(app.tabs.len(), 1);
+        assert!(matches!(app.note, Some((_, Note::Warn))));
+    }
+
+    #[test]
+    fn a_closed_window_stops_the_poll_it_was_running() {
+        // View's Drop aborts the follow task. Without it a closed pane keeps a long poll
+        // open and keeps pushing events at a pane that no longer exists.
+        let mut app = app();
+        app.run("window.split-right", None);
+        app.view.following = true;
+        app.run("window.close", None);
+        assert!(!app.view.following, "the survivor was never following");
+        assert_eq!(app.tabs.current().len(), 1);
     }
 
     #[test]

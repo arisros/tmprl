@@ -13,50 +13,67 @@ mod workflows;
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout};
+use ratatui::style::Style;
+use ratatui::widgets::{Block, Borders};
 
 use crate::app::{App, PromptKind, Screen};
 use crate::theme::Theme;
+use crate::view::View;
 
 pub fn render(frame: &mut Frame, app: &mut App) {
     let theme = Theme::default();
-    // The query bar is part of the workflow screen's chrome, not an overlay: it is always
-    // on screen so the query is never something you have to go and open.
-    let query_height = match app.view.screen {
-        Screen::Workflows => 1,
-        Screen::Namespaces | Screen::History => 0,
-    };
-    let [header, query_bar, body, status] = Layout::vertical([
+    let [header, body, status] = Layout::vertical([
         Constraint::Length(1),
-        Constraint::Length(query_height),
         Constraint::Min(1),
         Constraint::Length(1),
     ])
     .areas(frame.area());
 
-    // The list needs to know how tall it is so that half-page motions mean something.
-    app.view.page = body.height.saturating_sub(1) as usize;
+    // Focus movement is geometric, so the tree has to know the area it was laid out in.
+    app.set_frame(to_ui(body));
+    let panes = app.tabs.layout(to_ui(body));
+
+    // The focused pane's measurements are written back before anything is borrowed
+    // immutably: a half page is half of *this* pane, not half the terminal.
+    if let Some(pane) = panes.iter().find(|p| p.focused) {
+        let inner = pane_body(from_ui(pane.rect), app.view.screen, app.view.show_detail);
+        app.view.page = inner.list.height.saturating_sub(1) as usize;
+    }
 
     statusline::render_header(frame, header, app, &theme);
-    match app.view.screen {
-        Screen::Namespaces => namespaces::render(frame, body, app, &theme),
-        Screen::Workflows => {
-            query::render(frame, query_bar, app, &theme);
-            workflows::render(frame, body, app, &theme);
+
+    let mut focused_detail_max = None;
+    for pane in &panes {
+        // A non-focused pane draws from its parked state. Falling back to the focused view
+        // would draw the same pane twice, which is worse than an empty rectangle.
+        let Some(view) = (if pane.focused {
+            Some(&app.view)
+        } else {
+            app.parked_view(pane.view)
+        }) else {
+            continue;
+        };
+        let max = render_pane(
+            frame,
+            from_ui(pane.rect),
+            view,
+            app,
+            &theme,
+            pane.focused,
+            panes.len() > 1,
+        );
+        if pane.focused {
+            focused_detail_max = max;
         }
-        Screen::History if app.view.show_detail => {
-            // Roughly half each: enough list to keep your place, enough pane to read a
-            // payload without scrolling for every value.
-            let [list, pane] =
-                Layout::vertical([Constraint::Min(3), Constraint::Percentage(50)]).areas(body);
-            app.view.page = list.height.saturating_sub(1) as usize;
-            history::render(frame, list, app, &theme);
-            detail::render(frame, pane, app, &theme);
-        }
-        Screen::History => history::render(frame, body, app, &theme),
     }
+    if let Some(max) = focused_detail_max {
+        app.view.detail_max_scroll = max;
+        app.view.detail_scroll = app.view.detail_scroll.min(max);
+    }
+
     statusline::render_status(frame, status, app, &theme);
 
-    // Overlays, outermost last.
+    // Overlays, outermost last. They belong to the session, not to a pane.
     // Only `:` has completions to show; `!` takes a shell command and draws in the
     // statusline alone.
     if app
@@ -72,6 +89,92 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     if app.show_help {
         help::render(frame, app, &theme);
     }
+}
+
+/// How a pane divides its own rectangle.
+struct PaneAreas {
+    query: ratatui::layout::Rect,
+    list: ratatui::layout::Rect,
+    detail: Option<ratatui::layout::Rect>,
+}
+
+fn pane_body(area: ratatui::layout::Rect, screen: Screen, show_detail: bool) -> PaneAreas {
+    // The query bar is part of the workflow screen's chrome, not an overlay: it is always
+    // on screen so the query is never something you have to go and open.
+    let query_height = match screen {
+        Screen::Workflows => 1,
+        Screen::Namespaces | Screen::History => 0,
+    };
+    let [query, rest] =
+        Layout::vertical([Constraint::Length(query_height), Constraint::Min(1)]).areas(area);
+
+    if screen == Screen::History && show_detail {
+        // Roughly half each: enough list to keep your place, enough pane to read a payload
+        // without scrolling for every value.
+        let [list, detail] =
+            Layout::vertical([Constraint::Min(3), Constraint::Percentage(50)]).areas(rest);
+        PaneAreas {
+            query,
+            list,
+            detail: Some(detail),
+        }
+    } else {
+        PaneAreas {
+            query,
+            list: rest,
+            detail: None,
+        }
+    }
+}
+
+/// Draw one window. Returns the payload pane's scroll extent, when it drew one.
+fn render_pane(
+    frame: &mut Frame,
+    area: ratatui::layout::Rect,
+    view: &View,
+    app: &App,
+    theme: &Theme,
+    focused: bool,
+    split: bool,
+) -> Option<usize> {
+    // With one window there is nothing to distinguish, and a border would only cost a row.
+    let area = if split {
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::new().fg(if focused { theme.accent } else { theme.faint }));
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+        inner
+    } else {
+        area
+    };
+    if area.width == 0 || area.height == 0 {
+        return None;
+    }
+
+    let areas = pane_body(area, view.screen, view.show_detail);
+    match view.screen {
+        Screen::Namespaces => namespaces::render(frame, areas.list, view, app, theme),
+        Screen::Workflows => {
+            query::render(frame, areas.query, view, app, theme, focused);
+            workflows::render(frame, areas.list, view, app, theme);
+        }
+        Screen::History => {
+            history::render(frame, areas.list, view, app, theme);
+            if let Some(pane) = areas.detail {
+                return Some(detail::render(frame, pane, view, app, theme));
+            }
+        }
+    }
+    None
+}
+
+fn to_ui(r: ratatui::layout::Rect) -> tmprl_ui::Rect {
+    tmprl_ui::Rect::new(r.x, r.y, r.width, r.height)
+}
+
+fn from_ui(r: tmprl_ui::Rect) -> ratatui::layout::Rect {
+    ratatui::layout::Rect::new(r.x, r.y, r.width, r.height)
 }
 
 /// The hybrid relative/absolute gutter, matching `set relativenumber number`: the cursor
@@ -514,6 +617,30 @@ mod tests {
     }
 
     #[test]
+    fn each_pane_draws_its_own_view_not_the_focused_one_twice() {
+        // The bug this guards: a render loop that falls back to the focused view paints the
+        // same pane twice, and a split looks like it worked while showing nothing new.
+        let mut app = app_with_rows(); // namespaces loaded
+        app.run("window.split-right", None);
+        assert_eq!(app.tabs.current().len(), 2);
+
+        let out = draw(&mut app, 120, 16);
+        let body: Vec<&str> = out.lines().skip(1).collect();
+
+        // The focused (new) pane is empty; the parked one still lists namespaces. So exactly
+        // one side of each row should carry a namespace name.
+        let with_default = body.iter().filter(|l| l.contains("default")).count();
+        assert!(
+            with_default > 0,
+            "the pane we split from should still show its namespaces:\n{out}"
+        );
+        assert!(
+            body.iter().any(|l| l.contains("no namespaces")),
+            "the new pane should be empty until it loads:\n{out}"
+        );
+    }
+
+    #[test]
     fn an_encrypted_payload_points_at_the_config_when_no_codec_is_set() {
         // "needs a codec server" is not actionable; naming the file and key is.
         let mut app = app_with_payloads();
@@ -891,7 +1018,9 @@ mod tests {
     fn a_help_overlay_that_fits_says_nothing_about_scrolling() {
         let mut app = app_with_rows();
         app.run("app.help", None);
-        let out = draw(&mut app, 90, 60);
+        // Tall enough that the whole registry fits — the overlay has grown with every
+        // milestone, so the height here is "definitely more than enough", not a magic number.
+        let out = draw(&mut app, 90, 200);
         assert_eq!(app.help_max_scroll, 0);
         assert!(!out.contains("j/k to scroll"), "{out}");
         assert!(

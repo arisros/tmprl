@@ -136,18 +136,20 @@ Pickers are bottom-docked with a preview pane, following Telescope's `ivy` layou
 
 ### Windows
 
-All of this arrives with the window tree in M2; none of it is bound today.
-
 | Key | Action | |
 |---|---|---|
-| `<leader>sv` / `<leader>sh` | split vertical / horizontal | M2 |
-| `<leader>se` / `<leader>sx` | equalise / close | M2 |
-| `<C-w>hjkl` | move focus | M2 |
-| `<leader>r{h,j,k,l}` | resize by 10 | M2 |
-| `<leader>t{o,x,n,p}` | tab open / close / next / previous | M2 |
+| `<leader>sv` / `<leader>sh` | split side by side / above and below | **live** |
+| `<leader>se` / `<leader>sx` | equalise / close | **live** |
+| `<C-w>hjkl` | move focus | **live** |
+| `<leader>r{h,j,k,l}` | resize by 10 | **live** |
+| `<leader>t{o,x,n,p}` | tab open / close / next / previous | **live** |
 
-Two workflow-detail views in a split, with linked scrolling, *is* the diff feature. There is
-no separate diff screen.
+Two workflow-detail views in a split *is* the diff feature. There is no separate diff screen.
+
+A split forks where you are, not what you have loaded: the new pane opens on the same screen,
+scope and query and fetches its own copy. Splitting is almost always "show me this again so I
+can take one of them somewhere else". Linked scrolling, which is what turns two histories into
+a readable diff, is not built yet.
 
 ### Reading a history
 

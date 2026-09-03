@@ -112,6 +112,27 @@ impl View {
         }
     }
 
+    /// A new pane looking at the same place as this one.
+    ///
+    /// The navigation is copied — screen, scope, query, which workflow — but none of the
+    /// loaded data, tasks or tokens: the new pane fetches its own. Splitting is almost
+    /// always "show me this again so I can take one of them somewhere else", and a split
+    /// that dropped you back at the namespace list would make the diff case two navigations
+    /// instead of one keystroke.
+    pub fn fork(&self) -> Self {
+        // Field-by-field rather than `..View::new(..)`: View has a Drop (it aborts a follow
+        // poll), and struct update syntax would have to move out of the base value.
+        let mut out = View::new(self.scope.first().map(String::as_str).unwrap_or_default());
+        out.screen = self.screen;
+        out.scope = self.scope.clone();
+        out.query = self.query.clone();
+        out.viewing = self.viewing.clone();
+        out.show_detail = self.show_detail;
+        out.namespace_cursor = self.namespace_cursor;
+        out.workflow_cursor = self.workflow_cursor;
+        out
+    }
+
     /// Stop this pane's follow poll, if it has one.
     ///
     /// A poll left running holds a request open and keeps feeding a pane that may have been
@@ -131,5 +152,43 @@ impl Drop for View {
         if let Some(task) = self.follow_task.take() {
             task.abort();
         }
+    }
+}
+
+impl View {
+    pub fn namespace_rows(&self) -> &[NamespaceInfo] {
+        self.namespaces.value().map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    pub fn workflow_rows(&self) -> &[WorkflowRow] {
+        self.workflows
+            .value()
+            .map(WorkflowList::rows)
+            .unwrap_or(&[])
+    }
+
+    /// How many rows this pane's screen has.
+    pub fn row_count(&self) -> usize {
+        match self.screen {
+            Screen::Namespaces => self.namespace_rows().len(),
+            Screen::Workflows => self.workflow_rows().len(),
+            Screen::History => self.history.value().map(Outline::len).unwrap_or(0),
+        }
+    }
+
+    /// Whether this pane is fanned out over more than one namespace, which is when rows
+    /// need to say which namespace they came from.
+    pub fn is_fanned_out(&self) -> bool {
+        self.scope.len() > 1
+    }
+
+    /// The inclusive row range selected, if a visual mode is active in this pane.
+    pub fn selection(&self) -> Option<(usize, usize)> {
+        let a = self.anchor?;
+        Some((a.min(self.cursor), a.max(self.cursor)))
+    }
+
+    pub fn is_selected(&self, i: usize) -> bool {
+        self.selection().is_some_and(|(lo, hi)| i >= lo && i <= hi)
     }
 }

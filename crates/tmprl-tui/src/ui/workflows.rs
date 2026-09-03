@@ -16,6 +16,7 @@ use tmprl_core::workflow::humanize_age_ms;
 use super::truncate;
 use crate::app::App;
 use crate::theme::Theme;
+use crate::view::View;
 
 /// Fixed column widths. The workflow id gets whatever is left, because it is the column
 /// people actually read.
@@ -25,18 +26,18 @@ const TYPE: usize = 22;
 const AGE: usize = 5;
 const NAMESPACE: usize = 16;
 
-pub fn render(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
+pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) {
     if area.height == 0 {
         return;
     }
-    let rows = app.workflow_rows();
+    let rows = view.workflow_rows();
 
     if rows.is_empty() {
-        let msg = if app.view.workflows.is_loading() {
+        let msg = if view.workflows.is_loading() {
             "loading workflows…".to_string()
-        } else if let Some(e) = app.view.workflows.error() {
+        } else if let Some(e) = view.workflows.error() {
             format!("{e} — R to retry")
-        } else if app.view.query.trim().is_empty() {
+        } else if view.query.trim().is_empty() {
             "no workflows in this namespace".to_string()
         } else {
             // Distinguish "nothing here" from "your filter excluded everything", which is
@@ -50,7 +51,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
         return;
     }
 
-    let show_ns = app.is_fanned_out();
+    let show_ns = view.is_fanned_out();
     let fixed = GUTTER + STATUS + TYPE + AGE + if show_ns { NAMESPACE } else { 0 };
     // Never let the id column collapse to nothing on a narrow pane.
     let id_width = (area.width as usize).saturating_sub(fixed).max(8);
@@ -69,10 +70,10 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
         .skip(first)
         .take(height)
         .map(|(i, w)| {
-            let focused = i == app.view.cursor;
+            let focused = i == view.cursor;
             let base = if focused {
                 Style::new().fg(t.fg).bg(t.sel).add_modifier(Modifier::BOLD)
-            } else if app.is_selected(i) {
+            } else if view.is_selected(i) {
                 Style::new().fg(t.fg).bg(t.sel)
             } else {
                 Style::new().fg(t.fg)
@@ -80,7 +81,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
 
             let mut spans = vec![
                 Span::styled(
-                    super::gutter(i, app.view.cursor),
+                    super::gutter(i, view.cursor),
                     Style::new().fg(if focused { t.warn } else { t.faint }),
                 ),
                 Span::styled(

@@ -13,13 +13,20 @@ use ratatui::widgets::Paragraph;
 
 use crate::app::App;
 use crate::theme::Theme;
+use crate::view::View;
 
-pub fn render(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
+pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme, focused: bool) {
     if area.height == 0 {
         return;
     }
-    let editing = app.is_editing_query();
-    let text = app.query_display();
+    // Only the focused pane can be in Insert mode, so only it shows a live edit; the others
+    // show the query they have applied.
+    let editing = focused && app.is_editing_query();
+    let text = if focused {
+        app.query_display()
+    } else {
+        view.query.as_str()
+    };
 
     let label = Style::new()
         .fg(if editing { t.fg } else { t.faint })
