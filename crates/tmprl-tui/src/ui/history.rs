@@ -24,8 +24,8 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
     if area.height == 0 {
         return;
     }
-    let Some(outline) = app.history.value() else {
-        let msg = match app.history.error() {
+    let Some(outline) = app.view.history.value() else {
+        let msg = match app.view.history.error() {
             Some(e) => format!("{e} — R to retry"),
             None => "loading history…".to_string(),
         };
@@ -53,6 +53,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
 
     let height = area.height as usize;
     let first = app
+        .view
         .cursor
         .saturating_sub(height.saturating_sub(1) / 2)
         .min(outline.len().saturating_sub(height));
@@ -69,7 +70,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
 }
 
 fn render_row<'a>(outline: &'a Outline, row: Row, index: usize, app: &App, t: &Theme) -> Line<'a> {
-    let focused = index == app.cursor;
+    let focused = index == app.view.cursor;
     let base = if focused {
         Style::new().fg(t.fg).bg(t.sel).add_modifier(Modifier::BOLD)
     } else if app.is_selected(index) {
@@ -78,7 +79,7 @@ fn render_row<'a>(outline: &'a Outline, row: Row, index: usize, app: &App, t: &T
         Style::new().fg(t.fg)
     };
     let gutter = Span::styled(
-        super::gutter(index, app.cursor),
+        super::gutter(index, app.view.cursor),
         Style::new().fg(if focused { t.warn } else { t.faint }),
     );
 

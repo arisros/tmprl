@@ -26,14 +26,14 @@ pub fn render(frame: &mut Frame, area: Rect, app: &mut App, t: &Theme) {
     }
     // A filter result replaces the payloads: you asked to see the filtered value, and
     // showing both would bury it.
-    if let Some(piped) = app.piped.clone() {
+    if let Some(piped) = app.view.piped.clone() {
         return render_piped(frame, area, app, &piped, t);
     }
 
-    let Some(outline) = app.history.value() else {
+    let Some(outline) = app.view.history.value() else {
         return;
     };
-    let lines = match outline.row_at(app.cursor) {
+    let lines = match outline.row_at(app.view.cursor) {
         Some(Row::Event { event, .. }) => outline
             .event(event)
             .map(|e| event_lines(e, app, t))
@@ -54,17 +54,17 @@ pub fn render(frame: &mut Frame, area: Rect, app: &mut App, t: &Theme) {
     // A payload can be far taller than the pane. Clipping it silently would hide the end of
     // a stack trace, which is the part worth reading, so the pane scrolls and says so.
     let visible = area.height.saturating_sub(1) as usize;
-    app.detail_max_scroll = lines.len().saturating_sub(visible);
-    let scroll = app.detail_scroll.min(app.detail_max_scroll);
-    app.detail_scroll = scroll;
+    app.view.detail_max_scroll = lines.len().saturating_sub(visible);
+    let scroll = app.view.detail_scroll.min(app.view.detail_max_scroll);
+    app.view.detail_scroll = scroll;
 
-    let title = if app.detail_max_scroll == 0 {
+    let title = if app.view.detail_max_scroll == 0 {
         " payloads — K to close ".to_string()
     } else {
         format!(
             " payloads — <C-e>/<C-y> to scroll ({}/{}) — K to close ",
             scroll + 1,
-            app.detail_max_scroll + 1
+            app.view.detail_max_scroll + 1
         )
     };
     let block = Block::default()
@@ -222,17 +222,17 @@ fn render_piped(
     };
 
     let visible = area.height.saturating_sub(1) as usize;
-    app.detail_max_scroll = lines.len().saturating_sub(visible);
-    let scroll = app.detail_scroll.min(app.detail_max_scroll);
-    app.detail_scroll = scroll;
+    app.view.detail_max_scroll = lines.len().saturating_sub(visible);
+    let scroll = app.view.detail_scroll.min(app.view.detail_max_scroll);
+    app.view.detail_scroll = scroll;
 
-    let title = if app.detail_max_scroll == 0 {
+    let title = if app.view.detail_max_scroll == 0 {
         format!(" {label} — K to close ")
     } else {
         format!(
             " {label} — <C-e>/<C-y> to scroll ({}/{}) — K to close ",
             scroll + 1,
-            app.detail_max_scroll + 1
+            app.view.detail_max_scroll + 1
         )
     };
     let block = Block::default()
