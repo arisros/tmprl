@@ -182,6 +182,17 @@ pub fn render_status(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
         ),
         Span::raw(" "),
     ];
+    // A view that rewrites itself while you read it has to say so.
+    if app.following {
+        spans.push(Span::styled(
+            " FOLLOW ",
+            Style::new()
+                .fg(ratatui::style::Color::Black)
+                .bg(t.ok)
+                .add_modifier(Modifier::BOLD),
+        ));
+        spans.push(Span::raw(" "));
+    }
 
     match &app.note {
         Some((msg, kind)) => {
