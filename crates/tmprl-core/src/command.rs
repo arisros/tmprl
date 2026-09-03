@@ -54,6 +54,7 @@ pub enum Action {
     ToggleDetail,
     DetailDown,
     DetailUp,
+    OpenPipe,
     /// Apply the saved view bound to this digit. Carries the digit because the views come
     /// from `views.toml` and cannot be enumerated at compile time.
     SelectView(char),
@@ -121,6 +122,7 @@ impl Registry {
             "history.detail",     "History",     "Show the payloads under the cursor" => ToggleDetail;
             "history.detail-down","History",     "Scroll the payload pane down" => DetailDown;
             "history.detail-up",  "History",     "Scroll the payload pane up"   => DetailUp;
+            "payload.pipe",       "History",     "Pipe payloads through a command" => OpenPipe;
         };
         Self { commands }
     }

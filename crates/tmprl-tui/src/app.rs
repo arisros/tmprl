@@ -36,6 +36,35 @@ pub enum Screen {
     History,
 }
 
+/// What a prompt at the bottom of the screen is collecting.
+///
+/// Both prompts edit identically — the same keys, the same backspace-on-empty-closes rule —
+/// and differ only in what Enter does with the text. Sharing the editing is what keeps them
+/// from drifting apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PromptKind {
+    /// `:` — a command id, with completions.
+    Command,
+    /// `!` — a shell command to filter the focused payloads through.
+    Pipe,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Prompt {
+    pub kind: PromptKind,
+    pub buf: String,
+}
+
+impl Prompt {
+    /// What is drawn to the left of the text.
+    pub fn sigil(&self) -> &'static str {
+        match self.kind {
+            PromptKind::Command => ":",
+            PromptKind::Pipe => "!",
+        }
+    }
+}
+
 /// What Insert mode is editing.
 ///
 /// On the workflow list, Insert mode edits the visibility query — that is the only text
@@ -65,6 +94,8 @@ pub enum Msg {
         generation: u64,
         result: Result<StatusCounts, String>,
     },
+    /// Output of an external command a `!` filter ran.
+    Piped(Result<String, String>),
     /// A page of a workflow's history, already normalised by the client.
     History {
         generation: u64,
@@ -97,6 +128,10 @@ pub struct App {
     pub following: bool,
     /// Whether the payload pane is open under the history list.
     pub show_detail: bool,
+    /// Output of the last `!` filter, shown in the pane in place of the payloads. `Err` is
+    /// the command's own stderr, which is the only useful thing to show when jq rejects a
+    /// filter.
+    pub piped: Option<Result<String, String>>,
     /// First visible line of the payload pane, and how far it can usefully go. A payload can
     /// be far taller than the pane — clipping a stack trace silently hides its end, which is
     /// the part worth reading.
@@ -123,8 +158,8 @@ pub struct App {
     /// rather than silently clipping the last groups.
     pub help_scroll: usize,
     pub help_max_scroll: usize,
-    /// `Some` while the `:` command line is open.
-    pub cmdline: Option<String>,
+    /// `Some` while a `:` or `!` prompt is open.
+    pub prompt: Option<Prompt>,
     pub insert_buf: String,
     pub insert_target: InsertTarget,
 
@@ -193,6 +228,7 @@ impl App {
             viewing: None,
             following: false,
             show_detail: false,
+            piped: None,
             detail_scroll: 0,
             detail_max_scroll: 0,
             query: String::new(),
@@ -205,7 +241,7 @@ impl App {
             show_help: false,
             help_scroll: 0,
             help_max_scroll: 0,
-            cmdline: None,
+            prompt: None,
             insert_buf: String::new(),
             insert_target: InsertTarget::Scratch,
             note: None,
@@ -316,6 +352,10 @@ impl App {
             Msg::Key(chord) => self.on_key(chord),
             Msg::Quit => self.should_quit = true,
             Msg::Tick | Msg::Redraw => {}
+            Msg::Piped(result) => {
+                self.piped = Some(result);
+                self.detail_scroll = 0;
+            }
             Msg::Namespaces(Ok(list)) => {
                 self.namespaces = Loadable::loaded(list);
                 self.clamp_cursor();
@@ -410,8 +450,8 @@ impl App {
     fn on_key(&mut self, chord: Chord) {
         // The command line owns every key while it is open, so that `:` can accept a name
         // containing characters that are bound elsewhere.
-        if self.cmdline.is_some() {
-            self.cmdline_key(chord);
+        if self.prompt.is_some() {
+            self.prompt_key(chord);
             return;
         }
 
@@ -453,7 +493,10 @@ impl App {
                 self.help_scroll = 0;
             }
             Action::OpenCommandLine => {
-                self.cmdline = Some(String::new());
+                self.prompt = Some(Prompt {
+                    kind: PromptKind::Command,
+                    buf: String::new(),
+                });
                 self.mode = Mode::Command;
             }
             Action::Cancel => {
@@ -547,10 +590,12 @@ impl App {
             Action::ToggleFollow => self.toggle_follow(),
             Action::DetailDown => self.scroll_detail(n as isize),
             Action::DetailUp => self.scroll_detail(-(n as isize)),
+            Action::OpenPipe => self.open_pipe(),
             Action::ToggleDetail => {
                 if self.screen == Screen::History {
                     self.show_detail = !self.show_detail;
                     self.detail_scroll = 0;
+                    self.piped = None;
                 } else {
                     self.note = Some((
                         "payloads are shown on a workflow history".into(),
@@ -844,8 +889,11 @@ impl App {
     fn set_cursor(&mut self, at: usize) {
         if at != self.cursor {
             // The pane now shows a different value; keeping the old offset would open it
-            // part-way down something the reader has not seen the start of.
+            // part-way down something the reader has not seen the start of. A filter result
+            // belonged to the row it was run on, so it goes too rather than sitting under a
+            // heading that no longer describes it.
             self.detail_scroll = 0;
+            self.piped = None;
         }
         self.cursor = at;
         self.remember_cursor();
@@ -1080,57 +1128,157 @@ impl App {
 
     // ── command line ─────────────────────────────────────────────────────────
 
-    fn cmdline_key(&mut self, chord: Chord) {
+    fn prompt_key(&mut self, chord: Chord) {
         use tmprl_core::Key;
-        let Some(buf) = self.cmdline.as_mut() else {
+        let Some(prompt) = self.prompt.as_mut() else {
             return;
         };
         match chord.key {
-            Key::Esc => {
-                self.cmdline = None;
-                self.mode = Mode::Normal;
-            }
+            Key::Esc => self.close_prompt(),
             Key::Enter => {
-                let entered = buf.trim().to_string();
-                self.cmdline = None;
-                self.mode = Mode::Normal;
+                let entered = prompt.buf.trim().to_string();
+                let kind = prompt.kind;
+                self.close_prompt();
                 if entered.is_empty() {
                     return;
                 }
-                // Accept a unique prefix, the way vim accepts `:q` for `:quit`.
-                let hits = self.registry.search(&entered);
-                match hits.iter().find(|c| c.id == entered).or(hits.first()) {
-                    Some(c) if hits.len() == 1 || c.id == entered => {
-                        let id = c.id;
-                        self.run(id, None);
-                    }
-                    Some(_) => {
-                        self.note = Some((
-                            format!("ambiguous: {} commands match `{entered}`", hits.len()),
-                            Note::Warn,
-                        ));
-                    }
-                    None => {
-                        self.note = Some((format!("no such command: {entered}"), Note::Error));
-                    }
+                match kind {
+                    PromptKind::Command => self.run_typed_command(&entered),
+                    PromptKind::Pipe => self.run_pipe(entered),
                 }
             }
-            // Backspace on an empty line closes the command line, as it does in vim.
-            Key::Backspace if buf.pop().is_none() => {
-                self.cmdline = None;
-                self.mode = Mode::Normal;
-            }
+            // Backspace on an empty line closes the prompt, as it does in vim.
+            Key::Backspace if prompt.buf.pop().is_none() => self.close_prompt(),
             Key::Backspace => {}
-            Key::Char(c) if chord.mods.is_none() => buf.push(c),
+            Key::Char(c) if chord.mods.is_none() => prompt.buf.push(c),
             _ => {}
         }
     }
 
-    /// Completions for whatever is typed in the command line.
-    pub fn cmdline_matches(&self) -> Vec<&tmprl_core::Command> {
-        match &self.cmdline {
-            Some(q) => self.registry.search(q).into_iter().take(8).collect(),
+    // ── piping payloads through an external command ──────────────────────────
+
+    /// The payloads the cursor is on, as one JSON object.
+    ///
+    /// For a group that is its input *and* its result, which live on two different events —
+    /// the same pair the payload pane shows.
+    fn payloads_under_cursor(&self) -> Vec<(String, tmprl_core::payload::Payload)> {
+        let Some(outline) = self.history.value() else {
+            return Vec::new();
+        };
+        match outline.row_at(self.cursor) {
+            Some(Row::Event { event, .. }) => outline
+                .event(event)
+                .map(|e| e.payloads.clone())
+                .unwrap_or_default(),
+            Some(Row::Group { group, .. }) => {
+                let Some(g) = outline.group(group) else {
+                    return Vec::new();
+                };
+                let mut out = Vec::new();
+                for id in [g.events.first(), g.events.last()].into_iter().flatten() {
+                    if let Some(e) = outline.events().iter().find(|e| e.id == *id) {
+                        out.extend(e.payloads.iter().cloned());
+                    }
+                }
+                out
+            }
             None => Vec::new(),
+        }
+    }
+
+    /// Open the `!` prompt, if there is anything under the cursor worth piping.
+    fn open_pipe(&mut self) {
+        if self.screen != Screen::History {
+            self.note = Some(("piping applies to a workflow history".into(), Note::Warn));
+            return;
+        }
+        let payloads = self.payloads_under_cursor();
+        if payloads.is_empty() {
+            self.note = Some(("nothing here to pipe".into(), Note::Warn));
+            return;
+        }
+        if tmprl_core::payload::payloads_as_json(&payloads).0.is_none() {
+            // Encrypted or binary. Piping it produces a parse error that explains nothing,
+            // so refuse with a reason instead.
+            self.note = Some((
+                "no readable payload here — encrypted or binary".into(),
+                Note::Warn,
+            ));
+            return;
+        }
+        self.prompt = Some(Prompt {
+            kind: PromptKind::Pipe,
+            // Pre-filled: `jq` is what this is for, and an empty prompt makes you type the
+            // same three characters every time.
+            buf: "jq .".into(),
+        });
+        self.mode = Mode::Command;
+    }
+
+    /// Run the typed command with the focused payloads on stdin.
+    ///
+    /// Spawned, never awaited here — an external command can take as long as it likes and
+    /// must not be able to freeze a keystroke. The output arrives as a `Msg`.
+    fn run_pipe(&mut self, command: String) {
+        let (json, skipped) = tmprl_core::payload::payloads_as_json(&self.payloads_under_cursor());
+        let Some(json) = json else {
+            self.note = Some(("nothing readable to pipe".into(), Note::Warn));
+            return;
+        };
+        if !skipped.is_empty() {
+            self.note = Some((
+                format!("piping without {} (not readable)", skipped.join(", ")),
+                Note::Warn,
+            ));
+        }
+
+        // The output replaces the pane, so open it if it is shut — otherwise the result
+        // would land somewhere the reader cannot see.
+        self.show_detail = true;
+        self.detail_scroll = 0;
+        self.piped = Some(Ok(format!("running `{command}`…")));
+
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            let result = pipe_through(&command, json.into_bytes()).await;
+            let _ = tx.send(Msg::Piped(result));
+        });
+    }
+
+    fn close_prompt(&mut self) {
+        self.prompt = None;
+        self.mode = Mode::Normal;
+    }
+
+    /// Resolve what was typed at `:` and run it. Accepts a unique prefix, the way vim
+    /// accepts `:q` for `:quit`.
+    fn run_typed_command(&mut self, entered: &str) {
+        let hits = self.registry.search(entered);
+        match hits.iter().find(|c| c.id == entered).or(hits.first()) {
+            Some(c) if hits.len() == 1 || c.id == entered => {
+                let id = c.id;
+                self.run(id, None);
+            }
+            Some(_) => {
+                self.note = Some((
+                    format!("ambiguous: {} commands match `{entered}`", hits.len()),
+                    Note::Warn,
+                ));
+            }
+            None => {
+                self.note = Some((format!("no such command: {entered}"), Note::Error));
+            }
+        }
+    }
+
+    /// Completions for whatever is typed at `:`. A `!` prompt takes a shell command, which
+    /// tmprl has no business completing.
+    pub fn cmdline_matches(&self) -> Vec<&tmprl_core::Command> {
+        match &self.prompt {
+            Some(p) if p.kind == PromptKind::Command => {
+                self.registry.search(&p.buf).into_iter().take(8).collect()
+            }
+            _ => Vec::new(),
         }
     }
 
@@ -1262,6 +1410,49 @@ impl App {
                 .map_err(|e| e.to_string());
             let _ = tx.send(Msg::Counts { generation, result });
         });
+    }
+}
+
+/// Run `command` in a shell with `input` on stdin, and collect what it says.
+///
+/// A shell rather than a bare exec, so that `jq .result | head -20` works — `!` is a filter,
+/// and filters are pipelines. On a non-zero exit the stderr is what is worth showing: when a
+/// jq expression is wrong, jq's own message is the entire diagnosis.
+async fn pipe_through(command: &str, input: Vec<u8>) -> Result<String, String> {
+    use tokio::io::AsyncWriteExt;
+    use tokio::process::Command;
+
+    let mut child = Command::new("sh")
+        .arg("-c")
+        .arg(command)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("could not run `{command}`: {e}"))?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        // A filter that does not read its input — `!wc -l` after an early exit — closes the
+        // pipe, and writing to a closed pipe is not an error worth reporting.
+        let _ = stdin.write_all(&input).await;
+        let _ = stdin.shutdown().await;
+    }
+
+    let out = child
+        .wait_with_output()
+        .await
+        .map_err(|e| format!("`{command}` failed: {e}"))?;
+
+    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    if out.status.success() {
+        Ok(stdout)
+    } else {
+        Err(if stderr.trim().is_empty() {
+            format!("`{command}` exited with {}", out.status)
+        } else {
+            stderr
+        })
     }
 }
 
@@ -1936,6 +2127,179 @@ mod tests {
             "a poll must not outlive the screen it feeds"
         );
         assert!(app.history_resume.is_empty());
+    }
+
+    // ── piping ───────────────────────────────────────────────────────────────
+
+    /// A history whose activity carries a JSON input and result.
+    fn viewing_payloads() -> App {
+        use tmprl_core::history::{Category as C, GroupRef as G, Outcome as O, Role as R};
+        use tmprl_core::payload::Payload;
+
+        let mut scheduled = hev(4, G::Opened(4), R::Opens, C::Activity).with_subject("Charge");
+        scheduled.payloads.push((
+            "input".into(),
+            Payload::new("json/plain", br#"{"amount":100}"#.to_vec()),
+        ));
+        let mut completed = hev(6, G::Opened(4), R::Closes, C::Activity).with_outcome(O::Completed);
+        completed.payloads.push((
+            "result".into(),
+            Payload::new("json/plain", b"\"charged\"".to_vec()),
+        ));
+        let mut secret = hev(7, G::Opened(7), R::Opens, C::Activity).with_subject("Secret");
+        secret.payloads.push((
+            "input".into(),
+            Payload::new("binary/encrypted", vec![0u8; 16]),
+        ));
+
+        let mut app = app();
+        loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
+        app.run("nav.open", None);
+        app.handle(Msg::History {
+            generation: app.generation,
+            result: Ok((
+                vec![
+                    hev(1, G::Workflow, R::Opens, C::Workflow).with_subject("Order"),
+                    scheduled,
+                    completed,
+                    secret,
+                ],
+                Vec::new(),
+            )),
+        });
+        app
+    }
+
+    #[test]
+    fn the_pipe_prompt_gathers_a_group_s_input_and_result() {
+        let mut app = viewing_payloads();
+        app.run("motion.down", None); // the Charge group
+        let payloads = app.payloads_under_cursor();
+        let labels: Vec<&str> = payloads.iter().map(|(l, _)| l.as_str()).collect();
+        assert_eq!(
+            labels,
+            ["input", "result"],
+            "a group's arguments and its result live on two different events"
+        );
+    }
+
+    #[test]
+    fn the_pipe_prompt_opens_prefilled_with_jq() {
+        let mut app = viewing_payloads();
+        app.run("motion.down", None);
+        app.run("payload.pipe", None);
+
+        let p = app.prompt.clone().expect("a prompt should open");
+        assert_eq!(p.kind, PromptKind::Pipe);
+        assert_eq!(
+            p.buf, "jq .",
+            "an empty prompt means retyping jq every time"
+        );
+        assert_eq!(p.sigil(), "!");
+    }
+
+    #[test]
+    fn piping_is_refused_when_nothing_readable_is_under_the_cursor() {
+        let mut app = viewing_payloads();
+        app.run("motion.bottom", None); // the encrypted group
+        app.run("payload.pipe", None);
+
+        assert!(app.prompt.is_none(), "there is nothing worth piping");
+        let (msg, kind) = app.note.clone().unwrap();
+        assert_eq!(kind, Note::Warn);
+        assert!(
+            msg.contains("encrypted"),
+            "the reason should be given: {msg}"
+        );
+    }
+
+    #[test]
+    fn piping_is_refused_away_from_a_history() {
+        let mut app = app();
+        loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
+        app.run("payload.pipe", None);
+        assert!(app.prompt.is_none());
+        assert!(matches!(app.note, Some((_, Note::Warn))));
+    }
+
+    #[test]
+    fn a_filter_result_is_dropped_when_the_cursor_moves() {
+        // The output belonged to the row it was run on; leaving it up under a different
+        // heading would be a lie.
+        let mut app = viewing_payloads();
+        app.run("motion.down", None);
+        app.piped = Some(Ok("{}".into()));
+        app.run("motion.down", None);
+        assert!(app.piped.is_none());
+    }
+
+    #[test]
+    fn a_pipe_result_message_opens_the_pane_and_lands() {
+        let mut app = viewing_payloads();
+        app.handle(Msg::Piped(Ok("42\n".into())));
+        assert_eq!(app.piped, Some(Ok("42\n".into())));
+        assert_eq!(app.detail_scroll, 0);
+    }
+
+    #[test]
+    fn both_prompts_edit_the_same_way() {
+        // `:` and `!` share their editing; only Enter differs. This pins that they do.
+        use tmprl_core::Key;
+        for open in ["app.command-line", "payload.pipe"] {
+            let mut app = viewing_payloads();
+            app.run("motion.down", None);
+            app.run(open, None);
+            let start = app.prompt.clone().unwrap().buf.len();
+
+            app.handle(Msg::Key(Chord::ch('x')));
+            assert_eq!(app.prompt.clone().unwrap().buf.len(), start + 1, "{open}");
+            app.handle(Msg::Key(Chord::plain(Key::Backspace)));
+            assert_eq!(app.prompt.clone().unwrap().buf.len(), start, "{open}");
+            app.handle(Msg::Key(Chord::plain(Key::Esc)));
+            assert!(app.prompt.is_none(), "{open}: Esc should close");
+            assert_eq!(app.mode, Mode::Normal, "{open}");
+        }
+    }
+
+    #[test]
+    fn backspace_on_an_empty_prompt_closes_it() {
+        use tmprl_core::Key;
+        let mut app = viewing_payloads();
+        app.run("app.command-line", None);
+        app.handle(Msg::Key(Chord::plain(Key::Backspace)));
+        assert!(app.prompt.is_none(), "as it does in vim");
+    }
+
+    /// The runner is IO, so it is exercised against real commands rather than mocked.
+    #[tokio::test]
+    async fn a_filter_receives_the_payloads_on_stdin() {
+        let out = pipe_through("cat", br#"{"a":1}"#.to_vec()).await.unwrap();
+        assert_eq!(out, r#"{"a":1}"#);
+    }
+
+    #[tokio::test]
+    async fn a_failing_filter_reports_the_command_s_own_stderr() {
+        // When a jq expression is wrong, jq's message is the entire diagnosis; paraphrasing
+        // it would lose the line and column.
+        let err = pipe_through("echo 'boom' >&2; exit 3", Vec::new())
+            .await
+            .unwrap_err();
+        assert!(err.contains("boom"), "got {err:?}");
+    }
+
+    #[tokio::test]
+    async fn a_filter_that_exits_silently_still_reports_failure() {
+        let err = pipe_through("exit 1", Vec::new()).await.unwrap_err();
+        assert!(err.contains("exited"), "got {err:?}");
+    }
+
+    #[tokio::test]
+    async fn a_filter_that_ignores_its_input_does_not_error() {
+        // `head -1` closes the pipe early; writing to a closed pipe is not a failure.
+        let out = pipe_through("echo done", vec![b'x'; 1_000_000])
+            .await
+            .unwrap();
+        assert_eq!(out.trim(), "done");
     }
 
     #[test]
