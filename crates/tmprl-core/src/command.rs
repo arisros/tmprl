@@ -50,6 +50,7 @@ pub enum Action {
     TogglePlumbing,
     NextFailure,
     PrevFailure,
+    ToggleFollow,
     /// Apply the saved view bound to this digit. Carries the digit because the views come
     /// from `views.toml` and cannot be enumerated at compile time.
     SelectView(char),
@@ -113,6 +114,7 @@ impl Registry {
             "history.plumbing",   "History",     "Show/hide workflow tasks"  => TogglePlumbing;
             "history.next-failure","History",    "Jump to the next failure"  => NextFailure;
             "history.prev-failure","History",    "Jump to the previous failure" => PrevFailure;
+            "history.follow",     "History",     "Follow — tail a running workflow" => ToggleFollow;
         };
         Self { commands }
     }

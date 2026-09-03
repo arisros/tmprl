@@ -238,6 +238,7 @@ pub fn default_keymap() -> Keymap {
         // vim-unimpaired's bracket motions: `]f` / `[f` for the next and previous failure.
         bind(mode, "]f", "history.next-failure");
         bind(mode, "[f", "history.prev-failure");
+        bind(mode, "F", "history.follow");
     }
 
     bind(Mode::Normal, "i", "mode.insert");

@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use tmprl_client::{Conn, NamespaceInfo};
-use tmprl_core::history::{NormalizedEvent, group_events};
+use tmprl_core::history::{NormalizedEvent, group_events, merge_events};
 use tmprl_core::outline::{Outline, Row};
 use tmprl_core::{
     Action, Chord, Keymap, Loadable, Mode, Pending, PendingEntry, Registry, Resolution, SavedView,
@@ -92,6 +92,9 @@ pub struct App {
     pub history: Loadable<Outline>,
     /// The workflow whose history is on screen.
     pub viewing: Option<WorkflowRow>,
+    /// Whether the history is being tailed. Shown in the statusline, because a view that
+    /// silently changes under you is worse than one that does not update.
+    pub following: bool,
 
     /// The visibility query, verbatim. This string is the interface: everything that
     /// filters the list compiles into it, and it is always on screen and always editable.
@@ -136,6 +139,11 @@ pub struct App {
     history_events: Vec<NormalizedEvent>,
     /// Continuation token for the history being read. Empty means fully loaded.
     history_token: Vec<u8>,
+    /// The last *non-empty* token seen. Follow resumes from here: an empty token restarts
+    /// from event 1, and paging leaves the token empty once it has caught up.
+    history_resume: Vec<u8>,
+    /// The follow task, so toggling off — or leaving the screen — actually stops the poll.
+    follow_task: Option<tokio::task::JoinHandle<()>>,
     /// A page request is in flight; scrolling must not queue a second one.
     loading_more: bool,
 
@@ -176,6 +184,7 @@ impl App {
             counts: Loadable::NotAsked,
             history: Loadable::NotAsked,
             viewing: None,
+            following: false,
             query: String::new(),
             scope: vec![namespace.clone()],
             views: Vec::new(),
@@ -198,6 +207,8 @@ impl App {
             generation: 0,
             history_events: Vec::new(),
             history_token: Vec::new(),
+            history_resume: Vec::new(),
+            follow_task: None,
             loading_more: false,
             profile,
             namespace,
@@ -341,8 +352,20 @@ impl App {
                 self.loading_more = false;
                 match result {
                     Ok((events, token)) => {
+                        if !token.is_empty() {
+                            self.history_resume = token.clone();
+                        } else if self.following {
+                            // Follow only ever sees an empty token when the workflow has
+                            // closed. There is nothing further to tail, so stop rather than
+                            // spin on a call that now returns instantly.
+                            self.stop_following();
+                            self.note =
+                                Some(("workflow closed — follow stopped".into(), Note::Info));
+                        }
                         self.history_token = token;
-                        self.history_events.extend(events);
+                        // Merged, not appended: a resumed follow replays the page its token
+                        // sat in, and listing those events twice would inflate every group.
+                        merge_events(&mut self.history_events, events);
                         // Re-group the whole accumulated history rather than patching: a
                         // page boundary can land in the middle of a group, so the last
                         // group of a page is routinely completed by the next one.
@@ -511,6 +534,7 @@ impl App {
             }
             Action::NextFailure => self.jump_failure(true),
             Action::PrevFailure => self.jump_failure(false),
+            Action::ToggleFollow => self.toggle_follow(),
         }
         self.clamp_cursor();
     }
@@ -566,12 +590,14 @@ impl App {
     fn go_up(&mut self) {
         match self.screen {
             Screen::History => {
+                self.stop_following();
                 self.screen = Screen::Workflows;
                 self.cursor = self.workflow_cursor;
                 self.viewing = None;
                 self.history = Loadable::NotAsked;
                 self.history_events.clear();
                 self.history_token.clear();
+                self.history_resume.clear();
                 self.restore_cursor();
             }
             Screen::Workflows => {
@@ -625,6 +651,99 @@ impl App {
         self.clamp_cursor();
     }
 
+    // ── follow mode ──────────────────────────────────────────────────────────
+
+    fn toggle_follow(&mut self) {
+        if self.screen != Screen::History {
+            self.note = Some(("follow applies to a workflow history".into(), Note::Warn));
+            return;
+        }
+        if self.following {
+            self.stop_following();
+            self.note = Some(("follow stopped".into(), Note::Info));
+            return;
+        }
+        // Following a workflow that has already finished would poll forever for events that
+        // can never arrive, so say so instead.
+        if self.history_token.is_empty() && self.workflow_is_closed() {
+            self.note = Some((
+                "this workflow has closed — nothing to follow".into(),
+                Note::Warn,
+            ));
+            return;
+        }
+        self.start_following();
+    }
+
+    /// Whether the run itself has ended, as opposed to merely being caught up.
+    fn workflow_is_closed(&self) -> bool {
+        self.history
+            .value()
+            .map(|o| tmprl_core::outline::summarize(o.groups()))
+            .is_some_and(|s| s.outcome != tmprl_core::history::Outcome::Pending)
+    }
+
+    /// Spawn the long-poll loop.
+    ///
+    /// The loop lives entirely in the task: the reducer never awaits it, and every batch of
+    /// events comes back as an ordinary `Msg`. That is the whole reason a sixty-second long
+    /// poll cannot freeze a keystroke.
+    fn start_following(&mut self) {
+        let Some(row) = self.viewing.clone() else {
+            return;
+        };
+        self.following = true;
+        self.note = Some(("following — F to stop".into(), Note::Info));
+
+        let Some(conn) = self.conn.clone() else {
+            return;
+        };
+        let (tx, generation) = (self.tx.clone(), self.generation);
+        let mut token = self.history_resume.clone();
+
+        self.follow_task = Some(tokio::spawn(async move {
+            loop {
+                let result = conn
+                    .follow_history(&row.namespace, &row.workflow_id, &row.run_id, token.clone())
+                    .await;
+                match result {
+                    Ok(page) => {
+                        let done = page.next_page_token.is_empty();
+                        token = page.next_page_token.clone();
+                        if tx
+                            .send(Msg::History {
+                                generation,
+                                result: Ok((page.events, page.next_page_token)),
+                            })
+                            .is_err()
+                        {
+                            return; // the application is gone
+                        }
+                        if done {
+                            return; // the workflow closed
+                        }
+                    }
+                    Err(e) => {
+                        let _ = tx.send(Msg::History {
+                            generation,
+                            result: Err(e.to_string()),
+                        });
+                        return;
+                    }
+                }
+            }
+        }));
+    }
+
+    /// Stop tailing. Aborting matters: the task is parked inside a long poll and would
+    /// otherwise keep a request open and keep pushing events into a screen that has moved on.
+    fn stop_following(&mut self) {
+        self.following = false;
+        if let Some(task) = self.follow_task.take() {
+            task.abort();
+        }
+    }
+
     fn jump_failure(&mut self, forward: bool) {
         let Some(outline) = self.history.value() else {
             return;
@@ -671,6 +790,7 @@ impl App {
             Screen::History => {
                 self.history_events.clear();
                 self.history_token.clear();
+                self.history_resume.clear();
                 self.load_history();
             }
         }
@@ -1642,6 +1762,147 @@ mod tests {
         let record = app.records_selected();
         assert!(record.contains(r#""group":"Ship""#), "got {record}");
         assert!(record.contains(r#""outcome":"Failed""#), "got {record}");
+    }
+
+    // ── follow mode ──────────────────────────────────────────────────────────
+
+    /// A history whose workflow has *not* closed: no terminal event.
+    fn running_history() -> Vec<NormalizedEvent> {
+        use tmprl_core::history::{Category as C, GroupRef as G, Role as R};
+        vec![
+            hev(1, G::Workflow, R::Opens, C::Workflow).with_subject("Order"),
+            hev(4, G::Opened(4), R::Opens, C::Activity).with_subject("Charge"),
+        ]
+    }
+
+    fn viewing_running() -> App {
+        let mut app = app();
+        loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
+        app.run("nav.open", None);
+        app.handle(Msg::History {
+            generation: app.generation,
+            // A non-empty token is what a running workflow returns.
+            result: Ok((running_history(), vec![9])),
+        });
+        app
+    }
+
+    #[test]
+    fn follow_starts_and_stops_on_the_same_key() {
+        let mut app = viewing_running();
+        assert!(!app.following);
+
+        app.run("history.follow", None);
+        assert!(app.following, "F should start following");
+        assert!(matches!(app.note, Some((_, Note::Info))));
+
+        app.run("history.follow", None);
+        assert!(!app.following, "F again should stop");
+    }
+
+    #[test]
+    fn follow_refuses_on_a_workflow_that_has_already_closed() {
+        // Polling a closed workflow waits for events that can never arrive. "Closed" means
+        // the *workflow* group has a terminal event — an activity finishing is not enough.
+        use tmprl_core::history::{Category as C, GroupRef as G, Outcome as O, Role as R};
+        let mut app = app();
+        loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
+        app.run("nav.open", None);
+
+        let mut events = history_events();
+        events.push(hev(9, G::Workflow, R::Closes, C::Workflow).with_outcome(O::Completed));
+        app.handle(Msg::History {
+            generation: app.generation,
+            result: Ok((events, Vec::new())),
+        });
+
+        assert!(app.history_token.is_empty());
+        app.run("history.follow", None);
+
+        assert!(!app.following, "there is nothing to follow");
+        let (msg, kind) = app.note.clone().unwrap();
+        assert_eq!(kind, Note::Warn);
+        assert!(msg.contains("closed"), "got {msg}");
+    }
+
+    #[test]
+    fn follow_is_not_offered_away_from_a_history() {
+        let mut app = app();
+        loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
+        app.run("history.follow", None);
+        assert!(!app.following);
+        assert!(matches!(app.note, Some((_, Note::Warn))));
+    }
+
+    #[test]
+    fn an_empty_token_while_following_means_the_workflow_closed() {
+        let mut app = viewing_running();
+        app.run("history.follow", None);
+        assert!(app.following);
+
+        // The long poll returns the terminal event with no continuation token.
+        use tmprl_core::history::{Category as C, GroupRef as G, Outcome as O, Role as R};
+        app.handle(Msg::History {
+            generation: app.generation,
+            result: Ok((
+                vec![hev(9, G::Workflow, R::Closes, C::Workflow).with_outcome(O::Completed)],
+                Vec::new(),
+            )),
+        });
+
+        assert!(!app.following, "follow must stop when the workflow closes");
+        let (msg, _) = app.note.clone().unwrap();
+        assert!(msg.contains("closed"), "got {msg}");
+    }
+
+    #[test]
+    fn replayed_events_do_not_duplicate_when_follow_resumes() {
+        // Follow resumes from the last non-empty token, which replays that page.
+        let mut app = viewing_running();
+        let before = app.history_events.len();
+
+        app.handle(Msg::History {
+            generation: app.generation,
+            result: Ok((running_history(), vec![9])),
+        });
+        assert_eq!(
+            app.history_events.len(),
+            before,
+            "a replayed page must not be appended twice"
+        );
+    }
+
+    #[test]
+    fn the_resume_token_is_the_last_non_empty_one() {
+        // Paging leaves history_token empty once caught up; following from that would
+        // restart the read at event 1.
+        let mut app = viewing_running();
+        assert_eq!(app.history_resume, vec![9]);
+
+        app.handle(Msg::History {
+            generation: app.generation,
+            result: Ok((Vec::new(), Vec::new())),
+        });
+        assert!(app.history_token.is_empty(), "caught up");
+        assert_eq!(
+            app.history_resume,
+            vec![9],
+            "the resume point is remembered"
+        );
+    }
+
+    #[test]
+    fn leaving_the_history_stops_following() {
+        let mut app = viewing_running();
+        app.run("history.follow", None);
+        assert!(app.following);
+
+        app.run("nav.up", None);
+        assert!(
+            !app.following,
+            "a poll must not outlive the screen it feeds"
+        );
+        assert!(app.history_resume.is_empty());
     }
 
     #[test]

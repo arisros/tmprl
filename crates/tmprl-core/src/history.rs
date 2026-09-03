@@ -263,6 +263,21 @@ pub fn group_events(events: &[NormalizedEvent]) -> Vec<Group> {
     groups
 }
 
+/// Append only the events we do not already hold.
+///
+/// Returns how many were actually new.
+///
+/// Follow mode re-reads from the last continuation token it saw, which replays the events
+/// after that point, and a resumed follow replays whatever page the token sat in. History is
+/// append-only with strictly ascending ids, so "new" is exactly "id greater than the highest
+/// we hold" — no set, no scan of what we already have.
+pub fn merge_events(existing: &mut Vec<NormalizedEvent>, incoming: Vec<NormalizedEvent>) -> usize {
+    let highest = existing.last().map(|e| e.id).unwrap_or(i64::MIN);
+    let before = existing.len();
+    existing.extend(incoming.into_iter().filter(|e| e.id > highest));
+    existing.len() - before
+}
+
 /// Groups that failed, timed out or were terminated, in history order.
 ///
 /// This is what the problem list and the minimap read: on a long history the interesting
@@ -580,6 +595,62 @@ mod tests {
         ] {
             assert_eq!(o.is_failure(), fail, "{} classified wrongly", o.label());
         }
+    }
+
+    #[test]
+    fn replayed_events_are_not_appended_twice() {
+        // Follow mode resumes from a continuation token, which replays the page that token
+        // sat in. Appending blindly would list the same events twice and inflate every
+        // group's event count.
+        let mut held: Vec<NormalizedEvent> = retried_activity();
+        assert_eq!(held.len(), 3);
+
+        let replay = retried_activity();
+        assert_eq!(merge_events(&mut held, replay), 0, "nothing was new");
+        assert_eq!(held.len(), 3);
+
+        // A genuinely new event lands.
+        let fresh = vec![ev(
+            8,
+            "TimerStarted",
+            GroupRef::Opened(8),
+            Role::Opens,
+            50_000,
+        )];
+        assert_eq!(merge_events(&mut held, fresh), 1);
+        assert_eq!(held.len(), 4);
+    }
+
+    #[test]
+    fn a_partial_replay_keeps_only_the_tail() {
+        let mut held: Vec<NormalizedEvent> = retried_activity();
+        // The server replays from event 6 and adds 8 and 9.
+        let mut incoming = retried_activity()[1..].to_vec();
+        incoming.push(ev(
+            8,
+            "TimerStarted",
+            GroupRef::Opened(8),
+            Role::Opens,
+            50_000,
+        ));
+        incoming.push(ev(
+            9,
+            "TimerFired",
+            GroupRef::Opened(8),
+            Role::Closes,
+            60_000,
+        ));
+
+        assert_eq!(merge_events(&mut held, incoming), 2);
+        let ids: Vec<i64> = held.iter().map(|e| e.id).collect();
+        assert_eq!(ids, [5, 6, 7, 8, 9]);
+    }
+
+    #[test]
+    fn merging_into_an_empty_history_keeps_everything() {
+        let mut held = Vec::new();
+        assert_eq!(merge_events(&mut held, retried_activity()), 3);
+        assert_eq!(held.len(), 3);
     }
 
     #[test]
