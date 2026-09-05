@@ -15,6 +15,7 @@ pub mod mutation;
 pub mod outline;
 pub mod payload;
 pub mod query;
+pub mod schedule;
 pub mod workflow;
 
 pub use command::{Action, Command, Registry};
@@ -27,4 +28,5 @@ pub use mode::Mode;
 pub use mutation::{Confirm, Mutation};
 pub use outline::{Outline, Row, Summary};
 pub use payload::{Payload, Rendered};
+pub use schedule::ScheduleRow;
 pub use workflow::{StatusCounts, WorkflowList, WorkflowRow, WorkflowStatus};

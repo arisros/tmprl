@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use tmprl_client::{Codec, Conn, NamespaceInfo};
+use tmprl_core::ScheduleRow;
 use tmprl_core::history::{NormalizedEvent, group_events, merge_events};
 use tmprl_core::mutation::{Confirm, Mutation};
 use tmprl_core::outline::{Outline, Row};
@@ -40,11 +41,15 @@ pub enum Screen {
     Namespaces,
     Workflows,
     History,
+    Schedules,
 }
 
 /// Which mutation a key asked for, before it is turned into a `Mutation` with a target.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MutationKind {
+    PauseSchedule,
+    TriggerSchedule,
+    DeleteSchedule,
     Cancel,
     Terminate,
     Signal,
@@ -127,6 +132,10 @@ pub enum Msg {
     Counts {
         generation: u64,
         result: Result<StatusCounts, String>,
+    },
+    Schedules {
+        generation: u64,
+        result: Result<Vec<ScheduleRow>, String>,
     },
     /// Output of an external command a `!` filter ran.
     Piped(Result<String, String>),
@@ -357,6 +366,21 @@ impl App {
                             format!("{} {}", mutation.past_tense(), mutation.workflow_id()),
                             Note::Info,
                         ));
+                        // ListSchedules is eventually consistent, so the refresh below can
+                        // still return the old state. The server has accepted the change, so
+                        // reflect it locally rather than showing a screen that contradicts
+                        // the message next to it.
+                        if let Mutation::PauseSchedule {
+                            schedule_id,
+                            paused,
+                            ..
+                        } = mutation.as_ref()
+                            && let Some(rows) = self.view.schedules.value_mut()
+                            && let Some(row) =
+                                rows.iter_mut().find(|r| &r.schedule_id == schedule_id)
+                        {
+                            row.paused = *paused;
+                        }
                         // The list is now out of date about the thing just changed.
                         self.refresh();
                     }
@@ -464,6 +488,20 @@ impl App {
                     }
                 }
             }
+            Msg::Schedules { generation, result } => {
+                if generation != self.view.generation {
+                    return;
+                }
+                self.view.loading_more = false;
+                self.view.schedules = match result {
+                    Ok(rows) => Loadable::loaded(rows),
+                    Err(e) => {
+                        self.note = Some((e.clone(), Note::Error));
+                        Loadable::Failed(e)
+                    }
+                };
+                self.clamp_cursor();
+            }
             Msg::Counts { generation, result } => {
                 if generation != self.view.generation {
                     return;
@@ -569,6 +607,12 @@ impl App {
 
             Action::OpenItem => self.open_focused(),
             Action::GoUp => self.go_up(),
+            Action::GoSchedules => self.go_to(Screen::Schedules),
+            Action::GoWorkflows => self.go_to(Screen::Workflows),
+
+            Action::PauseSchedule => self.confirm_mutation(MutationKind::PauseSchedule),
+            Action::TriggerSchedule => self.confirm_mutation(MutationKind::TriggerSchedule),
+            Action::DeleteSchedule => self.confirm_mutation(MutationKind::DeleteSchedule),
 
             Action::EnterInsert => {
                 self.mode = Mode::Insert;
@@ -718,6 +762,14 @@ impl App {
             }
             // On the history screen, "open the focused item" is folding a group open.
             Screen::History => self.toggle_fold(),
+            // A schedule's runs are ordinary workflows, so there is nothing of its own to
+            // open. Saying so beats a key that appears broken.
+            Screen::Schedules => {
+                self.note = Some((
+                    "a schedule has no detail view; gw for its workflows".into(),
+                    Note::Warn,
+                ));
+            }
         }
     }
 
@@ -735,6 +787,12 @@ impl App {
                 self.restore_cursor();
             }
             Screen::Workflows => {
+                self.view.screen = Screen::Namespaces;
+                self.view.cursor = self.view.namespace_cursor;
+                self.view.anchor = None;
+                self.clamp_cursor();
+            }
+            Screen::Schedules => {
                 self.view.screen = Screen::Namespaces;
                 self.view.cursor = self.view.namespace_cursor;
                 self.view.anchor = None;
@@ -931,6 +989,7 @@ impl App {
                 self.view.history_resume.clear();
                 self.load_history();
             }
+            Screen::Schedules => self.load_schedules(),
         }
     }
 
@@ -1024,7 +1083,7 @@ impl App {
                     self.load_history();
                 }
             }
-            Screen::Namespaces => {}
+            Screen::Namespaces | Screen::Schedules => {}
         }
     }
 
@@ -1044,6 +1103,12 @@ impl App {
                 .map(|w| w.workflow_id.clone())
                 .unwrap_or_default(),
             Screen::History => self.history_field_under_cursor(),
+            Screen::Schedules => self
+                .view
+                .schedule_rows()
+                .get(self.view.cursor)
+                .map(|s| s.schedule_id.clone())
+                .unwrap_or_default(),
         }
     }
 
@@ -1112,6 +1177,23 @@ impl App {
                 })
                 .collect(),
             Screen::History => self.history_records(lo, take),
+            Screen::Schedules => self
+                .view
+                .schedule_rows()
+                .iter()
+                .skip(lo)
+                .take(take)
+                .map(|s| {
+                    format!(
+                        r#"{{"namespace":{},"scheduleId":{},"workflowType":{},"paused":{},"spec":{}}}"#,
+                        json_string(&s.namespace),
+                        json_string(&s.schedule_id),
+                        json_string(&s.workflow_type),
+                        s.paused,
+                        json_string(&s.spec)
+                    )
+                })
+                .collect(),
         };
         match picked.len() {
             0 => String::new(),
@@ -1360,6 +1442,7 @@ impl App {
             Screen::Namespaces => self.load_namespaces(),
             Screen::Workflows => self.load_workflows(false),
             Screen::History => self.load_history(),
+            Screen::Schedules => self.load_schedules(),
         }
     }
 
@@ -1376,18 +1459,111 @@ impl App {
 
     // ── mutations ────────────────────────────────────────────────────────────
 
+    /// Switch between the two lists a namespace holds.
+    ///
+    /// Only from a list, and only within the same scope. From a history the reader is inside
+    /// one workflow, and jumping sideways from there would lose their place with no way back.
+    fn go_to(&mut self, screen: Screen) {
+        match self.view.screen {
+            Screen::Namespaces => {
+                self.note = Some(("open a namespace first".into(), Note::Warn));
+                return;
+            }
+            Screen::History => {
+                self.note = Some(("go up with `-` first".into(), Note::Warn));
+                return;
+            }
+            _ if self.view.screen == screen => return,
+            _ => {}
+        }
+        self.view.stop_following();
+        self.view.screen = screen;
+        self.view.cursor = 0;
+        self.view.anchor = None;
+        self.load_for_screen();
+    }
+
+    /// Schedules for the first namespace in scope.
+    ///
+    /// One namespace, not the fan-out: ListSchedules takes a single namespace and a schedule
+    /// list merged across several has no ordering that means anything.
+    pub fn load_schedules(&mut self) {
+        self.view.generation = self.view.generation.wrapping_add(1);
+        self.view.schedules.begin_refresh();
+        self.view.loading_more = true;
+
+        let Some(conn) = self.conn.clone() else {
+            return;
+        };
+        let namespace = self
+            .view
+            .scope
+            .first()
+            .cloned()
+            .unwrap_or_else(|| self.namespace.clone());
+        let (tx, generation) = (self.tx.clone(), self.view.generation);
+        tokio::spawn(async move {
+            let result = conn
+                .list_schedules(&namespace, PAGE_SIZE, Vec::new())
+                .await
+                .map(|p| p.rows)
+                .map_err(|e| e.to_string());
+            let _ = tx.send(Msg::Schedules { generation, result });
+        });
+    }
+
+    /// The schedule a schedule mutation would act on.
+    fn target_schedule(&self) -> Option<ScheduleRow> {
+        if self.view.screen != Screen::Schedules {
+            return None;
+        }
+        self.view.schedule_rows().get(self.view.cursor).cloned()
+    }
+
     /// The workflow a mutation would act on: the row under the cursor on the workflow list,
     /// or the one whose history is open.
     fn target_workflow(&self) -> Option<WorkflowRow> {
         match self.view.screen {
             Screen::Workflows => self.view.workflow_rows().get(self.view.cursor).cloned(),
             Screen::History => self.view.viewing.clone(),
-            Screen::Namespaces => None,
+            Screen::Namespaces | Screen::Schedules => None,
         }
     }
 
     /// Open the confirmation for a mutation. Nothing happens to the cluster here.
     fn confirm_mutation(&mut self, kind: MutationKind) {
+        // Schedule operations act on a schedule id, not an execution.
+        if matches!(
+            kind,
+            MutationKind::PauseSchedule
+                | MutationKind::TriggerSchedule
+                | MutationKind::DeleteSchedule
+        ) {
+            let Some(row) = self.target_schedule() else {
+                self.note = Some(("no schedule under the cursor".into(), Note::Warn));
+                return;
+            };
+            let (namespace, schedule_id) = (row.namespace.clone(), row.schedule_id.clone());
+            let mutation = match kind {
+                MutationKind::PauseSchedule => Mutation::PauseSchedule {
+                    namespace,
+                    schedule_id,
+                    // One key toggles, so the target state is the opposite of now.
+                    paused: !row.paused,
+                },
+                MutationKind::TriggerSchedule => Mutation::TriggerSchedule {
+                    namespace,
+                    schedule_id,
+                },
+                _ => Mutation::DeleteSchedule {
+                    namespace,
+                    schedule_id,
+                },
+            };
+            self.confirm = Some(Confirm::new(mutation));
+            return;
+        }
+
         let Some(row) = self.target_workflow() else {
             self.note = Some(("no workflow under the cursor".into(), Note::Warn));
             return;
@@ -1431,6 +1607,10 @@ impl App {
                 self.mode = Mode::Command;
                 return;
             }
+            // Handled above, before a workflow target is looked for.
+            MutationKind::PauseSchedule
+            | MutationKind::TriggerSchedule
+            | MutationKind::DeleteSchedule => return,
             MutationKind::Reset => {
                 // A reset needs an event to go back to, which only the history view has.
                 let Some(event_id) = self.reset_target() else {
@@ -3299,6 +3479,107 @@ mod tests {
         let (msg, kind) = app.note.clone().unwrap();
         assert_eq!(kind, Note::Error);
         assert!(msg.contains("PermissionDenied"), "got {msg}");
+    }
+
+    fn on_schedules() -> App {
+        let mut app = app();
+        app.view.screen = Screen::Schedules;
+        app.view.scope = vec!["default".into()];
+        app.view.schedules = Loadable::loaded(vec![ScheduleRow {
+            namespace: "default".into(),
+            schedule_id: "nightly".into(),
+            workflow_type: "Reconcile".into(),
+            paused: false,
+            notes: String::new(),
+            spec: "0 2 * * *".into(),
+            next_run: None,
+            recent_runs: 0,
+        }]);
+        app
+    }
+
+    #[test]
+    fn pausing_toggles_towards_the_opposite_of_now() {
+        // One key does both, so the target state is whatever the schedule is not.
+        let mut app = on_schedules();
+        app.run("schedule.pause", None);
+        let m = app.confirm.clone().unwrap().mutation;
+        assert_eq!(m.verb(), "Pause");
+        assert!(m.cli().ends_with("--pause"));
+
+        app.confirm = None;
+        app.view.schedules.value_mut().unwrap()[0].paused = true;
+        app.run("schedule.pause", None);
+        let m = app.confirm.clone().unwrap().mutation;
+        assert_eq!(m.verb(), "Resume");
+        assert!(m.cli().ends_with("--unpause"));
+    }
+
+    #[test]
+    fn a_paused_schedule_shows_the_new_state_before_the_list_catches_up() {
+        // ListSchedules is eventually consistent, so a refresh straight after the patch can
+        // return the old state and contradict the message beside it.
+        let mut app = on_schedules();
+        app.handle(Msg::Mutated {
+            mutation: Box::new(Mutation::PauseSchedule {
+                namespace: "default".into(),
+                schedule_id: "nightly".into(),
+                paused: true,
+            }),
+            result: Ok(()),
+        });
+        assert!(app.view.schedule_rows()[0].paused);
+    }
+
+    #[test]
+    fn deleting_a_schedule_costs_the_typed_word() {
+        let mut app = on_schedules();
+        app.run("schedule.delete", None);
+        let c = app.confirm.clone().unwrap();
+        assert_eq!(c.typed_word.as_deref(), Some("delete"));
+        assert!(c.mutation.cli().starts_with("temporal schedule delete "));
+    }
+
+    #[test]
+    fn schedule_keys_need_a_schedule_under_the_cursor() {
+        let mut app = app(); // namespace screen
+        app.run("schedule.trigger", None);
+        assert!(app.confirm.is_none());
+        assert!(matches!(app.note, Some((_, Note::Warn))));
+    }
+
+    #[test]
+    fn gs_and_gw_switch_lists_within_a_namespace() {
+        let mut app = app();
+        loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
+        assert_eq!(app.view.screen, Screen::Workflows);
+
+        app.run("nav.schedules", None);
+        assert_eq!(app.view.screen, Screen::Schedules);
+        app.run("nav.workflows", None);
+        assert_eq!(app.view.screen, Screen::Workflows);
+    }
+
+    #[test]
+    fn switching_lists_is_refused_from_a_namespace_or_a_history() {
+        // From a history the reader is inside one workflow; jumping sideways loses the place.
+        let mut app = app();
+        app.run("nav.schedules", None);
+        assert_eq!(app.view.screen, Screen::Namespaces);
+        assert!(matches!(app.note, Some((_, Note::Warn))));
+
+        loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
+        app.run("nav.open", None);
+        assert_eq!(app.view.screen, Screen::History);
+        app.run("nav.schedules", None);
+        assert_eq!(app.view.screen, Screen::History, "still in the history");
+    }
+
+    #[test]
+    fn dash_from_schedules_goes_back_to_namespaces() {
+        let mut app = on_schedules();
+        app.run("nav.up", None);
+        assert_eq!(app.view.screen, Screen::Namespaces);
     }
 
     #[test]

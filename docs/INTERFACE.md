@@ -217,6 +217,9 @@ closed is refused with a message instead of polling for events that can never ar
 | `<leader>ms` | signal this workflow | **live** |
 | `<leader>md` | delete this workflow | **live** |
 | `<leader>mr` | reset to the event under the cursor | **live** |
+| `<leader>mp` | pause or resume a schedule | **live** |
+| `<leader>mg` | run a schedule now | **live** |
+| `<leader>mD` | delete a schedule | **live** |
 | `<leader>mu` | send an update and wait for its outcome | **live** |
 | `<leader>xx` | problem list — failed and task-failure workflows | M2 |
 | `<leader>xQ` | open the quickfix list | M5 |

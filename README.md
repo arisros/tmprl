@@ -61,9 +61,11 @@ Web UI — built to be operated from the keyboard rather than a browser.
   confirmation that shows the equivalent `temporal` CLI command, so you read what is about to
   happen rather than trusting a verb. Every attempt is appended to
   `~/.local/state/tmprl/audit.jsonl`.
+- **Schedules** (`gs`, and `gw` back to workflows), with pause, resume, trigger and delete
+  behind the same confirmation. Cron specs read as cron, intervals as `every 1h`.
 - **Yank** (`y`, `Y`) to the system clipboard over OSC 52, so it works over SSH.
 
-Not yet: schedules, batch operations.
+Not yet: batch operations, and creating or editing a schedule.
 
 ## What it is meant to become
 
@@ -205,8 +207,8 @@ view key is reported in the statusline at startup rather than quietly skipped.
 
 ```
 crates/tmprl-client   all network IO — gRPC, TLS, codec, profiles built,  46 tests
-crates/tmprl-core     domain logic: modes, keymap, histories    built, 138 tests
-crates/tmprl-tui      ratatui rendering and input               built, 132 tests
+crates/tmprl-core     domain logic: modes, keymap, histories    built, 152 tests
+crates/tmprl-tui      ratatui rendering and input               built, 141 tests
 crates/tmprl-ui       window tree — splits, tabs, focus         built,  35 tests
 ```
 
@@ -221,7 +223,7 @@ diffing runs — lands in a layer that needs neither a terminal nor a server to 
 - [x] **M1** workflow list, visibility queries, saved views, multi-namespace, `keys.toml`
 - [x] **M2** history views, follow mode, jq, codec server, splits and tabs
 - [x] **M3** mutations: signal, cancel, terminate, delete, reset, update
-- [ ] **M4** schedules
+- [ ] **M4** schedules: list, pause, trigger, delete *(done)*; create and backfill remain
 - [ ] **M5** batch operations
 - [ ] **M6** task queues, workers, deployments, nexus, archival
 - [ ] **M7** diff, macros, headless `--exec`, themes
