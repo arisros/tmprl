@@ -49,6 +49,8 @@ pub enum MutationKind {
     Terminate,
     Signal,
     Delete,
+    Reset,
+    Update,
 }
 
 /// What a prompt at the bottom of the screen is collecting.
@@ -64,6 +66,8 @@ pub enum PromptKind {
     Pipe,
     /// The name of a signal to send.
     Signal,
+    /// The name of an update to send.
+    Update,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,6 +83,7 @@ impl Prompt {
             PromptKind::Command => ":",
             PromptKind::Pipe => "!",
             PromptKind::Signal => "signal:",
+            PromptKind::Update => "update:",
         }
     }
 }
@@ -349,11 +354,7 @@ impl App {
                 match result {
                     Ok(()) => {
                         self.note = Some((
-                            format!(
-                                "{}d {}",
-                                mutation.verb().to_lowercase(),
-                                mutation.workflow_id()
-                            ),
+                            format!("{} {}", mutation.past_tense(), mutation.workflow_id()),
                             Note::Info,
                         ));
                         // The list is now out of date about the thing just changed.
@@ -634,6 +635,8 @@ impl App {
             Action::TerminateWorkflow => self.confirm_mutation(MutationKind::Terminate),
             Action::SignalWorkflow => self.confirm_mutation(MutationKind::Signal),
             Action::DeleteWorkflow => self.confirm_mutation(MutationKind::Delete),
+            Action::ResetWorkflow => self.confirm_mutation(MutationKind::Reset),
+            Action::UpdateWorkflow => self.confirm_mutation(MutationKind::Update),
 
             Action::SplitRight => self.split(Axis::Columns),
             Action::SplitDown => self.split(Axis::Rows),
@@ -1215,7 +1218,7 @@ impl App {
                 match kind {
                     PromptKind::Command => self.run_typed_command(&entered),
                     PromptKind::Pipe => self.run_pipe(entered),
-                    PromptKind::Signal => self.confirm_signal(entered),
+                    PromptKind::Signal | PromptKind::Update => self.confirm_named(kind, entered),
                 }
             }
             // Backspace on an empty line closes the prompt, as it does in vim.
@@ -1414,32 +1417,81 @@ impl App {
                 workflow_id,
                 run_id,
             },
-            MutationKind::Signal => {
-                // A signal needs a name, which has to be typed. Reuse the prompt rather
-                // than inventing a second text field.
+            MutationKind::Signal | MutationKind::Update => {
+                // Both need a name, which has to be typed. Reuse the prompt rather than
+                // inventing a second text field.
                 self.prompt = Some(Prompt {
-                    kind: PromptKind::Signal,
+                    kind: if matches!(kind, MutationKind::Signal) {
+                        PromptKind::Signal
+                    } else {
+                        PromptKind::Update
+                    },
                     buf: String::new(),
                 });
                 self.mode = Mode::Command;
                 return;
             }
+            MutationKind::Reset => {
+                // A reset needs an event to go back to, which only the history view has.
+                let Some(event_id) = self.reset_target() else {
+                    self.note = Some((
+                        "reset needs a workflow history with a completed workflow task above \
+                         the cursor"
+                            .into(),
+                        Note::Warn,
+                    ));
+                    return;
+                };
+                Mutation::Reset {
+                    namespace,
+                    workflow_id,
+                    run_id,
+                    event_id,
+                    reason: "reset from tmprl".into(),
+                }
+            }
         };
         self.confirm = Some(Confirm::new(mutation));
     }
 
-    /// Turn a typed signal name into a confirmation.
-    fn confirm_signal(&mut self, name: String) {
+    /// Turn a typed signal or update name into a confirmation.
+    fn confirm_named(&mut self, kind: PromptKind, name: String) {
         let Some(row) = self.target_workflow() else {
             return;
         };
-        self.confirm = Some(Confirm::new(Mutation::Signal {
-            namespace: row.namespace,
-            workflow_id: row.workflow_id,
-            run_id: row.run_id,
-            name,
-            input: None,
-        }));
+        let (namespace, workflow_id, run_id) = (row.namespace, row.workflow_id, row.run_id);
+        let mutation = match kind {
+            PromptKind::Update => Mutation::Update {
+                namespace,
+                workflow_id,
+                run_id,
+                name,
+                input: None,
+            },
+            _ => Mutation::Signal {
+                namespace,
+                workflow_id,
+                run_id,
+                name,
+                input: None,
+            },
+        };
+        self.confirm = Some(Confirm::new(mutation));
+    }
+
+    /// The event a reset would go back to: the last completed workflow task at or before the
+    /// cursor. Resolved rather than demanded, because the workflow tasks the server needs
+    /// are exactly the rows the outline folds away.
+    fn reset_target(&self) -> Option<i64> {
+        if self.view.screen != Screen::History {
+            return None;
+        }
+        let outline = self.view.history.value()?;
+        let at = match outline.row_at(self.view.cursor)? {
+            Row::Event { event, .. } => outline.event(event)?.id,
+            Row::Group { group, .. } => *outline.group(group)?.events.last()?,
+        };
+        tmprl_core::history::reset_point(outline.events(), at)
     }
 
     /// Keys while a confirmation is up.
@@ -3118,6 +3170,102 @@ mod tests {
             c.mutation.cli()
         );
         assert!(!c.mutation.is_destructive(), "a signal is not a loss");
+    }
+
+    #[test]
+    fn a_reset_resolves_to_a_workflow_task_the_cursor_is_not_on() {
+        // The rows the server needs are exactly the ones the outline folds away, so "reset
+        // to here" walks back — and the confirmation shows which id it landed on.
+        use tmprl_core::history::{Category as C, GroupRef as G, Outcome as O, Role as R};
+        let mut app = on_a_workflow();
+        app.run("nav.open", None);
+        app.handle(Msg::History {
+            generation: app.view.generation,
+            result: Ok((
+                vec![
+                    hev(1, G::Workflow, R::Opens, C::Workflow).with_subject("W"),
+                    hev(2, G::Opened(2), R::Opens, C::WorkflowTask),
+                    hev(3, G::Opened(2), R::Closes, C::WorkflowTask).with_outcome(O::Completed),
+                    hev(4, G::Opened(4), R::Opens, C::Activity).with_subject("A"),
+                    hev(5, G::Opened(4), R::Closes, C::Activity).with_outcome(O::Completed),
+                ],
+                Vec::new(),
+            )),
+        });
+        app.run("motion.bottom", None); // the activity group, not a workflow task
+
+        app.run("workflow.reset", None);
+        let c = app.confirm.clone().expect("a confirmation");
+        assert!(
+            c.mutation.cli().contains("--event-id 3"),
+            "should resolve back to the completed workflow task: {}",
+            c.mutation.cli()
+        );
+        assert!(c.mutation.is_destructive(), "a reset abandons work");
+    }
+
+    #[test]
+    fn a_reset_needs_a_history_and_says_so() {
+        let mut app = on_a_workflow(); // still on the workflow list
+        app.run("workflow.reset", None);
+        assert!(app.confirm.is_none());
+        let (msg, kind) = app.note.clone().unwrap();
+        assert_eq!(kind, Note::Warn);
+        assert!(msg.contains("history"), "got {msg}");
+    }
+
+    #[test]
+    fn a_history_with_no_completed_task_cannot_be_reset() {
+        use tmprl_core::history::{Category as C, GroupRef as G, Role as R};
+        let mut app = on_a_workflow();
+        app.run("nav.open", None);
+        app.handle(Msg::History {
+            generation: app.view.generation,
+            result: Ok((
+                vec![hev(1, G::Workflow, R::Opens, C::Workflow).with_subject("W")],
+                Vec::new(),
+            )),
+        });
+        app.run("workflow.reset", None);
+        assert!(app.confirm.is_none(), "there is nowhere valid to reset to");
+    }
+
+    #[test]
+    fn an_update_asks_for_its_name_and_is_not_destructive() {
+        let mut app = on_a_workflow();
+        app.run("workflow.update", None);
+        assert_eq!(app.prompt.clone().unwrap().kind, PromptKind::Update);
+        assert_eq!(app.prompt.clone().unwrap().sigil(), "update:");
+
+        for ch in "setLimit".chars() {
+            app.handle(Msg::Key(Chord::ch(ch)));
+        }
+        app.handle(Msg::Key(Chord::plain(tmprl_core::Key::Enter)));
+
+        let c = app.confirm.clone().expect("a confirmation");
+        assert!(
+            c.mutation.cli().contains("update execute"),
+            "{}",
+            c.mutation.cli()
+        );
+        assert!(c.mutation.cli().contains("--name setLimit"));
+        assert!(
+            !c.mutation.is_destructive(),
+            "an update adds, it does not end"
+        );
+    }
+
+    #[test]
+    fn a_signal_and_an_update_do_not_get_confused() {
+        let mut app = on_a_workflow();
+        app.run("workflow.signal", None);
+        for ch in "ping".chars() {
+            app.handle(Msg::Key(Chord::ch(ch)));
+        }
+        app.handle(Msg::Key(Chord::plain(tmprl_core::Key::Enter)));
+        let cli = app.confirm.clone().unwrap().mutation.cli();
+        assert!(cli.contains("workflow signal"), "{cli}");
+        assert!(!cli.contains("update"), "{cli}");
     }
 
     #[test]

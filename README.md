@@ -10,8 +10,8 @@ Web UI — built to be operated from the keyboard rather than a browser.
 > `tmprl` starts, connects, and gives you a modal, vim-keyed browser for namespaces,
 > **workflows and their histories** — with an editable visibility query, per-status counts,
 > saved views, infinite scroll, a collapsible event outline, `tail -f`-style follow mode,
-> splits and tabs. It can now **cancel, terminate, signal and delete** workflows, each behind
-> a confirmation that shows the equivalent `temporal` CLI command. If you need a Temporal TUI
+> splits and tabs. It can **cancel, terminate, signal, delete, reset and update** workflows,
+> each behind a confirmation that shows the equivalent `temporal` CLI command. If you need a Temporal TUI
 > for real work today, see [Prior art](#prior-art).
 
 ---
@@ -57,13 +57,13 @@ Web UI — built to be operated from the keyboard rather than a browser.
 - **Splits and tabs** with vim's bindings — `<Space>sv` / `<Space>sh` to split, `<C-w>hjkl`
   to move between panes, `<Space>t{o,x,n,p}` for tabs. Each pane keeps its own screen,
   cursor, query and history.
-- **Cancel, terminate, signal and delete** (`<Space>m{c,t,s,d}`) — each behind one
+- **Cancel, terminate, signal, delete, reset and update** (`<Space>m{c,t,s,d,r,u}`), each behind one
   confirmation that shows the equivalent `temporal` CLI command, so you read what is about to
   happen rather than trusting a verb. Every attempt is appended to
   `~/.local/state/tmprl/audit.jsonl`.
 - **Yank** (`y`, `Y`) to the system clipboard over OSC 52, so it works over SSH.
 
-Not yet: reset and update, schedules, batch operations.
+Not yet: schedules, batch operations.
 
 ## What it is meant to become
 
@@ -205,8 +205,8 @@ view key is reported in the statusline at startup rather than quietly skipped.
 
 ```
 crates/tmprl-client   all network IO — gRPC, TLS, codec, profiles built,  46 tests
-crates/tmprl-core     domain logic — modes, keymap, histories   built, 131 tests
-crates/tmprl-tui      ratatui rendering and input               built, 127 tests
+crates/tmprl-core     domain logic: modes, keymap, histories    built, 138 tests
+crates/tmprl-tui      ratatui rendering and input               built, 132 tests
 crates/tmprl-ui       window tree — splits, tabs, focus         built,  35 tests
 ```
 
@@ -220,7 +220,7 @@ diffing runs — lands in a layer that needs neither a terminal nor a server to 
 - [x] **M0b** event loop, command registry, modal keymap, statusline, which-key, yank
 - [x] **M1** workflow list, visibility queries, saved views, multi-namespace, `keys.toml`
 - [x] **M2** history views, follow mode, jq, codec server, splits and tabs
-- [ ] **M3** mutations — signal, cancel, terminate, delete *(done)*; reset and update remain
+- [x] **M3** mutations: signal, cancel, terminate, delete, reset, update
 - [ ] **M4** schedules
 - [ ] **M5** batch operations
 - [ ] **M6** task queues, workers, deployments, nexus, archival

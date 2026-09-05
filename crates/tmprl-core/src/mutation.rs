@@ -37,6 +37,24 @@ pub enum Mutation {
         workflow_id: String,
         run_id: String,
     },
+    /// Rewind to a completed workflow task and replay forward from there. The event id is
+    /// already resolved to a valid reset point. See `history::reset_point`.
+    Reset {
+        namespace: String,
+        workflow_id: String,
+        run_id: String,
+        event_id: i64,
+        reason: String,
+    },
+    /// Send an update and wait for its outcome. Unlike a signal, an update can be rejected
+    /// by the workflow and reports back.
+    Update {
+        namespace: String,
+        workflow_id: String,
+        run_id: String,
+        name: String,
+        input: Option<String>,
+    },
 }
 
 impl Mutation {
@@ -47,6 +65,21 @@ impl Mutation {
             Mutation::Terminate { .. } => "Terminate",
             Mutation::Signal { .. } => "Signal",
             Mutation::Delete { .. } => "Delete",
+            Mutation::Reset { .. } => "Reset",
+            Mutation::Update { .. } => "Update",
+        }
+    }
+
+    /// How to say it happened. Spelled out rather than derived: "cancel" + "d" is "canceld",
+    /// and a status line that cannot spell does not inspire confidence in what it just did.
+    pub fn past_tense(&self) -> &'static str {
+        match self {
+            Mutation::Cancel { .. } => "cancelled",
+            Mutation::Terminate { .. } => "terminated",
+            Mutation::Signal { .. } => "signalled",
+            Mutation::Delete { .. } => "deleted",
+            Mutation::Reset { .. } => "reset",
+            Mutation::Update { .. } => "updated",
         }
     }
 
@@ -55,7 +88,9 @@ impl Mutation {
             Mutation::Cancel { namespace, .. }
             | Mutation::Terminate { namespace, .. }
             | Mutation::Signal { namespace, .. }
-            | Mutation::Delete { namespace, .. } => namespace,
+            | Mutation::Delete { namespace, .. }
+            | Mutation::Reset { namespace, .. }
+            | Mutation::Update { namespace, .. } => namespace,
         }
     }
 
@@ -64,7 +99,9 @@ impl Mutation {
             Mutation::Cancel { workflow_id, .. }
             | Mutation::Terminate { workflow_id, .. }
             | Mutation::Signal { workflow_id, .. }
-            | Mutation::Delete { workflow_id, .. } => workflow_id,
+            | Mutation::Delete { workflow_id, .. }
+            | Mutation::Reset { workflow_id, .. }
+            | Mutation::Update { workflow_id, .. } => workflow_id,
         }
     }
 
@@ -73,7 +110,9 @@ impl Mutation {
             Mutation::Cancel { run_id, .. }
             | Mutation::Terminate { run_id, .. }
             | Mutation::Signal { run_id, .. }
-            | Mutation::Delete { run_id, .. } => run_id,
+            | Mutation::Delete { run_id, .. }
+            | Mutation::Reset { run_id, .. }
+            | Mutation::Update { run_id, .. } => run_id,
         }
     }
 
@@ -82,7 +121,9 @@ impl Mutation {
     /// A signal is a change but not a loss; a delete removes the history itself and cannot be
     /// walked back even by starting the workflow again.
     pub fn is_destructive(&self) -> bool {
-        !matches!(self, Mutation::Signal { .. })
+        // A reset abandons everything after the reset point, so it loses work even though
+        // the workflow survives. An update, like a signal, only adds to it.
+        !matches!(self, Mutation::Signal { .. } | Mutation::Update { .. })
     }
 
     /// Whether it destroys the record as well as the run. Only `delete` does, which is why it
@@ -117,6 +158,29 @@ impl Mutation {
             }
             Mutation::Signal { name, input, .. } => {
                 let mut out = format!("{} --name {}", base("signal", self), shell_quote(name));
+                if let Some(input) = input {
+                    out.push_str(&format!(" --input {}", shell_quote(input)));
+                }
+                out
+            }
+            Mutation::Reset {
+                event_id, reason, ..
+            } => format!(
+                "{} --event-id {event_id} --reason {}",
+                base("reset", self),
+                shell_quote(reason)
+            ),
+            // `update execute` rather than `update start`: tmprl waits for the outcome, and
+            // the command shown should be the one that behaves the same way.
+            Mutation::Update { name, input, .. } => {
+                let mut out = format!(
+                    "temporal workflow update execute --namespace {} --workflow-id {} \
+                     --run-id {} --name {}",
+                    shell_quote(self.namespace()),
+                    shell_quote(self.workflow_id()),
+                    shell_quote(self.run_id()),
+                    shell_quote(name)
+                );
                 if let Some(input) = input {
                     out.push_str(&format!(" --input {}", shell_quote(input)));
                 }
@@ -309,6 +373,88 @@ mod tests {
         assert_eq!(shell_quote("ns.with.dots"), "ns.with.dots");
         assert_eq!(shell_quote(""), "''", "an empty value still needs quotes");
         assert_eq!(shell_quote("has space"), "'has space'");
+    }
+
+    #[test]
+    fn a_reset_names_the_event_it_goes_back_to() {
+        let m = Mutation::Reset {
+            namespace: "default".into(),
+            workflow_id: "order-1".into(),
+            run_id: "r".into(),
+            event_id: 9,
+            reason: "bad deploy".into(),
+        };
+        assert_eq!(
+            m.cli(),
+            "temporal workflow reset --namespace default --workflow-id order-1 --run-id r \
+             --event-id 9 --reason 'bad deploy'"
+        );
+        // A reset abandons everything after the point, so it loses work even though the
+        // workflow survives.
+        assert!(m.is_destructive());
+        assert!(!m.destroys_history(), "the history is still there");
+        assert_eq!(Confirm::new(m).typed_word, None);
+    }
+
+    #[test]
+    fn an_update_uses_execute_because_tmprl_waits_for_the_outcome() {
+        // `update start` returns once accepted; `update execute` waits. The command shown
+        // should behave the way tmprl does.
+        let m = Mutation::Update {
+            namespace: "default".into(),
+            workflow_id: "w".into(),
+            run_id: "r".into(),
+            name: "setLimit".into(),
+            input: Some("50".into()),
+        };
+        let cli = m.cli();
+        assert!(
+            cli.starts_with("temporal workflow update execute "),
+            "{cli}"
+        );
+        assert!(cli.ends_with("--name setLimit --input 50"), "{cli}");
+        // Like a signal, an update adds to a workflow rather than ending it.
+        assert!(!m.is_destructive());
+    }
+
+    #[test]
+    fn an_update_without_input_passes_none() {
+        let m = Mutation::Update {
+            namespace: "d".into(),
+            workflow_id: "w".into(),
+            run_id: "r".into(),
+            name: "ping".into(),
+            input: None,
+        };
+        assert!(!m.cli().contains("--input"));
+    }
+
+    #[test]
+    fn every_verb_has_a_past_tense_that_is_a_word() {
+        // "cancel" + "d" is "canceld".
+        for (m, expected) in [
+            (
+                Mutation::Cancel {
+                    namespace: "d".into(),
+                    workflow_id: "w".into(),
+                    run_id: "r".into(),
+                },
+                "cancelled",
+            ),
+            (terminate("x"), "terminated"),
+            (
+                Mutation::Reset {
+                    namespace: "d".into(),
+                    workflow_id: "w".into(),
+                    run_id: "r".into(),
+                    event_id: 1,
+                    reason: "x".into(),
+                },
+                "reset",
+            ),
+        ] {
+            assert_eq!(m.past_tense(), expected);
+        }
     }
 
     #[test]

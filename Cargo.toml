@@ -35,6 +35,9 @@ serde_json = "1"
 # because temporalio-client already brings rustls in, so this shares its stack.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "json"] }
 base64 = "0.22"
+# Request ids. Reset requires one (the server rejects the call without it), and giving every
+# mutation a fresh one makes a retried request idempotent rather than doubled.
+uuid = { version = "1", features = ["v4"] }
 
 # Debug info for 227 crates (temporalio-protos especially) does not fit in the
 # 4.6G free on this box. Keep dev builds lean; use `--profile dbg` when a real
