@@ -284,6 +284,24 @@ pub fn merge_events(existing: &mut Vec<NormalizedEvent>, incoming: Vec<Normalize
     existing.len() - before
 }
 
+/// The event a reset would actually go back to, at or before `at`.
+///
+/// Temporal only resets to a **completed workflow task**: the point where the workflow's
+/// state is well defined and can be replayed forward. Any other event is not a valid reset
+/// point, and asking for one is an error from the server.
+///
+/// The reader almost never has the cursor on a workflow task, because those are the plumbing
+/// the outline folds away by default. So "reset to here" resolves backwards to the last
+/// completed workflow task at or before the selected event, and the confirmation shows the
+/// id it resolved to, so the target moves but never silently.
+pub fn reset_point(events: &[NormalizedEvent], at: i64) -> Option<i64> {
+    events
+        .iter()
+        .filter(|e| e.id <= at)
+        .rfind(|e| e.category == Category::WorkflowTask && e.outcome == Outcome::Completed)
+        .map(|e| e.id)
+}
+
 /// Groups that failed, timed out or were terminated, in history order.
 ///
 /// This is what the problem list and the minimap read: on a long history the interesting
@@ -657,6 +675,108 @@ mod tests {
         let mut held = Vec::new();
         assert_eq!(merge_events(&mut held, retried_activity()), 3);
         assert_eq!(held.len(), 3);
+    }
+
+    #[test]
+    fn a_reset_resolves_back_to_the_last_completed_workflow_task() {
+        // The cursor is almost never on a workflow task — those are folded away — so "reset
+        // to here" has to walk back to the nearest valid point.
+        let events = vec![
+            NormalizedEvent::new(1, "S", Category::Workflow, GroupRef::Workflow, Role::Opens),
+            NormalizedEvent::new(
+                2,
+                "WTS",
+                Category::WorkflowTask,
+                GroupRef::Opened(2),
+                Role::Opens,
+            ),
+            NormalizedEvent::new(
+                3,
+                "WTC",
+                Category::WorkflowTask,
+                GroupRef::Opened(2),
+                Role::Closes,
+            )
+            .with_outcome(Outcome::Completed),
+            NormalizedEvent::new(
+                4,
+                "ATS",
+                Category::Activity,
+                GroupRef::Opened(4),
+                Role::Opens,
+            ),
+            NormalizedEvent::new(
+                5,
+                "ATC",
+                Category::Activity,
+                GroupRef::Opened(4),
+                Role::Closes,
+            )
+            .with_outcome(Outcome::Completed),
+        ];
+        assert_eq!(
+            reset_point(&events, 5),
+            Some(3),
+            "back to the workflow task"
+        );
+        assert_eq!(reset_point(&events, 3), Some(3), "already on one");
+        assert_eq!(reset_point(&events, 2), None, "nothing completed yet");
+    }
+
+    #[test]
+    fn a_failed_workflow_task_is_not_a_reset_point() {
+        // Only a *completed* task leaves the workflow in a state that can be replayed
+        // forward; the server rejects anything else.
+        let events = vec![
+            NormalizedEvent::new(
+                2,
+                "WTS",
+                Category::WorkflowTask,
+                GroupRef::Opened(2),
+                Role::Opens,
+            ),
+            NormalizedEvent::new(
+                3,
+                "WTF",
+                Category::WorkflowTask,
+                GroupRef::Opened(2),
+                Role::Closes,
+            )
+            .with_outcome(Outcome::Failed),
+        ];
+        assert_eq!(reset_point(&events, 3), None);
+    }
+
+    #[test]
+    fn a_reset_takes_the_latest_valid_point_not_the_first() {
+        let events = vec![
+            NormalizedEvent::new(
+                3,
+                "WTC",
+                Category::WorkflowTask,
+                GroupRef::Opened(2),
+                Role::Closes,
+            )
+            .with_outcome(Outcome::Completed),
+            NormalizedEvent::new(
+                9,
+                "WTC",
+                Category::WorkflowTask,
+                GroupRef::Opened(8),
+                Role::Closes,
+            )
+            .with_outcome(Outcome::Completed),
+            NormalizedEvent::new(
+                12,
+                "ATC",
+                Category::Activity,
+                GroupRef::Opened(10),
+                Role::Closes,
+            )
+            .with_outcome(Outcome::Completed),
+        ];
+        assert_eq!(reset_point(&events, 12), Some(9));
+        assert_eq!(reset_point(&events, 8), Some(3));
     }
 
     #[test]

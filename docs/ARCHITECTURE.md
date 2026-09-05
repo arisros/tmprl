@@ -1,9 +1,9 @@
 # Architecture
 
 > **Read this first.** This document mixes built code with design that is not written yet,
-> and every section says which it is. §§2–8 are implemented and tested and §9 partly so;
-> what remains is written down in advance so the shape is agreed before there is code
-> sitting on top of it.
+> and every section says which it is. §§2 to 9 are implemented and tested, except for the
+> batch flow at the end of §9, which is written down in advance so the shape is agreed
+> before there is code sitting on top of it.
 >
 > | Marker | Meaning |
 > |---|---|
@@ -62,8 +62,8 @@ project testable:
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
 | `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 46 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 131 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 127 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 138 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 132 |
 | `tmprl-ui` | built | Plain unit tests over the layout tree | 35 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -508,7 +508,7 @@ Two failure modes are refused rather than guessed around:
 
 ---
 
-## 9. Mutations · PARTLY BUILT (single workflows; batch is M5)
+## 9. Mutations · BUILT (single workflows; batch is M5)
 
 `tmprl` can terminate workflows and run batch operations across thousands of them. The
 safety design is deliberate:
@@ -521,9 +521,17 @@ safety design is deliberate:
   query actually matches — and require typing that count to proceed.
 - Every mutation appends to `~/.local/state/tmprl/audit.jsonl`.
 
-Built: **cancel, terminate, signal and delete**, on one workflow at a time. Reset and update
-are not; they need more than an execution id — a reset needs an event to go back to, and an
-update needs a handler and a reply to wait for.
+Built: **cancel, terminate, signal, delete, reset and update**, on one workflow at a time.
+
+Two of those need more than an execution id, and that shapes where they live:
+
+- **Reset** needs an event to go back to, and Temporal only accepts a *completed workflow
+  task*: the point where the workflow's state is well defined. Those are exactly the rows the
+  outline folds away as plumbing, so "reset to here" resolves backwards to the nearest valid
+  point and the confirmation shows the id it landed on. The target moves, but never silently.
+- **Update** waits for the workflow's answer rather than for acceptance, so the reported
+  result is the outcome. An update that is accepted and then *rejected by the workflow* is
+  reported as a failure, not as a success that quietly did nothing.
 
 The rendered command has to be *right*, because someone will copy it and run it. The flags are
 checked against `temporal workflow --help` rather than remembered, and values are shell-quoted:
@@ -535,8 +543,9 @@ not just the run, so it wants the word `delete` typed. Everything else is one co
 above. While a confirmation is up it owns every key, so nothing bound elsewhere can fire
 underneath it.
 
-Every request carries an `identity` of `tmprl@$USER`, which Temporal records on the resulting
-event. A workflow terminated from here says so in its own history rather than appearing to
+Every request carries a fresh `request_id` and an `identity` of `tmprl@$USER`. The identity is
+recorded on the resulting event; the request id makes a retried call idempotent rather than
+doubled, and `ResetWorkflowExecution` **rejects a request without one**. A workflow terminated from here says so in its own history rather than appearing to
 have stopped on its own.
 
 The audit log is appended to, never rewritten, and **failures go in too** — the question it
