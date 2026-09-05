@@ -2783,6 +2783,7 @@ dependencies = [
  "tmprl-core",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]

@@ -216,6 +216,8 @@ closed is refused with a message instead of polling for events that can never ar
 | `<leader>mt` | terminate this workflow | **live** |
 | `<leader>ms` | signal this workflow | **live** |
 | `<leader>md` | delete this workflow | **live** |
+| `<leader>mr` | reset to the event under the cursor | **live** |
+| `<leader>mu` | send an update and wait for its outcome | **live** |
 | `<leader>xx` | problem list — failed and task-failure workflows | M2 |
 | `<leader>xQ` | open the quickfix list | M5 |
 
@@ -243,9 +245,13 @@ that is silently dropped is a key that does nothing, with no way to find out why
 
 ## Destructive actions
 
-**Live for one workflow at a time**: cancel, terminate, signal and delete, under `<leader>m`
-— clear of bare `m`, which marks reserve. Reset and update are not built. Batch operations are
-M5.
+**Live for one workflow at a time**: cancel, terminate, signal, delete, reset and update,
+under `<leader>m`, clear of bare `m`, which marks reserve. Batch operations are M5.
+
+`<leader>mr` resets to the event under the cursor. Temporal only resets to a *completed
+workflow task*, and those are the rows the outline folds away, so the target resolves backwards
+to the nearest valid point. The confirmation shows the event id it landed on, so the move is
+visible rather than silent.
 
 Every mutation routes through one confirmation modal, which displays **the equivalent
 `temporal` CLI command**. That teaches the CLI, makes the action auditable at a glance, and
