@@ -31,7 +31,7 @@ pub struct Tree {
     focus: Vec<usize>,
 }
 
-/// The weight a freshly split window gets. Any constant works — only ratios matter — but a
+/// The weight a freshly split window gets. Any constant works (only ratios matter) but a
 /// round number keeps `resize` arithmetic legible when debugging a layout.
 const DEFAULT_WEIGHT: u16 = 100;
 
@@ -67,7 +67,7 @@ impl Tree {
         false // a tree always has at least one leaf
     }
 
-    /// Split the focused window, and focus the new one — as vim does.
+    /// Split the focused window, and focus the new one, as vim does.
     pub fn split(&mut self, axis: Axis, view: ViewId) {
         let path = self.focus.clone();
         let Some(node) = Self::at_mut(&mut self.root, &path) else {
@@ -88,7 +88,7 @@ impl Tree {
         }
 
         // If the new window's parent splits on the same axis as its grandparent, the nesting
-        // is redundant — vim flattens it, and so does this, or `<C-w>l` would have to step
+        // is redundant, vim flattens it, and so does this, or `<C-w>l` would have to step
         // through invisible levels.
         self.flatten();
     }
@@ -242,8 +242,6 @@ impl Tree {
             .map(|(_, pane)| pane)
             .collect()
     }
-
-    // ── internals ────────────────────────────────────────────────────────────
 
     fn layout_with_paths(&self, area: Rect) -> Vec<(Vec<usize>, Pane)> {
         let mut out = Vec::new();
@@ -589,7 +587,7 @@ mod tests {
         assert_eq!(tree.focused(), v(3), "focus survives the flattening");
 
         // Flattening must not move anything on screen. vim's `:vsplit` halves the *current*
-        // window, so splitting twice gives one half and two quarters — not three thirds.
+        // window, so splitting twice gives one half and two quarters, not three thirds.
         // The nesting is what goes away, not the proportions.
         let widths: Vec<u16> = tree.layout(AREA).iter().map(|p| p.rect.width).collect();
         assert_eq!(widths, [50, 25, 25], "flattening must preserve the layout");
@@ -644,13 +642,9 @@ mod tests {
 
     #[test]
     fn focus_skips_windows_that_do_not_share_any_rows() {
-        // Layout: 1 fills the left; 2 over 3 on the right.
-        //   +----+----+
-        //   |    | 2  |
-        //   | 1  +----+
-        //   |    | 3  |
-        //   +----+----+
-        // From 1, `l` must reach 2 — the one it lines up with — not 3.
+        // 1 fills the left; 2 over 3 on the right. From 1, `l` must reach 2, the one it
+        // shares rows with, not 3.
+
         let mut tree = Tree::new(v(1));
         tree.split(Axis::Columns, v(2));
         tree.split(Axis::Rows, v(3));

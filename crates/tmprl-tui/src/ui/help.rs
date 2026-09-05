@@ -17,7 +17,7 @@ use crate::theme::Theme;
 const KEYS: usize = 22;
 
 pub fn render(frame: &mut Frame, app: &mut App, t: &Theme) {
-    // Wide enough that command ids are not truncated — the ids are the part a reader
+    // Wide enough that command ids are not truncated, the ids are the part a reader
     // needs verbatim, since they are what `:` and keys.toml take.
     let area = super::centered(
         frame.area(),
@@ -37,7 +37,7 @@ pub fn render(frame: &mut Frame, app: &mut App, t: &Theme) {
         for cmd in app.registry.all().iter().filter(|c| c.group == group) {
             let keys = app.keymap.keys_for(cmd.id);
             let rendered = if keys.is_empty() {
-                "—".to_string()
+                ",".to_string()
             } else {
                 let mut seen: Vec<String> = Vec::new();
                 for b in keys {
@@ -70,12 +70,12 @@ pub fn render(frame: &mut Frame, app: &mut App, t: &Theme) {
     app.help_scroll = scroll;
 
     let title = if app.help_max_scroll == 0 {
-        " help — Esc to close ".to_string()
+        " help (Esc to close) ".to_string()
     } else {
         // Say that there is more, and how to get to it. A silently clipped list is how a
         // reader concludes a command does not exist.
         format!(
-            " help — j/k to scroll ({}/{}) — Esc to close ",
+            " help (j/k to scroll, {}/{}, Esc to close) ",
             scroll + 1,
             app.help_max_scroll + 1
         )

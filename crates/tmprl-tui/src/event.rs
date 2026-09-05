@@ -1,7 +1,7 @@
 //! The event loop.
 //!
 //! One `select!` over three sources: the terminal, the backend channel, and a tick. The
-//! reducer it calls is synchronous, so a slow RPC can never delay a keystroke — the RPC is
+//! reducer it calls is synchronous, so a slow RPC can never delay a keystroke, the RPC is
 //! on a spawned task and returns through the channel like any other message.
 
 use std::time::Duration;
@@ -66,7 +66,7 @@ pub async fn run(
                 Some(Ok(Event::Resize(_, _))) => app.handle(Msg::Redraw),
                 Some(Ok(_)) => {}
                 Some(Err(e)) => return Err(e.into()),
-                // stdin closed — nothing more can arrive.
+                // stdin closed, nothing more can arrive.
                 None => return Ok(()),
             },
             Some(msg) = rx.recv() => app.handle(msg),

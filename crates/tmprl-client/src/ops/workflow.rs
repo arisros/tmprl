@@ -7,7 +7,7 @@
 //!
 //! Both take an explicit namespace rather than using the connection's own. A connection is
 //! bound to one namespace, but clones share a single HTTP/2 channel, so a fan-out across
-//! namespaces is one connection and N requests — see `list_workflows_across`.
+//! namespaces is one connection and N requests. See `list_workflows_across`.
 
 use temporalio_client::tonic::Request;
 use temporalio_common::protos::temporal::api::{
@@ -29,7 +29,7 @@ pub type Continuation = Vec<(String, Vec<u8>)>;
 #[derive(Debug, Clone, Default)]
 pub struct WorkflowPage {
     pub rows: Vec<WorkflowRow>,
-    /// Empty on the last page. This is opaque server state — never construct one.
+    /// Empty on the last page. This is opaque server state, never construct one.
     pub next_page_token: Vec<u8>,
 }
 
@@ -98,7 +98,7 @@ impl Conn {
     ///
     /// Taking the token list rather than the namespace list is the point. Re-deriving the
     /// namespaces from the original scope would hand an exhausted namespace an empty token,
-    /// which the server reads as "start from the beginning" — so it would return page one
+    /// which the server reads as "start from the beginning", so it would return page one
     /// again, along with a fresh token, and that namespace would never finish.
     pub async fn continue_workflows_across(
         &self,
@@ -141,7 +141,7 @@ impl Conn {
     /// Per-status counts for the list header.
     ///
     /// One `GROUP BY` call rather than one call per status. The grouped counts are
-    /// approximate by design on large clusters — Temporal says so — which is why the total
+    /// approximate by design on large clusters (Temporal says so) which is why the total
     /// is taken from the response rather than summed from the groups.
     pub async fn count_workflows_by_status(
         &self,
@@ -221,7 +221,7 @@ fn row_from(namespace: &str, e: WorkflowExecutionInfo) -> WorkflowRow {
 }
 
 /// Exhaustive on purpose. When Temporal adds an execution status this stops compiling,
-/// which is the moment we want to hear about it — a `_` arm would render the new status as
+/// which is the moment we want to hear about it, a `_` arm would render the new status as
 /// `Unspecified` and nobody would notice for a release or two.
 fn status_from_proto(s: ProtoStatus) -> WorkflowStatus {
     match s {

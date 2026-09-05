@@ -1,7 +1,7 @@
 //! Finding and reading `~/.config/tmprl/*.toml`.
 //!
 //! This module is only the file IO. Everything that can be got wrong about the *contents*
-//! — an unknown command id, a malformed chord, two views on one key — is decided in
+//! (an unknown command id, a malformed chord, two views on one key) is decided in
 //! `tmprl_core::config`, where it is unit tested without touching a disk.
 
 use std::ffi::OsString;
@@ -23,7 +23,7 @@ pub fn config_dir() -> Option<PathBuf> {
 ///
 /// Split out so it can be tested as a function. Reading the real environment in a test
 /// means mutating process-global state, which races against every other test in the binary
-/// — tests run in parallel threads, and a flaky suite is worse than an untested one.
+///, tests run in parallel threads, and a flaky suite is worse than an untested one.
 fn resolve_dir(
     explicit: Option<OsString>,
     xdg: Option<OsString>,
@@ -40,7 +40,7 @@ fn resolve_dir(
 
 /// Read a config file, or `None` if it is absent.
 ///
-/// An unreadable file is reported rather than treated as absent — "I wrote a keys.toml and
+/// An unreadable file is reported rather than treated as absent, "I wrote a keys.toml and
 /// nothing happened" is the failure this exists to prevent.
 pub fn read(name: &str) -> Result<Option<String>, String> {
     match config_dir() {

@@ -36,13 +36,13 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
         let msg = if view.workflows.is_loading() {
             "loading workflows…".to_string()
         } else if let Some(e) = view.workflows.error() {
-            format!("{e} — R to retry")
+            format!("{e} (R to retry)")
         } else if view.query.trim().is_empty() {
             "no workflows in this namespace".to_string()
         } else {
             // Distinguish "nothing here" from "your filter excluded everything", which is
             // the far more likely cause and the one you can act on.
-            "no workflows match this query — i to edit it".to_string()
+            "no workflows match this query (i to edit it)".to_string()
         };
         frame.render_widget(
             Paragraph::new(Span::styled(format!("  {msg}"), Style::new().fg(t.faint))),
@@ -121,7 +121,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
                     Some(started) => {
                         format!("{:>width$}", humanize_age_ms(now - started), width = AGE)
                     }
-                    None => format!("{:>AGE$}", "—"),
+                    None => format!("{:>AGE$}", ","),
                 },
                 Style::new().fg(t.faint),
             ));

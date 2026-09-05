@@ -40,7 +40,7 @@ pub fn to_chord(ev: KeyEvent) -> Option<Chord> {
         shift: m.contains(KeyModifiers::SHIFT),
     };
 
-    // For a character, shift is already expressed by the character itself — `G` arrives as
+    // For a character, shift is already expressed by the character itself: `G` arrives as
     // Char('G'), often with SHIFT also set. Keeping the flag would stop it matching a
     // binding parsed from the string "G", which carries no modifiers.
     if matches!(key, Key::Char(_)) {

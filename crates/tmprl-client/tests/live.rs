@@ -1,6 +1,6 @@
 //! Integration tests against a real Temporal frontend.
 //!
-//! These assert the contracts the rest of tmprl is built on — the ones that would
+//! These assert the contracts the rest of tmprl is built on, the ones that would
 //! silently change under a `temporalio-client` bump. They need a server:
 //!
 //!     temporal server start-dev
@@ -34,7 +34,7 @@ async fn conn() -> Option<Conn> {
     }
 }
 
-/// The profile loader resolves a namespace even with no config file present — tmprl must
+/// The profile loader resolves a namespace even with no config file present, tmprl must
 /// never come up namespace-less, because every RPC needs one.
 #[tokio::test]
 async fn connects_and_resolves_a_namespace() {
@@ -72,7 +72,7 @@ async fn lists_namespaces() {
 
 /// The list header shows a count from `CountWorkflowExecutions` while the table itself
 /// comes from `ListWorkflowExecutions`. If those two ever disagree about what an empty
-/// query means, the header lies — so pin it.
+/// query means, the header lies, so pin it.
 #[tokio::test]
 async fn count_agrees_with_list() {
     let Some(c) = conn().await else { return };
@@ -167,7 +167,7 @@ async fn paginates_with_a_token() {
 }
 
 /// The history view and follow mode both read this. Event 1 of every workflow is always
-/// `WorkflowExecutionStarted` — that invariant is what lets the header render before the
+/// `WorkflowExecutionStarted`, that invariant is what lets the header render before the
 /// rest of the history has paged in.
 #[tokio::test]
 async fn reads_history_starting_at_execution_started() {
@@ -215,8 +215,6 @@ async fn reads_history_starting_at_execution_started() {
     );
 }
 
-// ── the typed workflow ops the M1 table is built on ──────────────────────────
-
 /// The typed wrapper must agree with the raw RPC about what a page contains. This is the
 /// call the workflow table makes on every scroll, so a mapping slip here is every row.
 #[tokio::test]
@@ -241,7 +239,7 @@ async fn typed_list_maps_rows_and_pages() {
 
     // NOTE: the server does *not* guarantee an order here, and the dev server's standard
     // visibility store rejects `ORDER BY` outright ("operation is not supported"). So
-    // there is no server-side ordering to lean on, and tmprl sorts client-side — see
+    // there is no server-side ordering to lean on, and tmprl sorts client-side, see
     // `tmprl_core::workflow::WorkflowList`. This test therefore asserts the mapping, not
     // an ordering the API never promised.
     assert!(
@@ -268,7 +266,7 @@ async fn order_by_is_rejected_by_standard_visibility() {
         ),
         Ok(_) => eprintln!(
             "NOTE: this server accepts `ORDER BY`. tmprl still sorts client-side, which \
-             stays correct — but server-side ordering is now available if wanted."
+             stays correct, but server-side ordering is now available if wanted."
         ),
     }
 }
@@ -303,7 +301,7 @@ async fn typed_list_continues_from_its_token() {
 }
 
 /// The header counts. `GROUP BY` payloads are `json/plain` Keyword values holding a quoted
-/// status name — if that encoding ever changes, every status count silently reads zero, so
+/// status name, if that encoding ever changes, every status count silently reads zero, so
 /// assert that at least one group actually decoded.
 #[tokio::test]
 async fn grouped_counts_decode_to_statuses() {
@@ -322,7 +320,7 @@ async fn grouped_counts_decode_to_statuses() {
     let groups: Vec<_> = counts.iter().collect();
     assert!(
         !groups.is_empty(),
-        "total is {} but no status group decoded — the GROUP BY payload \
+        "total is {} but no status group decoded, the GROUP BY payload \
          encoding has changed",
         counts.total
     );
@@ -392,7 +390,7 @@ async fn fan_out_merges_rows_newest_first() {
 /// This is the test for a bug that is invisible at a glance: if a continuation re-derives
 /// its namespaces from the original scope, a namespace that has already finished is handed
 /// an empty token, the server reads that as "start from the beginning", and it hands back
-/// page one plus a fresh token — forever. A tiny page size makes it show up with only a
+/// page one plus a fresh token, forever. A tiny page size makes it show up with only a
 /// handful of workflows.
 #[tokio::test]
 async fn paging_a_fan_out_terminates_and_visits_each_row_once() {
@@ -428,7 +426,7 @@ async fn paging_a_fan_out_terminates_and_visits_each_row_once() {
     // Size the page so the largest namespace takes about `ROUNDS` pages however much data
     // happens to be on this server. A fixed page size of 1 makes the request count scale
     // with the cluster, which trips the namespace rate limit on anything but a nearly
-    // empty one — and makes the test pass or fail depending on what ran before it.
+    // empty one, and makes the test pass or fail depending on what ran before it.
     // Smaller namespaces still exhaust several pages earlier, which is what the bug needs.
     const ROUNDS: usize = 6;
     let page_size = biggest.div_ceil(ROUNDS).max(1) as i32;
@@ -454,7 +452,7 @@ async fn paging_a_fan_out_terminates_and_visits_each_row_once() {
         assert!(
             rounds < limit,
             "paging did not terminate after {rounds} rounds for {total} workflows at \
-             page size {page_size} — an exhausted namespace is being restarted"
+             page size {page_size}, an exhausted namespace is being restarted"
         );
         let next = c
             .continue_workflows_across(&tokens, "", page_size)
@@ -478,8 +476,6 @@ async fn paging_a_fan_out_terminates_and_visits_each_row_once() {
         "paging must visit every workflow exactly once"
     );
 }
-
-// ── history: normalisation and grouping against a real server ────────────────
 
 /// The typed history read, end to end. Event 1 is always `WorkflowExecutionStarted`, so
 /// normalisation has a fixed point to be checked against.
@@ -518,7 +514,7 @@ async fn typed_history_normalises_a_real_workflow() {
     );
     assert_eq!(first.subject, row.workflow_type);
 
-    // Ids are dense and ascending — the grouping pass assumes history order.
+    // Ids are dense and ascending, the grouping pass assumes history order.
     let ids: Vec<i64> = hist.events.iter().map(|e| e.id).collect();
     let mut sorted = ids.clone();
     sorted.sort_unstable();
@@ -532,7 +528,7 @@ async fn typed_history_normalises_a_real_workflow() {
 }
 
 /// Grouping a real history. The workflow group must exist and reflect how the run ended,
-/// which is the same fact the workflow list shows — so the two must agree.
+/// which is the same fact the workflow list shows, so the two must agree.
 #[tokio::test]
 async fn a_real_history_groups_consistently_with_the_list() {
     use tmprl_core::history::{GroupRef, Outcome, group_events};
