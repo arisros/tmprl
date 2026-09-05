@@ -8,6 +8,7 @@ mod help;
 mod history;
 mod namespaces;
 mod query;
+mod schedules;
 mod statusline;
 mod whichkey;
 mod workflows;
@@ -109,7 +110,7 @@ fn pane_body(area: ratatui::layout::Rect, screen: Screen, show_detail: bool) -> 
     // on screen so the query is never something you have to go and open.
     let query_height = match screen {
         Screen::Workflows => 1,
-        Screen::Namespaces | Screen::History => 0,
+        Screen::Namespaces | Screen::History | Screen::Schedules => 0,
     };
     let [query, rest] =
         Layout::vertical([Constraint::Length(query_height), Constraint::Min(1)]).areas(area);
@@ -165,6 +166,7 @@ fn render_pane(
             query::render(frame, areas.query, view, app, theme, focused);
             workflows::render(frame, areas.list, view, app, theme);
         }
+        Screen::Schedules => schedules::render(frame, areas.list, view, app, theme),
         Screen::History => {
             history::render(frame, areas.list, view, app, theme);
             if let Some(pane) = areas.detail {
@@ -734,6 +736,65 @@ mod tests {
             !out.contains("app.quit"),
             "a pipe prompt must not offer command completions:\n{out}"
         );
+    }
+
+    #[test]
+    fn the_schedule_list_shows_state_spec_and_next_run() {
+        use tmprl_core::ScheduleRow;
+        let mut app = app_with_rows();
+        app.view.screen = crate::app::Screen::Schedules;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        app.view.schedules = Loadable::loaded(vec![
+            ScheduleRow {
+                namespace: "default".into(),
+                schedule_id: "nightly-recon".into(),
+                workflow_type: "Reconcile".into(),
+                paused: false,
+                notes: String::new(),
+                spec: "0 2 * * *".into(),
+                next_run: Some(now + 3_600_000),
+                recent_runs: 2,
+            },
+            ScheduleRow {
+                namespace: "default".into(),
+                schedule_id: "held".into(),
+                workflow_type: "Reconcile".into(),
+                paused: true,
+                notes: String::new(),
+                spec: "every 1h".into(),
+                next_run: Some(now + 60_000),
+                recent_runs: 0,
+            },
+        ]);
+
+        let out = draw(&mut app, 110, 12);
+        assert!(out.contains("nightly-recon"), "{out}");
+        assert!(
+            out.contains("0 2 * * *"),
+            "the spec should read as cron:\n{out}"
+        );
+        assert!(out.contains("1h"), "next run missing:\n{out}");
+        assert!(out.contains("paused"), "{out}");
+        assert!(out.lines().next().unwrap().contains("1 paused"), "{out}");
+
+        // A paused schedule still has future times, since the server computes them from the
+        // spec. Showing one would suggest it is about to run.
+        let held = out.lines().find(|l| l.contains("held")).unwrap();
+        assert!(
+            !held.contains("1m"),
+            "a paused row should not count down:\n{held}"
+        );
+    }
+
+    #[test]
+    fn an_empty_schedule_list_points_at_the_other_list() {
+        let mut app = app_with_rows();
+        app.view.screen = crate::app::Screen::Schedules;
+        app.view.schedules = Loadable::loaded(Vec::new());
+        assert!(draw(&mut app, 110, 12).contains("no schedules in this namespace"));
     }
 
     #[test]

@@ -226,6 +226,10 @@ pub fn default_keymap() -> Keymap {
         bind(mode, "<CR>", "nav.open");
     }
     bind(Mode::Normal, "-", "nav.up");
+    // `g` is vim's goto prefix, so `gs` and `gw` switch between the two lists a namespace
+    // holds.
+    bind(Mode::Normal, "gs", "nav.schedules");
+    bind(Mode::Normal, "gw", "nav.workflows");
 
     // Folds use vim's `z` family, so the which-key popup on `z` reads like vim's does.
     // `zp` is not a vim binding, but it sits in the same namespace as the folds it
@@ -272,6 +276,9 @@ pub fn default_keymap() -> Keymap {
         bind(mode, "<leader>md", "workflow.delete");
         bind(mode, "<leader>mr", "workflow.reset");
         bind(mode, "<leader>mu", "workflow.update");
+        bind(mode, "<leader>mp", "schedule.pause");
+        bind(mode, "<leader>mg", "schedule.trigger");
+        bind(mode, "<leader>mD", "schedule.delete");
 
         bind(mode, "<leader>to", "tab.new");
         bind(mode, "<leader>tx", "tab.close");
@@ -370,9 +377,13 @@ mod tests {
         let r = m.resolve(Mode::Normal, &mut p, Chord::ch('g'));
         match r {
             Resolution::Pending { candidates } => {
-                assert_eq!(candidates.len(), 1);
-                assert_eq!(candidates[0].next, Chord::ch('g'));
-                assert_eq!(candidates[0].command, Some("motion.top"));
+                // `g` is vim's goto prefix and gains continuations over time, so the point
+                // is that `gg` is among them, not how many there are.
+                let gg = candidates
+                    .iter()
+                    .find(|c| c.next == Chord::ch('g'))
+                    .expect("gg should be reachable from g");
+                assert_eq!(gg.command, Some("motion.top"));
             }
             other => panic!("expected Pending, got {other:?}"),
         }
