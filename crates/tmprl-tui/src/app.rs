@@ -2,7 +2,7 @@
 //!
 //! The one rule: [`App::handle`] is synchronous and never awaits. When it needs data it
 //! spawns a task, which reports back as another [`Msg`]. Nothing on the keystroke path can
-//! block on the network — see `docs/ARCHITECTURE.md`.
+//! block on the network. See `docs/ARCHITECTURE.md`.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -55,14 +55,14 @@ pub enum MutationKind {
 
 /// What a prompt at the bottom of the screen is collecting.
 ///
-/// Both prompts edit identically — the same keys, the same backspace-on-empty-closes rule —
+/// Both prompts edit identically, the same keys, the same backspace-on-empty-closes rule,
 /// and differ only in what Enter does with the text. Sharing the editing is what keeps them
 /// from drifting apart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PromptKind {
-    /// `:` — a command id, with completions.
+    /// `:`, a command id, with completions.
     Command,
-    /// `!` — a shell command to filter the focused payloads through.
+    /// `!`, a shell command to filter the focused payloads through.
     Pipe,
     /// The name of a signal to send.
     Signal,
@@ -101,7 +101,7 @@ pub enum DecodeState {
 
 /// What Insert mode is editing.
 ///
-/// On the workflow list, Insert mode edits the visibility query — that is the only text
+/// On the workflow list, Insert mode edits the visibility query: the only text
 /// field on the screen, so making `i` mean anything else would be a wasted key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InsertTarget {
@@ -337,8 +337,6 @@ impl App {
         self.view.selection()
     }
 
-    // ── the reducer ──────────────────────────────────────────────────────────
-
     pub fn handle(&mut self, msg: Msg) {
         self.dirty = true;
         match msg {
@@ -437,7 +435,7 @@ impl App {
                             // spin on a call that now returns instantly.
                             self.stop_following();
                             self.note =
-                                Some(("workflow closed — follow stopped".into(), Note::Info));
+                                Some(("workflow closed, follow stopped".into(), Note::Info));
                         }
                         self.view.history_token = token;
                         // Merged, not appended: a resumed follow replays the page its token
@@ -477,10 +475,8 @@ impl App {
     }
 
     fn on_key(&mut self, chord: Chord) {
-        // The command line owns every key while it is open, so that `:` can accept a name
-        // containing characters that are bound elsewhere.
-        // A pending destructive action owns every key: nothing bound elsewhere should be
-        // able to fire while one is waiting.
+        // A pending destructive action owns every key, so nothing bound elsewhere can
+        // fire while one is waiting.
         if self.confirm.is_some() {
             self.confirm_key(chord);
             return;
@@ -584,7 +580,7 @@ impl App {
                 }
             }
             Action::LeaveInsert => {
-                // Esc abandons the edit; the applied query is unchanged. Enter applies —
+                // Esc abandons the edit; the applied query is unchanged. Enter applies,
                 // see `insert_keys`.
                 self.mode = Mode::Normal;
                 self.insert_target = InsertTarget::Scratch;
@@ -671,8 +667,6 @@ impl App {
         self.clamp_cursor();
     }
 
-    // ── navigation ───────────────────────────────────────────────────────────
-
     fn open_focused(&mut self) {
         match self.view.screen {
             Screen::Namespaces => {
@@ -746,8 +740,6 @@ impl App {
         }
     }
 
-    // ── history ──────────────────────────────────────────────────────────────
-
     /// The group the cursor is on, whether it sits on the group's own line or on one of its
     /// events. Folding from inside an expanded group is what a reader expects.
     fn group_under_cursor(&self) -> Option<usize> {
@@ -785,8 +777,6 @@ impl App {
         self.clamp_cursor();
     }
 
-    // ── follow mode ──────────────────────────────────────────────────────────
-
     fn scroll_detail(&mut self, delta: isize) {
         let next = (self.view.detail_scroll as isize + delta)
             .clamp(0, self.view.detail_max_scroll as isize);
@@ -807,7 +797,7 @@ impl App {
         // can never arrive, so say so instead.
         if self.view.history_token.is_empty() && self.workflow_is_closed() {
             self.note = Some((
-                "this workflow has closed — nothing to follow".into(),
+                "this workflow has closed, nothing to follow".into(),
                 Note::Warn,
             ));
             return;
@@ -834,7 +824,7 @@ impl App {
             return;
         };
         self.view.following = true;
-        self.note = Some(("following — F to stop".into(), Note::Info));
+        self.note = Some(("following, F to stop".into(), Note::Info));
 
         let Some(conn) = self.conn.clone() else {
             return;
@@ -934,8 +924,6 @@ impl App {
         }
     }
 
-    // ── cursor ───────────────────────────────────────────────────────────────
-
     fn scroll_help(&mut self, delta: isize) {
         let next = (self.help_scroll as isize + delta).clamp(0, self.help_max_scroll as isize);
         self.help_scroll = next as usize;
@@ -953,10 +941,8 @@ impl App {
 
     fn set_cursor(&mut self, at: usize) {
         if at != self.view.cursor {
-            // The pane now shows a different value; keeping the old offset would open it
-            // part-way down something the reader has not seen the start of. A filter result
-            // belonged to the row it was run on, so it goes too rather than sitting under a
-            // heading that no longer describes it.
+            // The pane now shows a different row, so its offset and any filter result
+            // from the previous one no longer apply.
             self.view.detail_scroll = 0;
             self.view.piped = None;
         }
@@ -1027,8 +1013,6 @@ impl App {
             Screen::Namespaces => {}
         }
     }
-
-    // ── yanking ──────────────────────────────────────────────────────────────
 
     fn field_under_cursor(&self) -> String {
         match self.view.screen {
@@ -1167,8 +1151,6 @@ impl App {
         }
     }
 
-    // ── insert mode ──────────────────────────────────────────────────────────
-
     /// Literal input, plus the two editing keys a text field cannot do without.
     fn insert_keys(&mut self, flushed: Vec<Chord>) {
         use tmprl_core::Key;
@@ -1199,8 +1181,6 @@ impl App {
         self.load_workflows(false);
     }
 
-    // ── command line ─────────────────────────────────────────────────────────
-
     fn prompt_key(&mut self, chord: Chord) {
         use tmprl_core::Key;
         let Some(prompt) = self.prompt.as_mut() else {
@@ -1229,8 +1209,6 @@ impl App {
         }
     }
 
-    // ── windows ──────────────────────────────────────────────────────────────
-
     /// Park the focused pane and take up whichever one the tree now points at.
     ///
     /// The reducer always acts on `self.view`, so every operation that can move focus ends
@@ -1257,7 +1235,7 @@ impl App {
     }
 
     /// Split the focused window. The new pane starts where this one is, which is almost
-    /// always what you wanted it for — comparing two histories means opening the same place
+    /// always what you wanted it for, comparing two histories means opening the same place
     /// twice and then navigating one of them away.
     fn split(&mut self, axis: Axis) {
         let previous = self.tabs.current().focused();
@@ -1274,7 +1252,7 @@ impl App {
     fn close_window(&mut self) {
         let previous = self.tabs.current().focused();
         if !self.tabs.current_mut().close() {
-            self.note = Some(("last window — <Space>q to quit tmprl".into(), Note::Warn));
+            self.note = Some(("last window, <Space>q to quit tmprl".into(), Note::Warn));
             return;
         }
         // Its state goes with it, and View's Drop stops any follow poll it had running.
@@ -1316,7 +1294,7 @@ impl App {
 
     fn close_tab(&mut self) {
         if self.tabs.len() == 1 {
-            self.note = Some(("last tab — <Space>q to quit tmprl".into(), Note::Warn));
+            self.note = Some(("last tab, <Space>q to quit tmprl".into(), Note::Warn));
             return;
         }
         // Every pane in the tab goes, along with whatever each was polling.
@@ -1373,8 +1351,6 @@ impl App {
     pub fn parked_view(&self, id: ViewId) -> Option<&View> {
         self.parked.get(&id)
     }
-
-    // ── mutations ────────────────────────────────────────────────────────────
 
     /// The workflow a mutation would act on: the row under the cursor on the workflow list,
     /// or the one whose history is open.
@@ -1523,7 +1499,7 @@ impl App {
         }
     }
 
-    /// Send it. Spawned like every other RPC — a mutation must not freeze a keystroke either.
+    /// Send it. Spawned like every other RPC, a mutation must not freeze a keystroke either.
     fn run_mutation(&mut self, mutation: Mutation) {
         let Some(conn) = self.conn.clone() else {
             return;
@@ -1554,8 +1530,6 @@ impl App {
             self.note = Some((format!("audit log: {e}"), Note::Error));
         }
     }
-
-    // ── codec server ─────────────────────────────────────────────────────────
 
     /// Identity of an encrypted payload, for the decode cache.
     ///
@@ -1634,7 +1608,7 @@ impl App {
     /// Swap every decoded payload into the history in place.
     ///
     /// Replacing the payload rather than keeping a cache the views consult means everything
-    /// downstream — the pane, `!` piping, yanking — reads the plaintext without knowing a
+    /// downstream (the pane, `!` piping, yanking) reads the plaintext without knowing a
     /// codec exists. It is also why this runs after each history page: a later page can
     /// carry the same encrypted value.
     fn apply_decoded(&mut self) {
@@ -1664,11 +1638,9 @@ impl App {
         }
     }
 
-    // ── piping payloads through an external command ──────────────────────────
-
     /// The payloads the cursor is on, as one JSON object.
     ///
-    /// For a group that is its input *and* its result, which live on two different events —
+    /// For a group that is its input *and* its result, which live on two different events,
     /// the same pair the payload pane shows.
     fn payloads_under_cursor(&self) -> Vec<(String, tmprl_core::payload::Payload)> {
         let Some(outline) = self.view.history.value() else {
@@ -1710,7 +1682,7 @@ impl App {
             // Encrypted or binary. Piping it produces a parse error that explains nothing,
             // so refuse with a reason instead.
             self.note = Some((
-                "no readable payload here — encrypted or binary".into(),
+                "no readable payload here, encrypted or binary".into(),
                 Note::Warn,
             ));
             return;
@@ -1726,7 +1698,7 @@ impl App {
 
     /// Run the typed command with the focused payloads on stdin.
     ///
-    /// Spawned, never awaited here — an external command can take as long as it likes and
+    /// Spawned, never awaited here, an external command can take as long as it likes and
     /// must not be able to freeze a keystroke. The output arrives as a `Msg`.
     fn run_pipe(&mut self, command: String) {
         let (json, skipped) = tmprl_core::payload::payloads_as_json(&self.payloads_under_cursor());
@@ -1741,7 +1713,7 @@ impl App {
             ));
         }
 
-        // The output replaces the pane, so open it if it is shut — otherwise the result
+        // The output replaces the pane, so open it if it is shut, otherwise the result
         // would land somewhere the reader cannot see.
         self.view.show_detail = true;
         self.view.detail_scroll = 0;
@@ -1791,8 +1763,6 @@ impl App {
         }
     }
 
-    // ── IO ───────────────────────────────────────────────────────────────────
-
     /// Spawn a namespace fetch. Returns immediately; the result arrives as a `Msg`.
     pub fn load_namespaces(&mut self) {
         let Some(conn) = self.conn.clone() else {
@@ -1827,7 +1797,7 @@ impl App {
         };
         // On a continuation, ask only the namespaces that still have pages. Passing the
         // whole scope would hand an exhausted namespace an empty token, which the server
-        // reads as "start again" — so it would never finish.
+        // reads as "start again", so it would never finish.
         let tokens: Tokens = if append {
             self.view
                 .workflows
@@ -1932,7 +1902,7 @@ impl App {
 
 /// Run `command` in a shell with `input` on stdin, and collect what it says.
 ///
-/// A shell rather than a bare exec, so that `jq .result | head -20` works — `!` is a filter,
+/// A shell rather than a bare exec, so that `jq .result | head -20` works, `!` is a filter,
 /// and filters are pipelines. On a non-zero exit the stderr is what is worth showing: when a
 /// jq expression is wrong, jq's own message is the entire diagnosis.
 async fn pipe_through(command: &str, input: Vec<u8>) -> Result<String, String> {
@@ -1949,7 +1919,7 @@ async fn pipe_through(command: &str, input: Vec<u8>) -> Result<String, String> {
         .map_err(|e| format!("could not run `{command}`: {e}"))?;
 
     if let Some(mut stdin) = child.stdin.take() {
-        // A filter that does not read its input — `!wc -l` after an early exit — closes the
+        // A filter that does not read its input (`!wc -l` after an early exit) closes the
         // pipe, and writing to a closed pipe is not an error worth reporting.
         let _ = stdin.write_all(&input).await;
         let _ = stdin.shutdown().await;
@@ -1973,7 +1943,7 @@ async fn pipe_through(command: &str, input: Vec<u8>) -> Result<String, String> {
     }
 }
 
-/// Minimal JSON string escaping — enough for the identifiers and enum names yanked today.
+/// Minimal JSON string escaping, enough for the identifiers and enum names yanked today.
 /// A real serializer arrives with payload rendering in M2.
 fn json_string(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
@@ -2257,7 +2227,7 @@ mod tests {
         assert_eq!(app.view.query, "ExecutionStatus = 'Failed'");
         assert_eq!(app.view.screen, Screen::Workflows);
 
-        // Still text, still editable — a view is a bookmark, not a mode.
+        // Still text, still editable, a view is a bookmark, not a mode.
         app.run("mode.insert", None);
         assert_eq!(app.insert_buf, "ExecutionStatus = 'Failed'");
     }
@@ -2333,8 +2303,6 @@ mod tests {
         assert!(record.starts_with('['), "a multi-row yank is an array");
         assert!(record.contains("order-r1") && record.contains("order-r2"));
     }
-
-    // ── history ──────────────────────────────────────────────────────────────
 
     fn hev(
         id: i64,
@@ -2476,7 +2444,7 @@ mod tests {
         let charge = app.view.history.value().unwrap().group(2).unwrap().clone();
         assert!(charge.is_open(), "the group is incomplete on page one");
 
-        // The rest arrives and completes it — which is why pages are re-grouped whole.
+        // The rest arrives and completes it, which is why pages are re-grouped whole.
         app.handle(Msg::History {
             generation: app.view.generation,
             result: Ok((history_events()[5..].to_vec(), Vec::new())),
@@ -2513,8 +2481,6 @@ mod tests {
         assert!(record.contains(r#""group":"Ship""#), "got {record}");
         assert!(record.contains(r#""outcome":"Failed""#), "got {record}");
     }
-
-    // ── follow mode ──────────────────────────────────────────────────────────
 
     /// A history whose workflow has *not* closed: no terminal event.
     fn running_history() -> Vec<NormalizedEvent> {
@@ -2553,7 +2519,7 @@ mod tests {
     #[test]
     fn follow_refuses_on_a_workflow_that_has_already_closed() {
         // Polling a closed workflow waits for events that can never arrive. "Closed" means
-        // the *workflow* group has a terminal event — an activity finishing is not enough.
+        // the *workflow* group has a terminal event, an activity finishing is not enough.
         use tmprl_core::history::{Category as C, GroupRef as G, Outcome as O, Role as R};
         let mut app = app();
         loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
@@ -2657,8 +2623,6 @@ mod tests {
         );
         assert!(app.view.history_resume.is_empty());
     }
-
-    // ── piping ───────────────────────────────────────────────────────────────
 
     /// A history whose activity carries a JSON input and result.
     fn viewing_payloads() -> App {
@@ -2830,8 +2794,6 @@ mod tests {
         assert_eq!(out.trim(), "done");
     }
 
-    // ── codec server ─────────────────────────────────────────────────────────
-
     #[test]
     fn a_decoded_payload_replaces_the_encrypted_one_everywhere() {
         // Replacing in place is what lets the pane, `!` piping and yanking all read the
@@ -2934,8 +2896,6 @@ mod tests {
         assert!(app.note.is_none());
         assert!(app.codec.is_some());
     }
-
-    // ── windows ──────────────────────────────────────────────────────────────
 
     #[test]
     fn splitting_keeps_the_old_pane_and_focuses_a_fresh_one() {
@@ -3059,8 +3019,6 @@ mod tests {
         assert_eq!(app.tabs.current().len(), 1);
     }
 
-    // ── mutations ────────────────────────────────────────────────────────────
-
     fn on_a_workflow() -> App {
         let mut app = app();
         loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
@@ -3175,7 +3133,7 @@ mod tests {
     #[test]
     fn a_reset_resolves_to_a_workflow_task_the_cursor_is_not_on() {
         // The rows the server needs are exactly the ones the outline folds away, so "reset
-        // to here" walks back — and the confirmation shows which id it landed on.
+        // to here" walks back, and the confirmation shows which id it landed on.
         use tmprl_core::history::{Category as C, GroupRef as G, Outcome as O, Role as R};
         let mut app = on_a_workflow();
         app.run("nav.open", None);

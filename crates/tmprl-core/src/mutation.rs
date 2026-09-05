@@ -5,7 +5,7 @@
 //! every one of them, and that confirmation shows **the equivalent `temporal` CLI command**.
 //!
 //! That last part is the load-bearing bit. It teaches the CLI, it makes the action auditable
-//! at a glance — you can read exactly what is about to happen rather than trusting a verb —
+//! at a glance, you can read exactly what is about to happen rather than trusting a verb,
 //! and it gives an escape hatch to anyone who would rather run it themselves. Which means the
 //! rendered command has to be *correct*: someone will copy it and run it. The flags here are
 //! checked against `temporal workflow --help`, and the quoting is tested.

@@ -1,7 +1,7 @@
 //! Yanking to the clipboard over OSC 52.
 //!
 //! Deliberately *not* xclip/xsel/wl-copy. The common deployment is SSH into a remote,
-//! often headless host, where those either fail or copy into a clipboard on the server —
+//! often headless host, where those either fail or copy into a clipboard on the server,
 //! which helps nobody, silently. OSC 52 hands the text back over the terminal connection to
 //! the machine the human is actually sitting at.
 //!

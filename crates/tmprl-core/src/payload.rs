@@ -29,7 +29,7 @@ pub enum Rendered {
     /// Bytes we will not try to render. Guessing at an encoding produces mojibake, and a
     /// terminal is an unforgiving place to paste control characters into.
     Opaque { bytes: usize, encoding: String },
-    /// Encrypted by a codec server. Renders as a badge until a decode resolves — the value
+    /// Encrypted by a codec server. Renders as a badge until a decode resolves, the value
     /// is not lost, it is just not readable yet.
     Encrypted { bytes: usize },
 }
@@ -56,7 +56,7 @@ impl Payload {
     pub fn render(&self) -> Rendered {
         match self.encoding.as_str() {
             "binary/null" => Rendered::Null,
-            // `json/protobuf` is proto3-JSON — still JSON text on the wire.
+            // `json/protobuf` is proto3-JSON, still JSON text on the wire.
             "json/plain" | "json/protobuf" => match std::str::from_utf8(&self.data) {
                 Ok(text) => Rendered::Text(pretty_json(text)),
                 // Declared JSON but not valid UTF-8: the declaration is wrong, so do not
@@ -107,7 +107,7 @@ impl Payload {
 
     /// The bytes to hand to an external command such as `jq`.
     ///
-    /// `None` when there is nothing meaningful to pipe — piping ciphertext or an opaque blob
+    /// `None` when there is nothing meaningful to pipe, piping ciphertext or an opaque blob
     /// into `jq` produces a parse error that says nothing useful about why.
     pub fn pipeable(&self) -> Option<&[u8]> {
         match self.encoding.as_str() {
@@ -121,14 +121,14 @@ impl Payload {
 ///
 /// Returns the JSON and the labels that could not be included.
 ///
-/// A row usually carries more than one payload — an activity has both an `input` and a
-/// `result` — so "pipe the payload" is ambiguous. Piping an object keyed by label removes the
+/// A row usually carries more than one payload, an activity has both an `input` and a
+/// `result`, so "pipe the payload" is ambiguous. Piping an object keyed by label removes the
 /// ambiguity and makes the obvious `jq` expressions work: `.` shows everything, `.result`
 /// picks one, `.input[1]` picks an argument.
 ///
 /// A `json/plain` payload is embedded as the value it already is rather than as a string, so
 /// `.result.total` works without a second parse. One that claims JSON but does not parse is
-/// embedded as a string — it is still worth seeing, and a broken value should not make the
+/// embedded as a string, it is still worth seeing, and a broken value should not make the
 /// whole object unpipeable. Anything not textual is left out and reported, because piping
 /// ciphertext into `jq` produces a parse error that explains nothing.
 pub fn payloads_as_json(payloads: &[(String, Payload)]) -> (Option<String>, Vec<String>) {
@@ -164,7 +164,7 @@ pub fn payloads_as_json(payloads: &[(String, Payload)]) -> (Option<String>, Vec<
 /// Pretty-print JSON, or hand back the input unchanged when it is not JSON.
 ///
 /// Payloads claim `json/plain` and are usually right, but a workflow can put anything in one.
-/// A value that does not parse is shown as it arrived rather than rejected — seeing the raw
+/// A value that does not parse is shown as it arrived rather than rejected, seeing the raw
 /// bytes is more useful than being told they were unparseable.
 pub fn pretty_json(text: &str) -> String {
     match serde_json::from_str::<serde_json::Value>(text) {

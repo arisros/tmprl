@@ -1,7 +1,7 @@
 //! Visibility query strings.
 //!
 //! The raw query is the interface. tmprl never holds a structured filter that it renders
-//! down to a string the user cannot see — every filter the interface offers compiles *into*
+//! down to a string the user cannot see, every filter the interface offers compiles *into*
 //! this text, and the text stays editable. A lossy abstraction over the query is the thing
 //! that makes the web UI's filter bar frustrating, and it is not worth reproducing.
 //!
