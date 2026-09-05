@@ -17,6 +17,7 @@ pub fn render_header(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
         Screen::Namespaces => namespace_summary(app, t),
         Screen::Workflows => workflow_summary(app, t),
         Screen::History => history_summary(app, t),
+        Screen::Schedules => schedule_summary(app, t),
     };
     let right_width: usize = right.iter().map(|s| s.content.chars().count()).sum();
 
@@ -142,6 +143,34 @@ fn history_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
             s.activities,
             outline.events().len()
         ),
+        Style::new().fg(t.dim),
+    ));
+    spans
+}
+
+fn schedule_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
+    let rows = app.view.schedule_rows();
+    if rows.is_empty() {
+        return vec![Span::styled(
+            if app.view.schedules.is_loading() {
+                "loading schedules…"
+            } else {
+                "no schedules"
+            },
+            Style::new().fg(t.faint),
+        )];
+    }
+    let paused = rows.iter().filter(|s| s.paused).count();
+    let mut spans = Vec::new();
+    if paused > 0 {
+        // A paused schedule is the one worth spotting: it looks like any other until read.
+        spans.push(Span::styled(
+            format!("‖ {paused} paused  "),
+            Style::new().fg(t.warn).add_modifier(Modifier::BOLD),
+        ));
+    }
+    spans.push(Span::styled(
+        format!("{} schedules", rows.len()),
         Style::new().fg(t.dim),
     ));
     spans
