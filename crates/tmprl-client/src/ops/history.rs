@@ -1,7 +1,7 @@
 //! Reading a workflow history, and flattening it into normalised events.
 //!
 //! The match over the attributes `oneof` is **exhaustive on purpose**, per design rule 4.
-//! Temporal adds event types regularly — Nexus, worker versioning and workflow pausing are
+//! Temporal adds event types regularly: Nexus, worker versioning and workflow pausing are
 //! all recent. With a `_ => {}` arm a new event type renders as a blank row and nobody
 //! notices for a release or two; exhaustive, it is a compile error the moment the protos
 //! are bumped, which is exactly when we want to hear about it.
@@ -15,7 +15,7 @@
 //! * updates → `accepted_event_id`
 //!
 //! `workflow_task_completed_event_id` appears on many of these too, but it points at the
-//! workflow task that *caused* the command, not at the thing's own group — following it
+//! workflow task that *caused* the command, not at the thing's own group, following it
 //! would file every activity under the task that scheduled it.
 
 use temporalio_client::tonic::Request;
@@ -50,7 +50,7 @@ impl Conn {
     /// One long-poll step of follow mode.
     ///
     /// This is [`Conn::get_history`] with `wait_new_event: true`, which makes the call
-    /// **block until the workflow does something** — up to about a minute, then it returns
+    /// **block until the workflow does something**, up to about a minute, then it returns
     /// empty-handed and you call again. Never reach for this outside a task dedicated to
     /// following; anything else it is on will simply stop.
     ///
@@ -63,12 +63,12 @@ impl Conn {
     /// | closed workflow | empty token | empty token, terminal event last |
     ///
     /// So an **empty token here means the workflow has closed** and there is nothing further
-    /// to follow — that is the loop's termination condition, and it is authoritative in a way
+    /// to follow: the loop's termination condition, and it is authoritative in a way
     /// that inspecting the last event's type is not.
     ///
     /// Passing an empty token restarts from event 1, so a caller resuming a follow should
     /// hand back the last non-empty token it saw. The page that token sits in is replayed,
-    /// which is why events are merged rather than appended — see
+    /// which is why events are merged rather than appended, see
     /// `tmprl_core::history::merge_events`.
     pub async fn follow_history(
         &self,
@@ -85,7 +85,7 @@ impl Conn {
     ///
     /// `wait_new_event` is false here. Setting it true turns this into a long poll that does
     /// not return until something happens, which is correct for follow mode and a hang
-    /// everywhere else — so follow mode gets [`Conn::follow_history`] rather than a flag on
+    /// everywhere else, so follow mode gets [`Conn::follow_history`] rather than a flag on
     /// this one that is easy to pass by accident.
     pub async fn get_history(
         &self,
@@ -255,7 +255,6 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
         // rendered as itself rather than dropped, so a history never silently loses a row.
         None => at(Category::Workflow, GroupRef::Workflow, Role::Continues),
 
-        // ── the workflow itself ──────────────────────────────────────────────
         Some(Attributes::WorkflowExecutionStartedEventAttributes(a)) => {
             at(Category::Workflow, GroupRef::Workflow, Role::Opens)
                 .subject(a.workflow_type.map(|t| t.name).unwrap_or_default())
@@ -320,7 +319,6 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
             at(Category::Workflow, GroupRef::Workflow, Role::Continues)
         }
 
-        // ── workflow tasks ───────────────────────────────────────────────────
         Some(Attributes::WorkflowTaskScheduledEventAttributes(a)) => {
             at(Category::WorkflowTask, GroupRef::Opened(id), Role::Opens)
                 .attempt(a.attempt)
@@ -355,7 +353,6 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
         .ends(Outcome::Failed)
         .failed(a.failure),
 
-        // ── activities ───────────────────────────────────────────────────────
         Some(Attributes::ActivityTaskScheduledEventAttributes(a)) => {
             at(Category::Activity, GroupRef::Opened(id), Role::Opens)
                 .subject(a.activity_type.map(|t| t.name).unwrap_or_default())
@@ -414,7 +411,6 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
             Role::Continues,
         ),
 
-        // ── timers ───────────────────────────────────────────────────────────
         Some(Attributes::TimerStartedEventAttributes(a)) => {
             at(Category::Timer, GroupRef::Opened(id), Role::Opens)
                 .subject(a.timer_id)
@@ -438,7 +434,6 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
         )
         .ends(Outcome::Canceled),
 
-        // ── child workflows ──────────────────────────────────────────────────
         Some(Attributes::StartChildWorkflowExecutionInitiatedEventAttributes(a)) => {
             at(Category::ChildWorkflow, GroupRef::Opened(id), Role::Opens)
                 .subject(a.workflow_type.map(|t| t.name).unwrap_or_default())
@@ -495,7 +490,6 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
         )
         .ends(Outcome::Terminated),
 
-        // ── signalling and cancelling other workflows ────────────────────────
         Some(Attributes::SignalExternalWorkflowExecutionInitiatedEventAttributes(a)) => at(
             Category::ExternalWorkflow,
             GroupRef::Opened(id),
@@ -549,7 +543,6 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
         )
         .ends(Outcome::Completed),
 
-        // ── updates ──────────────────────────────────────────────────────────
         Some(Attributes::WorkflowExecutionUpdateAdmittedEventAttributes(_)) => {
             at(Category::Update, GroupRef::Opened(id), Role::Opens)
         }
@@ -570,7 +563,6 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
                 .failed(a.failure)
         }
 
-        // ── Nexus ────────────────────────────────────────────────────────────
         Some(Attributes::NexusOperationScheduledEventAttributes(a)) => {
             at(Category::Nexus, GroupRef::Opened(id), Role::Opens)
                 .subject(format!("{}/{}", a.service, a.operation))
@@ -624,7 +616,6 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
         )
         .failed(a.failure),
 
-        // ── bookkeeping ──────────────────────────────────────────────────────
         Some(Attributes::MarkerRecordedEventAttributes(a)) => {
             at(Category::Marker, GroupRef::Opened(id), Role::Opens)
                 .subject(a.marker_name)

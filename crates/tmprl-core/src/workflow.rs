@@ -1,6 +1,6 @@
 //! The workflow domain model.
 //!
-//! These types live here rather than in `tmprl-client` because logic hangs off them —
+//! These types live here rather than in `tmprl-client` because logic hangs off them,
 //! status ordering, relative ages, merge-sorting a multi-namespace fan-out, re-finding the
 //! cursor after a refresh. All of that is computable without a server or a terminal, so it
 //! belongs in the crate that needs neither to be tested. `tmprl-client` maps protobuf into
@@ -132,7 +132,7 @@ impl WorkflowRow {
     /// Identity of a row across refreshes and across namespaces.
     ///
     /// A run id is unique within a namespace but not across a fan-out, so the key is the
-    /// pair. This is what the cursor is anchored to — see [`find_by_key`].
+    /// pair. This is what the cursor is anchored to. See [`find_by_key`].
     pub fn key(&self) -> (&str, &str) {
         (self.namespace.as_str(), self.run_id.as_str())
     }
@@ -153,7 +153,7 @@ pub fn by_start_time_desc(a: &WorkflowRow, b: &WorkflowRow) -> Ordering {
 ///
 /// This sorts rather than merges pre-sorted runs, because there is nothing to merge: the
 /// server does not order `ListWorkflowExecutions`, and standard visibility rejects an
-/// `ORDER BY` clause. Ordering is entirely tmprl's job — see [`WorkflowList`].
+/// `ORDER BY` clause. Ordering is entirely tmprl's job. See [`WorkflowList`].
 pub fn merge_by_start_time(pages: Vec<Vec<WorkflowRow>>) -> Vec<WorkflowRow> {
     let mut all: Vec<WorkflowRow> = pages.into_iter().flatten().collect();
     all.sort_by(by_start_time_desc);

@@ -1,6 +1,6 @@
 //! The workflow history: a collapsible outline of groups.
 //!
-//! One row per group by default — an activity that was scheduled, started and completed is
+//! One row per group by default, an activity that was scheduled, started and completed is
 //! one line, not three. Folding a group open shows the events underneath it, indented.
 //!
 //! Only the visible rows are ever built. The outline answers "what is row N" without
@@ -27,7 +27,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
     }
     let Some(outline) = view.history.value() else {
         let msg = match view.history.error() {
-            Some(e) => format!("{e} — R to retry"),
+            Some(e) => format!("{e} (R to retry)"),
             None => "loading history…".to_string(),
         };
         frame.render_widget(
@@ -43,7 +43,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
         } else {
             // Everything was workflow tasks, which are hidden by default. Saying so beats
             // an empty pane that looks broken.
-            "nothing but workflow tasks — zp to show them"
+            "nothing but workflow tasks (zp to show them)"
         };
         frame.render_widget(
             Paragraph::new(Span::styled(format!("  {msg}"), Style::new().fg(t.faint))),
@@ -170,7 +170,7 @@ fn render_row<'a>(
     }
 }
 
-/// Status as shape, not colour alone — the same rule the workflow table follows.
+/// Status as shape, not colour alone, the same rule the workflow table follows.
 fn outcome_glyph(o: Outcome) -> char {
     match o {
         Outcome::Pending => '●',

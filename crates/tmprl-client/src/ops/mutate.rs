@@ -1,7 +1,7 @@
 //! The operations that change a cluster.
 //!
 //! Everything else in this crate reads. These four write, and two of them cannot be undone,
-//! so nothing here decides *whether* to act — the confirmation in `tmprl-core` does that, and
+//! so nothing here decides *whether* to act, the confirmation in `tmprl-core` does that, and
 //! the reducer only reaches this module once the reader has said yes.
 //!
 //! Every request carries an `identity`. Temporal records it on the resulting history event,
@@ -142,11 +142,8 @@ impl Conn {
                         // Already resolved to a completed workflow task; the server rejects
                         // anything else.
                         workflow_task_finish_event_id: *event_id,
-                        // Nothing is excluded from reapplication, which is the server's
-                        // default and almost always what is wanted: a reset should not
-                        // silently swallow signals someone sent in after the reset point.
-                        // The older `reset_reapply_type` field is deprecated in favour of
-                        // this exclude list.
+                        // Excluding nothing keeps signals sent after the reset point.
+                        // Replaces the deprecated `reset_reapply_type`.
                         reset_reapply_exclude_types: Vec::new(),
                         identity: identity(),
                         request_id: request_id(),
