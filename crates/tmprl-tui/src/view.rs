@@ -13,7 +13,7 @@
 use tmprl_client::NamespaceInfo;
 use tmprl_core::history::NormalizedEvent;
 use tmprl_core::outline::Outline;
-use tmprl_core::{Loadable, StatusCounts, WorkflowList, WorkflowRow};
+use tmprl_core::{Loadable, ScheduleRow, StatusCounts, WorkflowList, WorkflowRow};
 
 use crate::app::Screen;
 
@@ -23,6 +23,7 @@ pub struct View {
     pub workflows: Loadable<WorkflowList>,
     pub counts: Loadable<StatusCounts>,
     pub history: Loadable<Outline>,
+    pub schedules: Loadable<Vec<ScheduleRow>>,
 
     /// The workflow whose history is on screen.
     pub viewing: Option<WorkflowRow>,
@@ -89,6 +90,7 @@ impl View {
             workflows: Loadable::NotAsked,
             counts: Loadable::NotAsked,
             history: Loadable::NotAsked,
+            schedules: Loadable::NotAsked,
             viewing: None,
             following: false,
             show_detail: false,
@@ -167,12 +169,17 @@ impl View {
             .unwrap_or(&[])
     }
 
+    pub fn schedule_rows(&self) -> &[ScheduleRow] {
+        self.schedules.value().map(Vec::as_slice).unwrap_or(&[])
+    }
+
     /// How many rows this pane's screen has.
     pub fn row_count(&self) -> usize {
         match self.screen {
             Screen::Namespaces => self.namespace_rows().len(),
             Screen::Workflows => self.workflow_rows().len(),
             Screen::History => self.history.value().map(Outline::len).unwrap_or(0),
+            Screen::Schedules => self.schedule_rows().len(),
         }
     }
 

@@ -13,5 +13,6 @@ pub use ops::{
     codec::Codec,
     history::HistoryPage,
     namespace::NamespaceInfo,
+    schedule::SchedulePage,
     workflow::{Continuation, WorkflowPage},
 };

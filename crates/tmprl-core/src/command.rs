@@ -21,6 +21,8 @@ pub enum Action {
     // Navigation between screens
     OpenItem,
     GoUp,
+    GoSchedules,
+    GoWorkflows,
 
     // Motion
     MoveDown,
@@ -76,6 +78,9 @@ pub enum Action {
     DeleteWorkflow,
     ResetWorkflow,
     UpdateWorkflow,
+    PauseSchedule,
+    TriggerSchedule,
+    DeleteSchedule,
 
     NewTab,
     CloseTab,
@@ -132,6 +137,8 @@ impl Registry {
 
             "nav.open",           "Navigation",  "Open the focused item"     => OpenItem;
             "nav.up",             "Navigation",  "Go up a level"             => GoUp;
+            "nav.schedules",      "Navigation",  "Go to schedules"           => GoSchedules;
+            "nav.workflows",      "Navigation",  "Go to workflows"           => GoWorkflows;
 
             "yank.field",         "Yank",        "Yank the focused value"    => YankField;
             "yank.record",        "Yank",        "Yank the row as JSON"      => YankRecord;
@@ -169,6 +176,9 @@ impl Registry {
             "workflow.delete",    "Mutate",      "Delete this workflow"      => DeleteWorkflow;
             "workflow.reset",     "Mutate",      "Reset to the event here"   => ResetWorkflow;
             "workflow.update",    "Mutate",      "Send an update"            => UpdateWorkflow;
+            "schedule.pause",     "Mutate",      "Pause or resume a schedule" => PauseSchedule;
+            "schedule.trigger",   "Mutate",      "Run a schedule now"        => TriggerSchedule;
+            "schedule.delete",    "Mutate",      "Delete this schedule"      => DeleteSchedule;
 
             "tab.new",            "Tabs",        "Open a tab"                => NewTab;
             "tab.close",          "Tabs",        "Close this tab"            => CloseTab;
