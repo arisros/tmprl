@@ -11,9 +11,12 @@
 use temporalio_client::tonic::Request;
 use temporalio_common::protos::temporal::api::{
     common::v1::{Payload as ProtoPayload, Payloads, WorkflowExecution},
+    enums::v1::UpdateWorkflowExecutionLifecycleStage,
+    update::v1::{Input as UpdateInput, Meta as UpdateMeta, Request as UpdateRequest, WaitPolicy},
     workflowservice::v1::{
         DeleteWorkflowExecutionRequest, RequestCancelWorkflowExecutionRequest,
-        SignalWorkflowExecutionRequest, TerminateWorkflowExecutionRequest,
+        ResetWorkflowExecutionRequest, SignalWorkflowExecutionRequest,
+        TerminateWorkflowExecutionRequest, UpdateWorkflowExecutionRequest,
     },
 };
 use tmprl_core::mutation::Mutation;
@@ -27,6 +30,15 @@ fn identity() -> String {
         "tmprl@{}",
         std::env::var("USER").unwrap_or_else(|_| "unknown".into())
     )
+}
+
+/// A fresh request id.
+///
+/// `ResetWorkflowExecution` rejects a request without one ("RequestId is not set on request").
+/// The others accept one, where it makes a retried call idempotent rather than doubling the
+/// effect.
+fn request_id() -> String {
+    uuid::Uuid::new_v4().to_string()
 }
 
 fn execution(workflow_id: &str, run_id: &str) -> Option<WorkflowExecution> {
@@ -54,6 +66,7 @@ impl Conn {
                             namespace: namespace.clone(),
                             workflow_execution: execution(workflow_id, run_id),
                             identity: identity(),
+                            request_id: request_id(),
                             ..Default::default()
                         },
                     ))
@@ -93,6 +106,7 @@ impl Conn {
                         signal_name: name.clone(),
                         input: input.as_deref().map(json_payload),
                         identity: identity(),
+                        request_id: request_id(),
                         ..Default::default()
                     }))
                     .await
@@ -111,6 +125,89 @@ impl Conn {
                     }))
                     .await
                     .map_err(|s| OpError::rpc("DeleteWorkflowExecution", s))?;
+            }
+
+            Mutation::Reset {
+                namespace,
+                workflow_id,
+                run_id,
+                event_id,
+                reason,
+            } => {
+                self.wf()
+                    .reset_workflow_execution(Request::new(ResetWorkflowExecutionRequest {
+                        namespace: namespace.clone(),
+                        workflow_execution: execution(workflow_id, run_id),
+                        reason: reason.clone(),
+                        // Already resolved to a completed workflow task; the server rejects
+                        // anything else.
+                        workflow_task_finish_event_id: *event_id,
+                        // Nothing is excluded from reapplication, which is the server's
+                        // default and almost always what is wanted: a reset should not
+                        // silently swallow signals someone sent in after the reset point.
+                        // The older `reset_reapply_type` field is deprecated in favour of
+                        // this exclude list.
+                        reset_reapply_exclude_types: Vec::new(),
+                        identity: identity(),
+                        request_id: request_id(),
+                        ..Default::default()
+                    }))
+                    .await
+                    .map_err(|s| OpError::rpc("ResetWorkflowExecution", s))?;
+            }
+
+            Mutation::Update {
+                namespace,
+                workflow_id,
+                run_id,
+                name,
+                input,
+            } => {
+                let resp = self
+                    .wf()
+                    .update_workflow_execution(Request::new(UpdateWorkflowExecutionRequest {
+                        namespace: namespace.clone(),
+                        workflow_execution: execution(workflow_id, run_id),
+                        // Wait for the outcome rather than for acceptance, so the reported
+                        // result is the workflow's answer and not just "it was allowed in".
+                        wait_policy: Some(WaitPolicy {
+                            lifecycle_stage: UpdateWorkflowExecutionLifecycleStage::Completed
+                                as i32,
+                        }),
+                        request: Some(UpdateRequest {
+                            request_id: request_id(),
+                            meta: Some(UpdateMeta {
+                                update_id: request_id(),
+                                identity: identity(),
+                            }),
+                            input: Some(UpdateInput {
+                                name: name.clone(),
+                                args: input.as_deref().map(json_payload),
+                                ..Default::default()
+                            }),
+                            completion_callbacks: Vec::new(),
+                            links: Vec::new(),
+                        }),
+                        ..Default::default()
+                    }))
+                    .await
+                    .map_err(|s| OpError::rpc("UpdateWorkflowExecution", s))?
+                    .into_inner();
+
+                // An update can be *accepted* and then rejected by the workflow itself. That
+                // is a failure of the thing the user asked for, so it is reported as one
+                // rather than as a success that quietly did nothing.
+                if let Some(outcome) = resp.outcome
+                    && let Some(
+                        temporalio_common::protos::temporal::api::update::v1::outcome::Value::Failure(f),
+                    ) = outcome.value
+                {
+                    return Err(OpError::Rpc {
+                        operation: "UpdateWorkflowExecution",
+                        code: "Rejected".into(),
+                        message: f.message,
+                    });
+                }
             }
         }
         Ok(())

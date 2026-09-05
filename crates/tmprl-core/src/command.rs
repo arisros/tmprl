@@ -74,6 +74,8 @@ pub enum Action {
     TerminateWorkflow,
     SignalWorkflow,
     DeleteWorkflow,
+    ResetWorkflow,
+    UpdateWorkflow,
 
     NewTab,
     CloseTab,
@@ -165,6 +167,8 @@ impl Registry {
             "workflow.terminate", "Mutate",      "Terminate this workflow"   => TerminateWorkflow;
             "workflow.signal",    "Mutate",      "Signal this workflow"      => SignalWorkflow;
             "workflow.delete",    "Mutate",      "Delete this workflow"      => DeleteWorkflow;
+            "workflow.reset",     "Mutate",      "Reset to the event here"   => ResetWorkflow;
+            "workflow.update",    "Mutate",      "Send an update"            => UpdateWorkflow;
 
             "tab.new",            "Tabs",        "Open a tab"                => NewTab;
             "tab.close",          "Tabs",        "Close this tab"            => CloseTab;
