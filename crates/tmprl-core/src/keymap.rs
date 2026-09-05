@@ -270,6 +270,8 @@ pub fn default_keymap() -> Keymap {
         bind(mode, "<leader>mt", "workflow.terminate");
         bind(mode, "<leader>ms", "workflow.signal");
         bind(mode, "<leader>md", "workflow.delete");
+        bind(mode, "<leader>mr", "workflow.reset");
+        bind(mode, "<leader>mu", "workflow.update");
 
         bind(mode, "<leader>to", "tab.new");
         bind(mode, "<leader>tx", "tab.close");
