@@ -1,4 +1,4 @@
-//! Rendering. Every function here is a pure projection of `&App` onto a frame — no state
+//! Rendering. Every function here is a pure projection of `&App` onto a frame, no state
 //! is mutated except the viewport height, which the layout is what determines.
 
 mod cmdline;
@@ -235,7 +235,7 @@ mod tests {
         }
     }
 
-    /// An app with data but no connection. Rendering must be testable without a server —
+    /// An app with data but no connection. Rendering must be testable without a server,
     /// that is the whole point of keeping IO out of the render path.
     fn app_with_rows() -> App {
         let (tx, _rx) = unbounded_channel();
@@ -313,7 +313,7 @@ mod tests {
         app
     }
 
-    /// A history screen with a workflow, a hidden workflow task, and two activities — the
+    /// A history screen with a workflow, a hidden workflow task, and two activities, the
     /// second of which failed after a retry.
     fn app_with_history() -> App {
         use tmprl_core::history::{
@@ -957,14 +957,14 @@ mod tests {
         // Bindings are rendered from the keymap, not written by hand.
         assert!(out.contains("<Space>q"), "leader binding missing:\n{out}");
         assert!(out.contains("jk"), "insert-escape binding missing:\n{out}");
-        // Ids must not be truncated — they are what `:` and keys.toml consume.
+        // Ids must not be truncated, they are what `:` and keys.toml consume.
         assert!(out.contains("app.command-line"), "id truncated:\n{out}");
         assert!(out.contains("mode.visual-line"), "id truncated:\n{out}");
     }
 
     #[test]
     fn the_help_overlay_scrolls_instead_of_clipping_silently() {
-        // Adding commands must never push a group off the bottom with no sign of it —
+        // Adding commands must never push a group off the bottom with no sign of it,
         // that is how a reader concludes a command does not exist.
         let mut app = app_with_rows();
         app.run("app.help", None);
@@ -1024,7 +1024,7 @@ mod tests {
     fn a_help_overlay_that_fits_says_nothing_about_scrolling() {
         let mut app = app_with_rows();
         app.run("app.help", None);
-        // Tall enough that the whole registry fits — the overlay has grown with every
+        // Tall enough that the whole registry fits, the overlay has grown with every
         // milestone, so the height here is "definitely more than enough", not a magic number.
         let out = draw(&mut app, 90, 200);
         assert_eq!(app.help_max_scroll, 0);

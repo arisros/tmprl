@@ -9,8 +9,8 @@
 //!
 //! * `tmprl-client` maps each protobuf event onto a [`NormalizedEvent`] through one
 //!   exhaustive match. The generated types stop there.
-//! * This module folds those into [`Group`]s. It is pure, so the grouping rules — the part
-//!   that is actually easy to get wrong — are tested with hand-built events and no server.
+//! * This module folds those into [`Group`]s. It is pure, so the grouping rules, the part
+//!   that is actually easy to get wrong, are tested with hand-built events and no server.
 
 use crate::payload::Payload;
 
@@ -19,7 +19,7 @@ use crate::payload::Payload;
 pub enum Category {
     /// The workflow execution itself: started, completed, signalled, terminated.
     Workflow,
-    /// Workflow task — the worker polling and responding. Noise most of the time, which is
+    /// Workflow task, the worker polling and responding. Noise most of the time, which is
     /// why the compact view can fold it away.
     WorkflowTask,
     Activity,
@@ -46,7 +46,7 @@ impl Category {
 pub enum Role {
     /// Opens a group: scheduled, initiated, started-by-us.
     Opens,
-    /// Neither opens nor closes — a worker picked the task up, a cancel was requested.
+    /// Neither opens nor closes, a worker picked the task up, a cancel was requested.
     Continues,
     /// Closes a group: completed, failed, timed out, cancelled.
     Closes,
@@ -107,8 +107,8 @@ pub enum GroupRef {
 /// One protobuf history event, flattened.
 ///
 /// Deliberately not a 60-variant mirror of the protobuf `oneof`. Everything downstream
-/// needs — what it is about, which group it joins, whether it opens or closes that group,
-/// how it ended — is extracted by the mapping in `tmprl-client`, so this module and the
+/// needs, what it is about, which group it joins, whether it opens or closes that group,
+/// how it ended, is extracted by the mapping in `tmprl-client`, so this module and the
 /// views never touch a generated type or re-derive the same facts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NormalizedEvent {
@@ -125,13 +125,13 @@ pub struct NormalizedEvent {
     /// What the event is about: an activity type, a timer id, a signal name.
     pub subject: String,
     /// Attempt number, where the protocol reports one. A retry does *not* produce a second
-    /// scheduling event — the count lives here.
+    /// scheduling event, the count lives here.
     pub attempt: Option<i32>,
     /// Failure message, when the event carries one.
     pub failure: Option<String>,
     /// Detail rows for the expanded view, in protocol order.
     pub fields: Vec<(&'static str, String)>,
-    /// Payloads this event carries, labelled — `input`, `result`, `details[1]`. Labels are
+    /// Payloads this event carries, labelled, `input`, `result`, `details[1]`. Labels are
     /// owned because an argument list needs an index in them.
     pub payloads: Vec<(String, Payload)>,
 }
@@ -182,7 +182,7 @@ impl NormalizedEvent {
 pub struct Group {
     pub key: GroupRef,
     pub category: Category,
-    /// From the opening event — the activity type, timer id, child workflow id.
+    /// From the opening event, the activity type, timer id, child workflow id.
     pub subject: String,
     /// Every member event id, in history order.
     pub events: Vec<i64>,
@@ -218,8 +218,8 @@ impl Group {
 /// ahead or resolve a name to an id. Events are expected in history order, which is the
 /// order the server sends them.
 ///
-/// Events whose group was never opened — the first page of a history that starts mid-run,
-/// or a back-reference to an event Temporal has since archived — are not dropped. They open
+/// Events whose group was never opened, the first page of a history that starts mid-run,
+/// or a back-reference to an event Temporal has since archived, are not dropped. They open
 /// a group of their own, so a truncated history renders as a partial group rather than as
 /// nothing at all.
 pub fn group_events(events: &[NormalizedEvent]) -> Vec<Group> {
@@ -276,7 +276,7 @@ pub fn group_events(events: &[NormalizedEvent]) -> Vec<Group> {
 /// Follow mode re-reads from the last continuation token it saw, which replays the events
 /// after that point, and a resumed follow replays whatever page the token sat in. History is
 /// append-only with strictly ascending ids, so "new" is exactly "id greater than the highest
-/// we hold" — no set, no scan of what we already have.
+/// we hold", no set, no scan of what we already have.
 pub fn merge_events(existing: &mut Vec<NormalizedEvent>, incoming: Vec<NormalizedEvent>) -> usize {
     let highest = existing.last().map(|e| e.id).unwrap_or(i64::MIN);
     let before = existing.len();
@@ -679,7 +679,7 @@ mod tests {
 
     #[test]
     fn a_reset_resolves_back_to_the_last_completed_workflow_task() {
-        // The cursor is almost never on a workflow task — those are folded away — so "reset
+        // The cursor is almost never on a workflow task (those are folded away) so "reset
         // to here" has to walk back to the nearest valid point.
         let events = vec![
             NormalizedEvent::new(1, "S", Category::Workflow, GroupRef::Workflow, Role::Opens),

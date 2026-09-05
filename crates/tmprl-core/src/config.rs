@@ -39,12 +39,10 @@ pub enum ConfigError {
     DuplicateViewKey(char),
 }
 
-// ── views.toml ───────────────────────────────────────────────────────────────
-
 /// A saved visibility query, reachable from a key.
 ///
 /// The query is stored verbatim. A saved view sets the query bar's contents and nothing
-/// else — it is a bookmark, not a mode, so after selecting one the text is still right there
+/// else, it is a bookmark, not a mode, so after selecting one the text is still right there
 /// to edit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SavedView {
@@ -117,8 +115,6 @@ pub fn parse_views(src: &str) -> Result<Vec<SavedView>, ConfigError> {
     views.sort_by_key(|v| v.key);
     Ok(views)
 }
-
-// ── config.toml ──────────────────────────────────────────────────────────────
 
 /// Where the codec server lives, if the cluster uses one.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -196,8 +192,6 @@ pub fn parse_config(src: &str) -> Result<Config, ConfigError> {
     })
 }
 
-// ── keys.toml ────────────────────────────────────────────────────────────────
-
 /// Apply `keys.toml` on top of a keymap:
 ///
 /// ```toml
@@ -213,7 +207,7 @@ pub fn parse_config(src: &str) -> Result<Config, ConfigError> {
 /// built-in one for the same chord in the same mode.
 ///
 /// Command ids are resolved against `registry`, which is what lets a `String` from a config
-/// file become the `&'static str` the keymap stores — and what makes a typo an error at
+/// file become the `&'static str` the keymap stores, and what makes a typo an error at
 /// startup instead of a key that silently does nothing.
 pub fn apply_keys(src: &str, registry: &Registry, keymap: &mut Keymap) -> Result<(), ConfigError> {
     const FILE: &str = "keys.toml";
@@ -263,7 +257,7 @@ pub fn apply_keys(src: &str, registry: &Registry, keymap: &mut Keymap) -> Result
 /// puts the views in the which-key popup under the leader where they are discoverable.
 ///
 /// Only views that actually exist get a binding, so the popup never advertises an empty
-/// slot. Call [`Registry::add_views`] first — the commands must exist to be bound.
+/// slot. Call [`Registry::add_views`] first, the commands must exist to be bound.
 pub fn bind_views(views: &[SavedView], keymap: &mut Keymap) -> Result<(), ConfigError> {
     for v in views {
         let seq = format!("<leader>{}", v.key);

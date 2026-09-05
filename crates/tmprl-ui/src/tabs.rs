@@ -43,7 +43,7 @@ impl Tabs {
         self.tabs.insert(self.current, Tree::new(view));
     }
 
-    /// Close the current tab. Returns false when it is the last one — a session with no tabs
+    /// Close the current tab. Returns false when it is the last one, a session with no tabs
     /// has nothing to draw, and quitting is a separate decision from closing.
     pub fn close(&mut self) -> bool {
         if self.tabs.len() == 1 {
@@ -100,7 +100,7 @@ mod tests {
         assert_eq!(tabs.index(), 1);
         assert_eq!(tabs.current().focused(), v(2));
 
-        // From the middle, a new tab lands next — not at the end.
+        // From the middle, a new tab lands next, not at the end.
         tabs.previous();
         tabs.open(v(3));
         assert_eq!(tabs.index(), 1);
