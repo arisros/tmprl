@@ -6,6 +6,7 @@
 
 pub mod command;
 pub mod config;
+pub mod form;
 pub mod history;
 pub mod key;
 pub mod keymap;

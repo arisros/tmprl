@@ -4,6 +4,7 @@
 mod cmdline;
 mod confirm;
 mod detail;
+mod form;
 mod help;
 mod history;
 mod namespaces;
@@ -90,6 +91,9 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     }
     if app.show_help {
         help::render(frame, app, &theme);
+    }
+    if let Some(f) = &app.form {
+        form::render(frame, f, &theme);
     }
     // Outermost of all: while this is up nothing else can be acted on, so nothing else
     // should be able to sit over it.
