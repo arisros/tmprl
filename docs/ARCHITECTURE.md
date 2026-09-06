@@ -11,7 +11,7 @@
 > | **`PLANNED`** | Designed, not implemented |
 
 This document explains how `tmprl` is meant to be put together and, more importantly, *why*.
-If you are here to change something, read the [Design rules](#10-design-rules) first —
+If you are here to change something, read the [Design rules](#10-design-rules) first,
 most of the structure exists to protect those four rules.
 
 ---
@@ -25,13 +25,13 @@ routinely reach tens of thousands of events, and pathological ones reach million
 that materialises a whole history into a list of rendered rows will fall over.
 
 **Almost every read is a network call, and some of them block for a minute.** Temporal's
-`GetWorkflowExecutionHistory` with `wait_new_event: true` is a *long poll* — it deliberately
+`GetWorkflowExecutionHistory` with `wait_new_event: true` is a *long poll*, it deliberately
 does not return until a new event arrives. That is the mechanism behind follow mode, and it
 means "fetch data" and "draw a frame" can never be the same thread of control.
 
 **The interesting structure is implicit.** The wire format is a flat list of events. The
-thing a human wants to see — "activity `ChargeCard` was scheduled, started, failed, retried
-three times, then succeeded 40s later" — is spread across seven events linked only by integer
+thing a human wants to see, "activity `ChargeCard` was scheduled, started, failed, retried
+three times, then succeeded 40s later", is spread across seven events linked only by integer
 back-references. Reconstructing that is the single hardest part of the port, and it is pure
 logic that deserves to be tested without a server anywhere in sight.
 
@@ -45,7 +45,7 @@ logic that deserves to be tested without a server anywhere in sight.
 │                 Render is a pure function of &App.               │
 ├──────────────────────────────────────────────────────────────────┤
 │  tmprl-ui       The vim window tree. Splits, tabs, focus.        │
-│                 No ratatui types — just rectangles and a tree.   │
+│                 No ratatui types, just rectangles and a tree.   │
 ├──────────────────────────────────────────────────────────────────┤
 │  tmprl-core     Domain logic. History normalisation, visibility  │
 │                 queries, diff, the command registry, the keymap. │
@@ -56,7 +56,7 @@ logic that deserves to be tested without a server anywhere in sight.
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-Dependencies point strictly downward. The split is not decoration — it is what makes the
+Dependencies point strictly downward. The split is not decoration, it is what makes the
 project testable:
 
 | Crate | Status | How it is tested | Tests |
@@ -69,13 +69,13 @@ project testable:
 That `tmprl-core` carries the most tests while needing the least to run them is the
 arrangement working as intended.
 
-Every pane on screen is a leaf of `tmprl-ui`'s tree — see §7.
+Every pane on screen is a leaf of `tmprl-ui`'s tree. See §7.
 
 The bulk of the difficult logic lives in `tmprl-core`, the layer that needs *nothing* to
-test — no server, no terminal, no async runtime.
+test, no server, no terminal, no async runtime.
 
-`tmprl-client` depends on `tmprl-core`. The domain types that carry logic — execution
-status, a workflow row, the paged list — live in `tmprl-core`, and `tmprl-client` maps
+`tmprl-client` depends on `tmprl-core`. The domain types that carry logic, execution
+status, a workflow row, the paged list, live in `tmprl-core`, and `tmprl-client` maps
 protobuf into them. That way the ordering, deduplication and cursor-anchoring rules are
 tested with no server in sight, and the generated types still stop at the client boundary.
 
@@ -83,7 +83,7 @@ tested with no server in sight, and the generated types still stop at the client
 
 `temporalio-client` is pre-1.0 and its public surface moves between releases. Rather than
 scatter `temporalio_*` types through the UI, every RPC goes through a wrapper here. A version
-bump then breaks one crate, loudly, in one place — instead of breaking forty call sites.
+bump then breaks one crate, loudly, in one place, instead of breaking forty call sites.
 
 Two things we deliberately do *not* implement:
 
@@ -127,13 +127,13 @@ pushed to the edges.
 
 A keystroke is handled by mutating state and, if data is needed, *spawning* a task. The task
 sends its result back as another message. Nothing in the input path can block on the network,
-so no RPC — including a 60-second long poll — can freeze the UI.
+so no RPC (including a 60-second long poll) can freeze the UI.
 
 Follow mode is where that stops being hypothetical. `GetWorkflowExecutionHistory` with
 `wait_new_event: true` does not return until the workflow does something, so tailing is a task
 that spends most of its life parked inside a single RPC, pushing batches of events back as
 messages. The reducer never waits on it; it only starts it, and aborts it when following stops
-or the screen is left. Aborting matters — a poll left running holds a request open and keeps
+or the screen is left. Aborting matters, a poll left running holds a request open and keeps
 feeding a view that has moved on.
 
 The corollary is that **every piece of remote data is explicitly four-state**:
@@ -148,7 +148,7 @@ enum Loadable<T> {
 ```
 
 Panes render all four. There is no code path where a view waits for data, because there is no
-way to express waiting — only a way to express "not here yet", which draws a skeleton.
+way to express waiting, only a way to express "not here yet", which draws a skeleton.
 
 ### Frame pacing
 
@@ -156,7 +156,7 @@ Rendering is dirty-flag driven: a frame is drawn only when a message actually ch
 something. A 1 Hz tick keeps relative timestamps honest. This is not micro-optimisation: the
 expected deployment is a TUI over SSH inside tmux, where every redraw is bytes on a wire.
 
-This section used to promise *adaptive pacing* — faster while streaming, slower when idle —
+This section used to promise *adaptive pacing*, faster while streaming, slower when idle,
 "with follow mode in M2, where there will finally be something to animate". Follow mode is
 built, and adaptive pacing turned out to be unnecessary. A batch of tailed events arrives as
 an ordinary message, which marks the frame dirty and draws it; when nothing is happening no
@@ -181,14 +181,14 @@ Command {
 
 Five separate features resolve through that one table:
 
-1. **Key bindings** — `keys.toml` maps a chord to a command id
-2. **The `:` command line** — resolves a typed name to a command id
-3. **The which-key popup** — enumerates commands reachable from the current prefix
-4. **Macro replay** — a macro is a recorded list of command ids and arguments
-5. **Headless mode** — `tmprl --exec workflow.terminate --id=…` for scripting
+1. **Key bindings**: `keys.toml` maps a chord to a command id
+2. **The `:` command line**: resolves a typed name to a command id
+3. **The which-key popup**: enumerates commands reachable from the current prefix
+4. **Macro replay**: a macro is a recorded list of command ids and arguments
+5. **Headless mode**: `tmprl --exec workflow.terminate --id=…` for scripting
 
-This is the highest-leverage decision in the codebase. The alternative — a `match` on
-`KeyEvent` in the input handler — makes all five of those features separate, divergent
+This is the highest-leverage decision in the codebase. The alternative, a `match` on
+`KeyEvent` in the input handler, makes all five of those features separate, divergent
 implementations, and makes remapping impossible. Here, adding a command gets you all five for
 free, and macros are portable text rather than replayed keystrokes.
 
@@ -205,7 +205,7 @@ assumptions the rest of the read path will inherit.
 ### The server does not sort, so we do
 
 `ListWorkflowExecutions` returns rows in no defined order, and standard visibility rejects an
-`ORDER BY` clause outright — the dev server answers `operation is not supported: 'ORDER BY'
+`ORDER BY` clause outright, the dev server answers `operation is not supported: 'ORDER BY'
 clause`. Both facts are pinned by integration tests, so a future server that changes its mind
 tells us.
 
@@ -231,7 +231,7 @@ as a row index quietly ends up on a different workflow. The cursor is stored as 
 Every fetch carries a generation, bumped whenever the query or the scope changes. A reply
 whose generation no longer matches is discarded. Without this, editing a query while a slow
 request is in flight repaints the table with results for a query the user has already
-abandoned — a race that shows up exactly when the cluster is slow, which is when it is least
+abandoned, a race that shows up exactly when the cluster is slow, which is when it is least
 welcome.
 
 ### The raw query is the interface
@@ -239,7 +239,7 @@ welcome.
 The visibility query is always on screen and always the literal string sent to the server.
 Saved views fill it and leave it editable; the filter builder planned for M2 will compile
 into it. Nothing holds a structured filter that renders down to a query the user cannot see
-or correct — that abstraction is the most irritating thing about the web UI's filter bar, and
+or correct, that abstraction is the most irritating thing about the web UI's filter bar, and
 it is being deliberately rejected rather than ported.
 
 The only query rewriting anywhere is what the RPCs demand: `CountWorkflowExecutions` does not
@@ -291,19 +291,19 @@ Three rows. One thing happened.
 > attempt.
 >
 > Confirmed against a real worker, not just the protobuf comments. An activity that failed
-> twice and then succeeded produces exactly the three events above — `ActivityTaskScheduled`
+> twice and then succeeded produces exactly the three events above, `ActivityTaskScheduled`
 > once, at event 5, with `ActivityTaskStarted` carrying `attempt=3`.
 
 ### What we build from it
 
-**Stage 1 — normalise · BUILT.** Each proto event becomes a `NormalizedEvent { id, time,
+**Stage 1: normalise · BUILT.** Each proto event becomes a `NormalizedEvent { id, time,
 name, category, group, role, outcome, subject, attempt, failure, fields }` through a single
 `match` over the attributes `oneof`, in `tmprl-client`. Sixty arms, one per event type.
 
 That match is **exhaustive on purpose**. Temporal adds event types over time (Nexus and
 worker-versioning events are recent additions). With a `_ => {}` arm, a new event type renders
 as a blank row and nobody notices for months. Exhaustive, it is a compile error the moment we
-bump the protos — which is exactly when we want to hear about it.
+bump the protos, which is exactly when we want to hear about it.
 
 The grouping key is not uniform across the protocol, so each arm names the back-reference it
 follows rather than sharing a guess:
@@ -312,7 +312,7 @@ follows rather than sharing a guess:
 |---|---|
 | activities, workflow tasks, Nexus operations | `scheduled_event_id` |
 | child and external workflows | `initiated_event_id` |
-| timers | `started_event_id` — the id of the `TimerStarted` event |
+| timers | `started_event_id`, the id of the `TimerStarted` event |
 | updates | `accepted_event_id` |
 | the workflow itself | no key; one group per execution |
 
@@ -320,7 +320,7 @@ follows rather than sharing a guess:
 the workflow task that issued the command, so following it would file every activity, timer
 and child workflow under the task that scheduled it.
 
-**Stage 2 — group · BUILT.** Normalised events are folded into groups in one forward pass,
+**Stage 2: group · BUILT.** Normalised events are folded into groups in one forward pass,
 in `tmprl-core`, where the rules are tested with hand-built events and no server. The three
 rows above become one group with two attempts, a final outcome of `Completed`, and a duration.
 
@@ -335,16 +335,16 @@ back-reference in the protocol actually points at. Two properties are worth stat
 
 Groups are the unit of everything downstream:
 
-- **Compact view** — one row per group
-- **Timeline view** — one Gantt bar per group, positioned by its start and end
-- **Outline** — a collapsible tree of groups, for jumping around a long history
-- **Diff** — two histories aligned by group key, via LCS
+- **Compact view**: one row per group
+- **Timeline view**: one Gantt bar per group, positioned by its start and end
+- **Outline**: a collapsible tree of groups, for jumping around a long history
+- **Diff**: two histories aligned by group key, via LCS
 
-**Stage 3 — virtualise · BUILT.** Only the visible slice is ever turned into rendered rows.
+**Stage 3: virtualise · BUILT.** Only the visible slice is ever turned into rendered rows.
 Scrolling a 100k-event history moves an index; it does not rebuild a list.
 
 `Outline` keeps one cumulative-offset table over the visible groups, rebuilt when the *shape*
-changes — a group folded, plumbing toggled — and never while scrolling. A row lookup is then a
+changes (a group folded, plumbing toggled) and never while scrolling. A row lookup is then a
 binary search over that table, so asking for row 84,102 costs the same as asking for row 0.
 `len()` is the last entry in that table rather than a count of anything.
 
@@ -375,14 +375,14 @@ enum Node {
 }
 ```
 
-The crate has no dependencies at all — not even ratatui. A layout is a tree and some
+The crate has no dependencies at all, not even ratatui. A layout is a tree and some
 arithmetic, and keeping the terminal out of it is what lets the rules be tested as plain
 functions: where focus goes on `<C-w>l`, what a split's siblings inherit when one closes,
 what happens at a terminal size too small to show everything.
 
 Four decisions worth recording, each pinned by a test:
 
-- **`Axis` is named for what you see**, `Columns` and `Rows`, not "horizontal" and "vertical".
+- **`Axis` is named for what you see**: `Columns` and `Rows`, not "horizontal" and "vertical".
   vim's `:split` is called horizontal and stacks windows *vertically*; that ambiguity is
   exactly how transposed layouts get written.
 - **Sizes are weights, not cells.** A layout keeps its proportions when the terminal is
@@ -392,7 +392,7 @@ Four decisions worth recording, each pinned by a test:
   a tall pane does not jump to something in another column that happens to sit lower.
 - **Same-axis splits flatten.** Nested same-axis splits look identical on screen but make
   focus movement step through invisible levels. Flattening preserves the proportions rather
-  than evening them up — `:vsplit` twice gives one half and two quarters in vim too, and
+  than evening them up, `:vsplit` twice gives one half and two quarters in vim too, and
   `<C-w>=` is a separate decision.
 
 Splits and tabs behave like vim's, with vim's bindings. This buys two things.
@@ -407,8 +407,8 @@ two views, not just the pair someone anticipated.
 ### Wiring it in
 
 The application used to hold one cursor and one history, which is what made a second pane
-impossible rather than merely unwritten. Everything a window owns now lives in a `View` —
-screen, cursor, query, scope, history, follow task, paging tokens, payload pane — and
+impossible rather than merely unwritten. Everything a window owns now lives in a `View`,
+screen, cursor, query, scope, history, follow task, paging tokens, payload pane, and
 everything belonging to the session stays on `App`: the mode, the keymap, the prompt, the
 note line, the codec cache. There is one keyboard and one status line however many panes are
 open, and one decode cache is right because the same payload in two panes should cost one
@@ -425,7 +425,7 @@ Two consequences worth stating:
 - **`View` has a `Drop` that aborts its follow task.** Closing a window must not leave a long
   poll running against a pane that no longer exists.
 
-A split forks the pane's *navigation* — screen, scope, query, which workflow — but none of its
+A split forks the pane's *navigation* (screen, scope, query, which workflow) but none of its
 loaded data. Splitting is almost always "show me this again so I can take one of them
 somewhere else", and landing back at the namespace list would make the diff case two
 navigations instead of one keystroke.
@@ -446,7 +446,7 @@ lives in `tmprl-core` and is tested without a server:
 |---|---|
 | `json/plain`, `json/protobuf` | pretty-printed text |
 | `text/plain` | text |
-| `binary/null` | `null` — distinct from an empty string, which is a value |
+| `binary/null` | `null`, distinct from an empty string, which is a value |
 | `binary/encrypted` | a `🔒` badge and a byte count |
 | anything else | encoding name and byte count, **not** decoded |
 
@@ -454,7 +454,7 @@ That last row is the one worth defending. A payload from a custom converter can 
 bytes, and optimistically decoding those as UTF-8 is how a terminal fills with control
 characters. The same applies when a payload *claims* `json/plain` but is not valid UTF-8: the
 declaration is wrong, so it is not trusted enough to print. A value that is valid UTF-8 but
-not valid JSON is shown raw rather than rejected — seeing the bytes beats being told they were
+not valid JSON is shown raw rather than rejected, seeing the bytes beats being told they were
 unparseable.
 
 `K` opens the pane on the focused row. For a group it gathers the input from the event that
@@ -462,7 +462,7 @@ opened the group and the result from the event that closed it, because those are
 events and showing only the row you happen to be on would hide one of them.
 
 `!` filters that same set through an external command. What goes down the pipe is a JSON
-object keyed by payload label rather than a single value — a row carries more than one, so
+object keyed by payload label rather than a single value, a row carries more than one, so
 piping "the payload" would have to pick one arbitrarily. Keyed, `jq .result` picks it
 explicitly. The command runs through a shell so that pipelines work, on a spawned task so that
 a slow filter cannot freeze a keystroke, and its output arrives as an ordinary message.
@@ -471,15 +471,15 @@ a slow filter cannot freeze a keystroke, and its output arrives as an ordinary m
 
 Decoding is:
 
-- **lazy** — only payloads currently on screen are decoded, never a whole history
+- **lazy**: only payloads currently on screen are decoded, never a whole history
 - **cached** by payload hash
-- **non-blocking** — an encoded value renders immediately with a `🔒` badge and is replaced in
+- **non-blocking**: an encoded value renders immediately with a `🔒` badge and is replaced in
   place when the decode resolves, following the same `Loadable` pattern as everything else
 
 The wire contract is Temporal's: `POST {endpoint}/decode`, proto3-JSON `Payloads` in the body,
 `X-Namespace` header, optional `Authorization`. The endpoint comes from `config.toml`.
 
-**proto3-JSON is the trap.** Every `bytes` field is base64 — the payload data *and each
+**proto3-JSON is the trap.** Every `bytes` field is base64, the payload data *and each
 metadata value*. Sending `metadata.encoding` as the plain string `binary/encrypted` produces a
 body that looks right to a reader and is wrong on the wire: a conforming server base64-decodes
 it, gets nonsense, and refuses the payload. Unit tests assert the shape; a second set runs the
@@ -488,11 +488,11 @@ assertion can agree with itself while the wire is still wrong.
 
 A decoded payload is swapped into the history *in place* rather than kept in a cache the views
 consult. That way the pane, `!` piping and yanking all read the plaintext without knowing a
-codec exists, and it is why the swap runs again after each history page — a later page can
+codec exists, and it is why the swap runs again after each history page, a later page can
 carry a value already decoded from an earlier one.
 
-Verified against Temporal's own `converter.NewPayloadCodecHTTPHandler` — the reference
-implementation of this contract — with a worker whose data converter genuinely encrypts. That
+Verified against Temporal's own `converter.NewPayloadCodecHTTPHandler`, the reference
+implementation of this contract, with a worker whose data converter genuinely encrypts. That
 matters more than it sounds: testing a client against one's own reading of a spec proves only
 that the reading is self-consistent. A history carrying four `binary/encrypted` payloads shows
 the badge with no endpoint set, and their plaintext once one is. `!` piping then works on the
@@ -517,8 +517,8 @@ safety design is deliberate:
 - That modal shows **the equivalent `temporal` CLI command**. This teaches the CLI, makes the
   action auditable at a glance, and gives the user a way to run it elsewhere if they would
   rather not trust the TUI.
-- Batch operations show a `CountWorkflowExecutions` **dry run** first — how many workflows the
-  query actually matches — and require typing that count to proceed.
+- Batch operations show a `CountWorkflowExecutions` **dry run** first: how many workflows the
+  query actually matches, and require typing that count to proceed.
 - Every mutation appends to `~/.local/state/tmprl/audit.jsonl`.
 
 Built: **cancel, terminate, signal, delete, reset and update**, on one workflow at a time.
@@ -538,7 +538,7 @@ checked against `temporal workflow --help` rather than remembered, and values ar
 a workflow id containing a space or a `;` must not turn into two commands. That quoting is
 tested, not assumed.
 
-Delete is the one action that asks for more than a keypress — it destroys the history itself,
+Delete is the one action that asks for more than a keypress, it destroys the history itself,
 not just the run, so it wants the word `delete` typed. Everything else is one confirmation, as
 above. While a confirmation is up it owns every key, so nothing bound elsewhere can fire
 underneath it.
@@ -548,7 +548,7 @@ recorded on the resulting event; the request id makes a retried call idempotent 
 doubled, and `ResetWorkflowExecution` **rejects a request without one**. A workflow terminated from here says so in its own history rather than appearing to
 have stopped on its own.
 
-The audit log is appended to, never rewritten, and **failures go in too** — the question it
+The audit log is appended to, never rewritten, and **failures go in too**, the question it
 answers is what was *attempted*. A failed write to it is surfaced rather than swallowed,
 because that log is the record that an irreversible thing happened.
 
@@ -587,7 +587,7 @@ Collected because each one cost real time to discover.
 | **`ConfigError` is not `Sync`** | It boxes a bare `dyn Error`. Flatten it at the crate boundary or it poisons every `anyhow` signature above it. |
 | **`wait_new_event: true` blocks** | Correct in follow mode, a hang anywhere else. Any test touching history must pass `false`. |
 | **Timestamps are `prost_wkt_types`** | Not `prost_types`. The generated protos use `prost_wkt_types::Timestamp` and nothing re-exports it, so reading a `start_time` needs a direct `prost-wkt-types` dependency. The compiler's "expected `prost_wkt_types::pbtime::Timestamp`" is the only clue. |
-| **`ListWorkflowExecutions` is unordered** | And standard visibility rejects `ORDER BY` — `operation is not supported: 'ORDER BY' clause`. Sorting is the client's job; see §5. |
+| **`ListWorkflowExecutions` is unordered** | And standard visibility rejects `ORDER BY`, `operation is not supported: 'ORDER BY' clause`. Sorting is the client's job; see §5. |
 | **`GROUP BY` returns payloads** | An `AggregationGroup`'s `group_values` are `Payload`s, not strings: `json/plain`, type `Keyword`, data `"Running"` *with* the quotes. |
 | **Grouped counts are approximate** | Temporal documents this. Sum the groups and you understate the total, so read `response.count` for the total instead. |
 | **Debug info does not fit** | 228 crates, and `temporalio-protos` dominates. `[profile.dev] debug = false`; use `--profile dbg` when you actually need a debugger. |

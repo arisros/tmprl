@@ -6,8 +6,8 @@
 //! how many rows it *would* have and can answer "what is row 84,102" without building rows
 //! 0 to 84,101. Scrolling moves an index.
 //!
-//! The trick is one cumulative-offset table, rebuilt only when the shape changes — a group
-//! expanded, plumbing toggled — and never per frame. Looking a row up is then a binary
+//! The trick is one cumulative-offset table, rebuilt only when the shape changes, a group
+//! expanded, plumbing toggled, and never per frame. Looking a row up is then a binary
 //! search over that table.
 
 use crate::history::{Category, Group, NormalizedEvent, Outcome};
@@ -38,7 +38,7 @@ pub struct Outline {
     /// Indices into `groups`, in display order, after filtering.
     visible: Vec<usize>,
     /// Rows before `visible[i]`. One longer than `visible`, so the last entry is the total
-    /// row count — which is what makes `len()` free.
+    /// row count, which is what makes `len()` free.
     offsets: Vec<usize>,
     /// Whether workflow-task groups are shown. They are the worker polling, and on a real
     /// history they are the majority of events and almost never what you came to read.
@@ -64,7 +64,7 @@ impl Outline {
     /// has set up.
     ///
     /// History is append-only, so re-grouping the accumulated events yields the same groups
-    /// in the same order plus new ones on the end — which is why expansion can be carried
+    /// in the same order plus new ones on the end, which is why expansion can be carried
     /// over by index. Rebuilding the outline from scratch on every page would silently fold
     /// shut whatever the reader had just opened.
     pub fn replace(&mut self, events: Vec<NormalizedEvent>, groups: Vec<Group>) {
@@ -171,7 +171,7 @@ impl Outline {
         Some(self.offsets[slot])
     }
 
-    /// The next group at or after `from` whose outcome is a failure — `]f`, and what the
+    /// The next group at or after `from` whose outcome is a failure, `]f`, and what the
     /// minimap points at. On a long history "where did it go wrong" is the whole question,
     /// and scrolling to find out does not scale.
     pub fn next_failure(&self, from: usize) -> Option<usize> {
@@ -193,7 +193,7 @@ impl Outline {
             .rfind(|r| *r < from)
     }
 
-    /// Rebuild the visibility and offset tables. O(groups), and only on a shape change —
+    /// Rebuild the visibility and offset tables. O(groups), and only on a shape change,
     /// never while scrolling.
     fn reindex(&mut self) {
         self.visible.clear();
@@ -402,7 +402,7 @@ mod tests {
 
     #[test]
     fn hidden_groups_are_not_reachable_by_row() {
-        // Plumbing is filtered out, so no row can resolve to it — otherwise a cursor could
+        // Plumbing is filtered out, so no row can resolve to it, otherwise a cursor could
         // land on something the screen is not showing.
         let o = outline();
         for r in 0..o.len() {

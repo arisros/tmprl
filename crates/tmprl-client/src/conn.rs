@@ -34,7 +34,7 @@ pub enum ConnectError {
     Connect(String),
 }
 
-/// A live, namespace-bound connection. Cheap to clone — clones share one HTTP/2 channel,
+/// A live, namespace-bound connection. Cheap to clone, clones share one HTTP/2 channel,
 /// which is what makes multi-namespace fan-out cheap.
 #[derive(Clone)]
 pub struct Conn {

@@ -1,8 +1,8 @@
 //! The window tree: splits, tabs and focus, expressed as rectangles.
 //!
 //! There are no ratatui types here and no dependencies at all. A layout is a tree plus some
-//! arithmetic, and keeping the terminal out of it is what lets the rules — where focus goes
-//! when you press `<C-w>l`, what happens to a split's siblings when you close it — be tested
+//! arithmetic, and keeping the terminal out of it is what lets the rules, where focus goes
+//! when you press `<C-w>l`, what happens to a split's siblings when you close it, be tested
 //! as plain functions.
 //!
 //! The model is vim's, because the people who want a Temporal client in their terminal

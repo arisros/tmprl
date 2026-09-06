@@ -1,4 +1,4 @@
-//! tmprl — a terminal client for Temporal.
+//! tmprl, a terminal client for Temporal.
 
 mod app;
 mod clipboard;
@@ -13,7 +13,7 @@ use tmprl_client::{Conn, ProfileRef};
 use tokio::sync::mpsc::unbounded_channel;
 
 const USAGE: &str = "\
-tmprl — a terminal client for Temporal
+tmprl, a terminal client for Temporal
 
 USAGE:
     tmprl [OPTIONS]

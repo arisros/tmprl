@@ -82,7 +82,7 @@ pub fn render(frame: &mut Frame, confirm: &Confirm, t: &Theme) {
             Block::bordered()
                 .borders(Borders::ALL)
                 .title(Span::styled(
-                    format!(" confirm — {} ", m.verb().to_lowercase()),
+                    format!(" confirm, {} ", m.verb().to_lowercase()),
                     Style::new().fg(accent).add_modifier(Modifier::BOLD),
                 ))
                 .border_style(Style::new().fg(accent)),

@@ -12,8 +12,8 @@
 //! {"payloads":[{"metadata":{"encoding":"<base64>"},"data":"<base64>"}]}
 //! ```
 //!
-//! The body is **proto3-JSON**, which is why every `bytes` field — the payload data *and*
-//! each metadata value — is base64. Sending `metadata.encoding` as the plain string
+//! The body is **proto3-JSON**, which is why every `bytes` field, the payload data *and*
+//! each metadata value, is base64. Sending `metadata.encoding` as the plain string
 //! `binary/encrypted` is the mistake this module exists to not make: a conforming server
 //! decodes it as base64, gets nonsense, and refuses the payload.
 //!
@@ -47,7 +47,7 @@ impl Codec {
     /// Batched rather than one call per payload: a row carries several, and a codec server is
     /// usually a network hop away.
     ///
-    /// The server is required to return exactly as many payloads as it was given, in order —
+    /// The server is required to return exactly as many payloads as it was given, in order,
     /// that is what makes the result assignable back to what was sent. A server that returns
     /// a different number is a protocol error rather than something to guess around, because
     /// pairing them up wrongly would show one payload's plaintext under another's label.
@@ -79,8 +79,8 @@ impl Codec {
 
         let status = resp.status();
         if !status.is_success() {
-            // The server's own body is usually the diagnosis — a wrong path, a rejected
-            // credential — so it is shown rather than just the status code.
+            // The server's own body is usually the diagnosis, a wrong path, a rejected
+            // credential, so it is shown rather than just the status code.
             let detail = resp.text().await.unwrap_or_default();
             let detail = detail.trim();
             return Err(OpError::Codec {

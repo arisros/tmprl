@@ -1,8 +1,8 @@
 //! What one pane owns.
 //!
 //! Everything here is per-pane: two windows side by side each have their own cursor, their
-//! own query, their own history and their own follow task. Everything that is *not* here —
-//! the mode, the keymap, the prompt, the note line, the codec cache — belongs to the session
+//! own query, their own history and their own follow task. Everything that is *not* here,
+//! the mode, the keymap, the prompt, the note line, the codec cache, belongs to the session
 //! and is shared, because there is one keyboard and one status line however many panes are
 //! open.
 //!
@@ -36,7 +36,7 @@ pub struct View {
     /// filter.
     pub piped: Option<Result<String, String>>,
     /// First visible line of the payload pane, and how far it can usefully go. A payload can
-    /// be far taller than the pane — clipping a stack trace silently hides its end, which is
+    /// be far taller than the pane, clipping a stack trace silently hides its end, which is
     /// the part worth reading.
     pub detail_scroll: usize,
     pub detail_max_scroll: usize,
@@ -50,7 +50,7 @@ pub struct View {
     pub cursor: usize,
     /// Where a visual selection started, if one is active.
     pub anchor: Option<usize>,
-    /// Rows this pane can show — set by the renderer, used by half-page motions. Per-pane
+    /// Rows this pane can show, set by the renderer, used by half-page motions. Per-pane
     /// because a half page in a split is half of *that* pane.
     pub page: usize,
 
@@ -74,7 +74,7 @@ pub struct View {
     /// The last *non-empty* token seen. Follow resumes from here: an empty token restarts
     /// from event 1, and paging leaves the token empty once it has caught up.
     pub history_resume: Vec<u8>,
-    /// The follow task, so toggling off — or leaving the screen — actually stops the poll.
+    /// The follow task, so toggling off (or leaving the screen) actually stops the poll.
     pub follow_task: Option<tokio::task::JoinHandle<()>>,
     /// A page request is in flight; scrolling must not queue a second one.
     pub loading_more: bool,
@@ -114,7 +114,7 @@ impl View {
 
     /// A new pane looking at the same place as this one.
     ///
-    /// The navigation is copied — screen, scope, query, which workflow — but none of the
+    /// The navigation is copied (screen, scope, query, which workflow) but none of the
     /// loaded data, tasks or tokens: the new pane fetches its own. Splitting is almost
     /// always "show me this again so I can take one of them somewhere else", and a split
     /// that dropped you back at the namespace list would make the diff case two navigations

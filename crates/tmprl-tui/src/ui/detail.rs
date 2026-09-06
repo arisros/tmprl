@@ -4,7 +4,7 @@
 //! decoded and pretty-printed. It is a pane under the list rather than an overlay, because
 //! the value you are reading usually only makes sense next to the row it belongs to.
 //!
-//! For a *group* row the interesting payloads are its input and its result — the arguments it
+//! For a *group* row the interesting payloads are its input and its result, the arguments it
 //! was called with and what came back. Those live on the events that opened and closed the
 //! group, so the pane gathers from both rather than showing only the row you happen to be on.
 
@@ -59,10 +59,10 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
     let scroll = view.detail_scroll.min(max_scroll);
 
     let title = if max_scroll == 0 {
-        " payloads — K to close ".to_string()
+        " payloads (K to close) ".to_string()
     } else {
         format!(
-            " payloads — <C-e>/<C-y> to scroll ({}/{}) — K to close ",
+            " payloads (<C-e>/<C-y> to scroll, {}/{}, K to close) ",
             scroll + 1,
             max_scroll + 1
         )
@@ -168,19 +168,19 @@ fn payload_lines<'a>(e: &'a NormalizedEvent, app: &App, t: &Theme) -> Vec<Line<'
             // Say what it is and how big rather than showing bytes. The value is not lost,
             // it is just not something a terminal should be asked to print.
             Rendered::Opaque { bytes, encoding } => lines.push(Line::from(Span::styled(
-                format!("    {encoding}, {bytes} bytes — not shown"),
+                format!("    {encoding}, {bytes} bytes, not shown"),
                 Style::new().fg(t.faint),
             ))),
             Rendered::Encrypted { bytes } => {
                 let (what, style) = match app.decode_state(p) {
                     DecodeState::NoCodec => (
                         format!(
-                            "    🔒 encrypted, {bytes} bytes — set [codec] endpoint in config.toml"
+                            "    🔒 encrypted, {bytes} bytes, set [codec] endpoint in config.toml"
                         ),
                         Style::new().fg(t.warn),
                     ),
                     DecodeState::InFlight => (
-                        format!("    🔒 encrypted, {bytes} bytes — decoding…"),
+                        format!("    🔒 encrypted, {bytes} bytes, decoding…"),
                         Style::new().fg(t.dim),
                     ),
                     DecodeState::Idle => (
@@ -227,10 +227,10 @@ fn render_piped(
     let scroll = view.detail_scroll.min(max_scroll);
 
     let title = if max_scroll == 0 {
-        format!(" {label} — K to close ")
+        format!(" {label} (K to close) ")
     } else {
         format!(
-            " {label} — <C-e>/<C-y> to scroll ({}/{}) — K to close ",
+            " {label} (<C-e>/<C-y> to scroll, {}/{}, K to close) ",
             scroll + 1,
             max_scroll + 1
         )
