@@ -77,8 +77,6 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
     max_scroll
 }
 
-/// The events whose payloads a group cares about: the one that opened it and the one that
-/// closed it. The middle of a group is task plumbing and carries nothing.
 fn group_lines<'a>(outline: &'a Outline, group: usize, app: &App, t: &Theme) -> Vec<Line<'a>> {
     let Some(g) = outline.group(group) else {
         return Vec::new();
@@ -101,8 +99,8 @@ fn group_lines<'a>(outline: &'a Outline, group: usize, app: &App, t: &Theme) -> 
     }
 
     let before = lines.len();
-    for id in [g.events.first(), g.events.last()].into_iter().flatten() {
-        let Some(e) = outline.events().iter().find(|e| e.id == *id) else {
+    for id in g.payload_ends() {
+        let Some(e) = outline.events().iter().find(|e| e.id == id) else {
             continue;
         };
         if e.payloads.is_empty() {
