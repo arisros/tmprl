@@ -206,6 +206,21 @@ impl Group {
         Some(self.ended_at? - self.started_at?)
     }
 
+    /// The events whose payloads describe the group: the one that opened it and the one that
+    /// closed it. The middle of a group is task plumbing and carries nothing.
+    ///
+    /// A group still open has a single event, where those two are the same one, so the pair
+    /// is deduplicated rather than showing that event's input twice.
+    pub fn payload_ends(&self) -> Vec<i64> {
+        let mut ends: Vec<i64> = [self.events.first(), self.events.last()]
+            .into_iter()
+            .flatten()
+            .copied()
+            .collect();
+        ends.dedup();
+        ends
+    }
+
     /// The id of the event that opened this group, for jumping to it.
     pub fn first_event(&self) -> Option<i64> {
         self.events.first().copied()
@@ -313,6 +328,40 @@ pub fn failures(groups: &[Group]) -> Vec<&Group> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_open_group_lists_its_single_event_once() {
+        // First and last are the same event while a group is still open; showing the pair
+        // blindly would print that event's input twice in the payload pane.
+        let g = Group {
+            key: GroupRef::Workflow,
+            category: Category::Workflow,
+            subject: "PayloadProbe".into(),
+            events: vec![1],
+            started_at: None,
+            ended_at: None,
+            outcome: Outcome::Pending,
+            attempts: 1,
+            failure: None,
+        };
+        assert_eq!(g.payload_ends(), vec![1]);
+    }
+
+    #[test]
+    fn a_closed_group_lists_the_event_that_opened_and_the_one_that_closed_it() {
+        let g = Group {
+            key: GroupRef::Opened(5),
+            category: Category::Activity,
+            subject: "ChargeCard".into(),
+            events: vec![5, 6, 7],
+            started_at: None,
+            ended_at: None,
+            outcome: Outcome::Completed,
+            attempts: 1,
+            failure: None,
+        };
+        assert_eq!(g.payload_ends(), vec![5, 7], "the middle carries nothing");
+    }
 
     fn ev(id: i64, name: &'static str, group: GroupRef, role: Role, time: i64) -> NormalizedEvent {
         NormalizedEvent::new(id, name, Category::Activity, group, role).with_time(Some(time))

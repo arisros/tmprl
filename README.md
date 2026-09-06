@@ -206,8 +206,8 @@ view key is reported in the statusline at startup rather than quietly skipped.
 ## Layout
 
 ```
-crates/tmprl-client   all network IO: gRPC, TLS, codec, profiles built,  49 tests
-crates/tmprl-core     domain logic: modes, keymap, histories     built, 153 tests
+crates/tmprl-client   all network IO: gRPC, TLS, codec, profiles built,  55 tests
+crates/tmprl-core     domain logic: modes, keymap, histories     built, 155 tests
 crates/tmprl-tui      ratatui rendering and input                built, 141 tests
 crates/tmprl-ui       window tree, splits, tabs, focus           built,  35 tests
 ```
