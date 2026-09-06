@@ -221,6 +221,7 @@ closed is refused with a message instead of polling for events that can never ar
 | `<leader>mg` | run a schedule now | **live** |
 | `<leader>mD` | delete a schedule | **live** |
 | `<leader>mb` | backfill a schedule over a past window | **live** |
+| `<leader>mn` | create a schedule, in a form | **live** |
 | `<leader>mu` | send an update and wait for its outcome | **live** |
 | `<leader>xx` | problem list, failed and task-failure workflows | M2 |
 | `<leader>xQ` | open the quickfix list | M5 |

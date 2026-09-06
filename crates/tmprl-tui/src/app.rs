@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use tmprl_client::{Codec, Conn, NamespaceInfo};
 use tmprl_core::ScheduleRow;
+use tmprl_core::form::Form;
 use tmprl_core::history::{NormalizedEvent, group_events, merge_events};
 use tmprl_core::mutation::{Confirm, Mutation};
 use tmprl_core::outline::{Outline, Row};
@@ -219,6 +220,8 @@ pub struct App {
     /// `Some` while a destructive action is waiting to be confirmed. Nothing has happened to
     /// the cluster while this is set.
     pub confirm: Option<Confirm>,
+    /// `Some` while a multi-field form is open, for the inputs a single line cannot carry.
+    pub form: Option<Form>,
     pub insert_buf: String,
     pub insert_target: InsertTarget,
 
@@ -272,6 +275,7 @@ impl App {
             help_max_scroll: 0,
             prompt: None,
             confirm: None,
+            form: None,
             insert_buf: String::new(),
             insert_target: InsertTarget::Scratch,
             note: None,
@@ -539,6 +543,10 @@ impl App {
             self.prompt_key(chord);
             return;
         }
+        if self.form.is_some() {
+            self.form_key(chord);
+            return;
+        }
 
         self.note = None;
         match self.keymap.resolve(self.mode, &mut self.pending, chord) {
@@ -626,6 +634,7 @@ impl App {
             Action::TriggerSchedule => self.confirm_mutation(MutationKind::TriggerSchedule),
             Action::DeleteSchedule => self.confirm_mutation(MutationKind::DeleteSchedule),
             Action::BackfillSchedule => self.confirm_mutation(MutationKind::BackfillSchedule),
+            Action::CreateSchedule => self.open_new_schedule_form(),
 
             Action::EnterInsert => {
                 self.mode = Mode::Insert;
@@ -1684,6 +1693,75 @@ impl App {
             }
             Err(e) => self.note = Some((e, Note::Warn)),
         }
+    }
+
+    /// Open the form that collects a new schedule.
+    ///
+    /// Unlike every other mutation this one has no target under the cursor: it is creating
+    /// the thing, so it only needs a namespace to create it in.
+    fn open_new_schedule_form(&mut self) {
+        self.form = Some(Form::new_schedule());
+    }
+
+    /// Keys while the form is up.
+    ///
+    /// It owns every key, so nothing bound elsewhere fires mid-edit and a literal `j` goes
+    /// into the field rather than moving a cursor somewhere behind it.
+    fn form_key(&mut self, chord: Chord) {
+        use tmprl_core::Key;
+        let Some(form) = self.form.as_mut() else {
+            return;
+        };
+        match chord.key {
+            Key::Esc => {
+                self.form = None;
+                self.mode = Mode::Normal;
+            }
+            Key::Tab => form.next(),
+            Key::BackTab => form.previous(),
+            Key::Down => form.next(),
+            Key::Up => form.previous(),
+            Key::Enter => self.confirm_new_schedule(),
+            // Backspace on an empty field moves back rather than closing the form: a form is
+            // several fields deep, so losing all of them to one key would be a trap.
+            Key::Backspace => {
+                if !form.backspace() {
+                    form.previous();
+                }
+            }
+            Key::Char(c) if chord.mods.is_none() => form.push(c),
+            _ => {}
+        }
+    }
+
+    /// Validate the form and put the command in front of the reader.
+    fn confirm_new_schedule(&mut self) {
+        let Some(form) = self.form.as_mut() else {
+            return;
+        };
+        if let Some(label) = form.missing() {
+            // Send them to the field rather than only naming it.
+            form.focus(label);
+            self.note = Some((format!("{label} is required"), Note::Warn));
+            return;
+        }
+        let input = form.get("input");
+        let mutation = Mutation::CreateSchedule {
+            namespace: self
+                .view
+                .scope
+                .first()
+                .cloned()
+                .unwrap_or_else(|| self.namespace.clone()),
+            schedule_id: form.get("schedule id").to_string(),
+            workflow_id: form.get("workflow id").to_string(),
+            workflow_type: form.get("workflow type").to_string(),
+            task_queue: form.get("task queue").to_string(),
+            spec: form.get("spec").to_string(),
+            input: (!input.is_empty()).then(|| input.to_string()),
+        };
+        self.form = None;
+        self.confirm = Some(Confirm::new(mutation));
     }
 
     /// The event a reset would go back to: the last completed workflow task at or before the
@@ -3501,6 +3579,79 @@ mod tests {
             recent_runs: 0,
         }]);
         app
+    }
+
+    #[test]
+    fn creating_a_schedule_collects_every_field_then_confirms() {
+        let mut app = on_schedules();
+        app.run("schedule.create", None);
+        let form = app.form.clone().expect("a form opens");
+        assert_eq!(form.cursor, 0);
+        assert!(app.confirm.is_none(), "nothing is proposed yet");
+
+        for (i, v) in ["nightly", "recon", "OrderWorkflow", "demo-tq", "0 2 * * *"]
+            .iter()
+            .enumerate()
+        {
+            for ch in v.chars() {
+                app.handle(Msg::Key(Chord::ch(ch)));
+            }
+            if i < 4 {
+                app.handle(Msg::Key(Chord::plain(tmprl_core::Key::Tab)));
+            }
+        }
+        app.handle(Msg::Key(Chord::plain(tmprl_core::Key::Enter)));
+
+        assert!(app.form.is_none(), "the form closes once it is complete");
+        let cli = app.confirm.clone().expect("confirmed").mutation.cli();
+        assert!(cli.contains("--schedule-id nightly"), "{cli}");
+        assert!(cli.contains("--workflow-id recon"), "{cli}");
+        assert!(cli.contains("--type OrderWorkflow"), "{cli}");
+        assert!(cli.contains("--task-queue demo-tq"), "{cli}");
+        assert!(cli.contains("--cron '0 2 * * *'"), "{cli}");
+        assert!(!cli.contains("--input"), "input was left empty: {cli}");
+    }
+
+    #[test]
+    fn an_incomplete_schedule_sends_the_caret_to_the_field_that_is_missing() {
+        // Naming the field without going to it leaves the reader hunting for it.
+        let mut app = on_schedules();
+        app.run("schedule.create", None);
+        for ch in "nightly".chars() {
+            app.handle(Msg::Key(Chord::ch(ch)));
+        }
+        app.handle(Msg::Key(Chord::plain(tmprl_core::Key::Enter)));
+
+        assert!(app.confirm.is_none(), "nothing is proposed");
+        let form = app.form.clone().expect("the form stays open");
+        assert_eq!(form.fields[form.cursor].label, "workflow id");
+        let (msg, kind) = app.note.clone().unwrap();
+        assert_eq!(kind, Note::Warn);
+        assert!(msg.contains("workflow id"), "got {msg}");
+    }
+
+    #[test]
+    fn backspace_on_an_empty_field_steps_back_rather_than_closing_the_form() {
+        // A form is several fields deep, so losing all of them to one key would be a trap.
+        let mut app = on_schedules();
+        app.run("schedule.create", None);
+        app.handle(Msg::Key(Chord::plain(tmprl_core::Key::Tab)));
+        app.handle(Msg::Key(Chord::plain(tmprl_core::Key::Backspace)));
+
+        let form = app.form.clone().expect("still open");
+        assert_eq!(form.fields[form.cursor].label, "schedule id");
+    }
+
+    #[test]
+    fn a_schedule_form_takes_literal_keys_rather_than_running_commands() {
+        // `j` and `q` are bound in Normal mode; inside a field they are text.
+        let mut app = on_schedules();
+        app.run("schedule.create", None);
+        for ch in "jq".chars() {
+            app.handle(Msg::Key(Chord::ch(ch)));
+        }
+        assert_eq!(app.form.clone().unwrap().get("schedule id"), "jq");
+        assert!(!app.should_quit);
     }
 
     #[test]
