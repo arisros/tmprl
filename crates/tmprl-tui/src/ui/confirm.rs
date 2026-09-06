@@ -12,8 +12,11 @@ use tmprl_core::mutation::Confirm;
 
 use crate::theme::Theme;
 
+/// How many targets a batch confirmation lists before summarising the rest.
+const LISTED: usize = 8;
+
 pub fn render(frame: &mut Frame, confirm: &Confirm, t: &Theme) {
-    let m = &confirm.mutation;
+    let m = confirm.first();
     // Destructive actions are outlined in the error colour. The border is doing real work
     // here: it is the difference between "this changes something" and "this ends it".
     let accent = if m.destroys_history() {
@@ -24,21 +27,51 @@ pub fn render(frame: &mut Frame, confirm: &Confirm, t: &Theme) {
         t.accent
     };
 
+    // A batch names the count, not one id: the number is what is at stake, and picking one
+    // row's id to stand for twelve would understate it.
+    let heading = if confirm.is_batch() {
+        format!("  {} {} {}", m.verb(), confirm.len(), m.subject_plural())
+    } else {
+        format!("  {} {}", m.verb(), m.workflow_id())
+    };
     let mut lines = vec![
         Line::from(Span::styled(
-            format!("  {} {}", m.verb(), m.workflow_id()),
+            heading,
             Style::new().fg(t.fg).add_modifier(Modifier::BOLD),
         )),
         Line::from(Span::styled(
             format!("  in {}", m.namespace()),
             Style::new().fg(t.dim),
         )),
-        Line::raw(""),
-        Line::from(Span::styled(
-            "  the equivalent command:",
-            Style::new().fg(t.faint),
-        )),
     ];
+
+    if confirm.is_batch() {
+        lines.push(Line::raw(""));
+        // Every target listed, up to a limit: a confirmation you cannot see the end of is
+        // one you cannot check, and checking it is the point.
+        for target in confirm.mutations.iter().take(LISTED) {
+            lines.push(Line::from(Span::styled(
+                format!("    {}", target.workflow_id()),
+                Style::new().fg(t.dim),
+            )));
+        }
+        if confirm.len() > LISTED {
+            lines.push(Line::from(Span::styled(
+                format!("    and {} more", confirm.len() - LISTED),
+                Style::new().fg(t.faint),
+            )));
+        }
+    }
+
+    lines.push(Line::raw(""));
+    lines.push(Line::from(Span::styled(
+        if confirm.is_batch() {
+            "  the equivalent command, for the first:"
+        } else {
+            "  the equivalent command:"
+        },
+        Style::new().fg(t.faint),
+    )));
     // Wrapped rather than truncated: a command you can only see half of is not one you can
     // check, and checking it is the point.
     for chunk in wrap(&m.cli(), 66) {
@@ -53,7 +86,7 @@ pub fn render(frame: &mut Frame, confirm: &Confirm, t: &Theme) {
         lines.push(Line::from(vec![
             Span::styled("  ", Style::new()),
             Span::styled(
-                "this destroys the history itself. ",
+                format!("{} ", confirm.caution().unwrap_or_default()),
                 Style::new().fg(t.err).add_modifier(Modifier::BOLD),
             ),
             Span::styled(format!("type `{word}`:"), Style::new().fg(t.fg)),
