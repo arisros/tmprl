@@ -72,6 +72,17 @@ pub enum Mutation {
         namespace: String,
         schedule_id: String,
     },
+    /// Create a schedule. `spec` is passed to the server as a cron string, which also
+    /// accepts `@every 1h`.
+    CreateSchedule {
+        namespace: String,
+        schedule_id: String,
+        workflow_id: String,
+        workflow_type: String,
+        task_queue: String,
+        spec: String,
+        input: Option<String>,
+    },
     /// Replay every action the schedule would have taken over a past window.
     BackfillSchedule {
         namespace: String,
@@ -90,7 +101,8 @@ impl Mutation {
             Mutation::PauseSchedule { schedule_id, .. }
             | Mutation::TriggerSchedule { schedule_id, .. }
             | Mutation::DeleteSchedule { schedule_id, .. }
-            | Mutation::BackfillSchedule { schedule_id, .. } => Some(schedule_id),
+            | Mutation::BackfillSchedule { schedule_id, .. }
+            | Mutation::CreateSchedule { schedule_id, .. } => Some(schedule_id),
             _ => None,
         }
     }
@@ -111,6 +123,7 @@ impl Mutation {
             Mutation::TriggerSchedule { .. } => "Trigger",
             Mutation::DeleteSchedule { .. } => "Delete schedule",
             Mutation::BackfillSchedule { .. } => "Backfill",
+            Mutation::CreateSchedule { .. } => "Create schedule",
         }
     }
 
@@ -129,6 +142,7 @@ impl Mutation {
             Mutation::TriggerSchedule { .. } => "triggered",
             Mutation::DeleteSchedule { .. } => "deleted",
             Mutation::BackfillSchedule { .. } => "backfilled",
+            Mutation::CreateSchedule { .. } => "created",
         }
     }
 
@@ -143,7 +157,8 @@ impl Mutation {
             | Mutation::PauseSchedule { namespace, .. }
             | Mutation::TriggerSchedule { namespace, .. }
             | Mutation::DeleteSchedule { namespace, .. }
-            | Mutation::BackfillSchedule { namespace, .. } => namespace,
+            | Mutation::BackfillSchedule { namespace, .. }
+            | Mutation::CreateSchedule { namespace, .. } => namespace,
         }
     }
 
@@ -159,7 +174,8 @@ impl Mutation {
             Mutation::PauseSchedule { schedule_id, .. }
             | Mutation::TriggerSchedule { schedule_id, .. }
             | Mutation::DeleteSchedule { schedule_id, .. }
-            | Mutation::BackfillSchedule { schedule_id, .. } => schedule_id,
+            | Mutation::BackfillSchedule { schedule_id, .. }
+            | Mutation::CreateSchedule { schedule_id, .. } => schedule_id,
         }
     }
 
@@ -174,7 +190,8 @@ impl Mutation {
             Mutation::PauseSchedule { .. }
             | Mutation::TriggerSchedule { .. }
             | Mutation::DeleteSchedule { .. }
-            | Mutation::BackfillSchedule { .. } => "",
+            | Mutation::BackfillSchedule { .. }
+            | Mutation::CreateSchedule { .. } => "",
         }
     }
 
@@ -193,6 +210,7 @@ impl Mutation {
                 | Mutation::PauseSchedule { .. }
                 | Mutation::TriggerSchedule { .. }
                 | Mutation::BackfillSchedule { .. }
+                | Mutation::CreateSchedule { .. }
         )
     }
 
@@ -285,6 +303,30 @@ impl Mutation {
                 shell_quote(namespace),
                 shell_quote(schedule_id)
             ),
+            Mutation::CreateSchedule {
+                namespace,
+                schedule_id,
+                workflow_id,
+                workflow_type,
+                task_queue,
+                spec,
+                input,
+            } => {
+                let mut out = format!(
+                    "temporal schedule create --namespace {} --schedule-id {} \
+                     --workflow-id {} --type {} --task-queue {} --cron {}",
+                    shell_quote(namespace),
+                    shell_quote(schedule_id),
+                    shell_quote(workflow_id),
+                    shell_quote(workflow_type),
+                    shell_quote(task_queue),
+                    shell_quote(spec)
+                );
+                if let Some(input) = input {
+                    out.push_str(&format!(" --input {}", shell_quote(input)));
+                }
+                out
+            }
             Mutation::BackfillSchedule {
                 namespace,
                 schedule_id,
