@@ -7,6 +7,7 @@ pub mod codec;
 pub mod history;
 pub mod mutate;
 pub mod namespace;
+pub mod schedule;
 pub mod workflow;
 
 #[derive(Debug, thiserror::Error)]

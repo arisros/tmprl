@@ -1,8 +1,9 @@
 //! The operations that change a cluster.
 //!
-//! Everything else in this crate reads. These four write, and two of them cannot be undone,
-//! so nothing here decides *whether* to act, the confirmation in `tmprl-core` does that, and
-//! the reducer only reaches this module once the reader has said yes.
+//! Everything else in this crate reads. These write, and deleting a workflow or a schedule
+//! cannot be undone, so nothing here decides *whether* to act, the confirmation in
+//! `tmprl-core` does that, and the reducer only reaches this module once the reader has said
+//! yes.
 //!
 //! Every request carries an `identity`. Temporal records it on the resulting history event,
 //! so a workflow terminated from tmprl says so in its own history rather than appearing to
@@ -12,11 +13,13 @@ use temporalio_client::tonic::Request;
 use temporalio_common::protos::temporal::api::{
     common::v1::{Payload as ProtoPayload, Payloads, WorkflowExecution},
     enums::v1::UpdateWorkflowExecutionLifecycleStage,
+    schedule::v1::{SchedulePatch, TriggerImmediatelyRequest},
     update::v1::{Input as UpdateInput, Meta as UpdateMeta, Request as UpdateRequest, WaitPolicy},
     workflowservice::v1::{
-        DeleteWorkflowExecutionRequest, RequestCancelWorkflowExecutionRequest,
-        ResetWorkflowExecutionRequest, SignalWorkflowExecutionRequest,
-        TerminateWorkflowExecutionRequest, UpdateWorkflowExecutionRequest,
+        DeleteScheduleRequest, DeleteWorkflowExecutionRequest, PatchScheduleRequest,
+        RequestCancelWorkflowExecutionRequest, ResetWorkflowExecutionRequest,
+        SignalWorkflowExecutionRequest, TerminateWorkflowExecutionRequest,
+        UpdateWorkflowExecutionRequest,
     },
 };
 use tmprl_core::mutation::Mutation;
@@ -205,6 +208,69 @@ impl Conn {
                         message: f.message,
                     });
                 }
+            }
+
+            Mutation::PauseSchedule {
+                namespace,
+                schedule_id,
+                paused,
+            } => {
+                // The reason lands in the schedule's own notes, so a paused schedule says
+                // why it is paused rather than merely that it is.
+                let note = format!("{} from tmprl", if *paused { "paused" } else { "resumed" });
+                self.wf()
+                    .patch_schedule(Request::new(PatchScheduleRequest {
+                        namespace: namespace.clone(),
+                        schedule_id: schedule_id.clone(),
+                        patch: Some(SchedulePatch {
+                            pause: if *paused { note.clone() } else { String::new() },
+                            unpause: if *paused { String::new() } else { note },
+                            ..Default::default()
+                        }),
+                        identity: identity(),
+                        request_id: request_id(),
+                    }))
+                    .await
+                    .map_err(|s| OpError::rpc("PatchSchedule", s))?;
+            }
+
+            Mutation::TriggerSchedule {
+                namespace,
+                schedule_id,
+            } => {
+                self.wf()
+                    .patch_schedule(Request::new(PatchScheduleRequest {
+                        namespace: namespace.clone(),
+                        schedule_id: schedule_id.clone(),
+                        patch: Some(SchedulePatch {
+                            trigger_immediately: Some(TriggerImmediatelyRequest {
+                                // Unspecified leaves the schedule's own overlap policy in
+                                // charge, which is what the reader configured.
+                                overlap_policy: 0,
+                                // None means now, which is what "trigger" asks for.
+                                scheduled_time: None,
+                            }),
+                            ..Default::default()
+                        }),
+                        identity: identity(),
+                        request_id: request_id(),
+                    }))
+                    .await
+                    .map_err(|s| OpError::rpc("PatchSchedule", s))?;
+            }
+
+            Mutation::DeleteSchedule {
+                namespace,
+                schedule_id,
+            } => {
+                self.wf()
+                    .delete_schedule(Request::new(DeleteScheduleRequest {
+                        namespace: namespace.clone(),
+                        schedule_id: schedule_id.clone(),
+                        identity: identity(),
+                    }))
+                    .await
+                    .map_err(|s| OpError::rpc("DeleteSchedule", s))?;
             }
         }
         Ok(())

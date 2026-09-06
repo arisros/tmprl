@@ -55,6 +55,35 @@ pub enum Mutation {
         name: String,
         input: Option<String>,
     },
+    /// Pause or resume a schedule. `paused` is the state being moved *to*.
+    PauseSchedule {
+        namespace: String,
+        schedule_id: String,
+        paused: bool,
+    },
+    /// Run a scheduled workflow now, without waiting for its next time.
+    TriggerSchedule {
+        namespace: String,
+        schedule_id: String,
+    },
+    DeleteSchedule {
+        namespace: String,
+        schedule_id: String,
+    },
+}
+
+/// The three schedule operations act on a schedule id rather than an execution, so they do
+/// not share the workflow accessors.
+impl Mutation {
+    /// The schedule this acts on, if it is a schedule operation at all.
+    pub fn schedule_id(&self) -> Option<&str> {
+        match self {
+            Mutation::PauseSchedule { schedule_id, .. }
+            | Mutation::TriggerSchedule { schedule_id, .. }
+            | Mutation::DeleteSchedule { schedule_id, .. } => Some(schedule_id),
+            _ => None,
+        }
+    }
 }
 
 impl Mutation {
@@ -67,6 +96,10 @@ impl Mutation {
             Mutation::Delete { .. } => "Delete",
             Mutation::Reset { .. } => "Reset",
             Mutation::Update { .. } => "Update",
+            Mutation::PauseSchedule { paused: true, .. } => "Pause",
+            Mutation::PauseSchedule { paused: false, .. } => "Resume",
+            Mutation::TriggerSchedule { .. } => "Trigger",
+            Mutation::DeleteSchedule { .. } => "Delete schedule",
         }
     }
 
@@ -80,6 +113,10 @@ impl Mutation {
             Mutation::Delete { .. } => "deleted",
             Mutation::Reset { .. } => "reset",
             Mutation::Update { .. } => "updated",
+            Mutation::PauseSchedule { paused: true, .. } => "paused",
+            Mutation::PauseSchedule { paused: false, .. } => "resumed",
+            Mutation::TriggerSchedule { .. } => "triggered",
+            Mutation::DeleteSchedule { .. } => "deleted",
         }
     }
 
@@ -90,7 +127,10 @@ impl Mutation {
             | Mutation::Signal { namespace, .. }
             | Mutation::Delete { namespace, .. }
             | Mutation::Reset { namespace, .. }
-            | Mutation::Update { namespace, .. } => namespace,
+            | Mutation::Update { namespace, .. }
+            | Mutation::PauseSchedule { namespace, .. }
+            | Mutation::TriggerSchedule { namespace, .. }
+            | Mutation::DeleteSchedule { namespace, .. } => namespace,
         }
     }
 
@@ -102,6 +142,10 @@ impl Mutation {
             | Mutation::Delete { workflow_id, .. }
             | Mutation::Reset { workflow_id, .. }
             | Mutation::Update { workflow_id, .. } => workflow_id,
+            // Schedule operations have no execution; the id is the schedule's.
+            Mutation::PauseSchedule { schedule_id, .. }
+            | Mutation::TriggerSchedule { schedule_id, .. }
+            | Mutation::DeleteSchedule { schedule_id, .. } => schedule_id,
         }
     }
 
@@ -113,6 +157,9 @@ impl Mutation {
             | Mutation::Delete { run_id, .. }
             | Mutation::Reset { run_id, .. }
             | Mutation::Update { run_id, .. } => run_id,
+            Mutation::PauseSchedule { .. }
+            | Mutation::TriggerSchedule { .. }
+            | Mutation::DeleteSchedule { .. } => "",
         }
     }
 
@@ -122,14 +169,24 @@ impl Mutation {
     /// walked back even by starting the workflow again.
     pub fn is_destructive(&self) -> bool {
         // A reset abandons everything after the reset point, so it loses work even though
-        // the workflow survives. An update, like a signal, only adds to it.
-        !matches!(self, Mutation::Signal { .. } | Mutation::Update { .. })
+        // the workflow survives. An update, like a signal, only adds to it. Pausing and
+        // triggering a schedule are reversible by doing the opposite.
+        !matches!(
+            self,
+            Mutation::Signal { .. }
+                | Mutation::Update { .. }
+                | Mutation::PauseSchedule { .. }
+                | Mutation::TriggerSchedule { .. }
+        )
     }
 
     /// Whether it destroys the record as well as the run. Only `delete` does, which is why it
     /// is the one that asks for more than a keypress.
     pub fn destroys_history(&self) -> bool {
-        matches!(self, Mutation::Delete { .. })
+        matches!(
+            self,
+            Mutation::Delete { .. } | Mutation::DeleteSchedule { .. }
+        )
     }
 
     /// The equivalent `temporal` command, ready to paste into a shell.
@@ -186,6 +243,32 @@ impl Mutation {
                 }
                 out
             }
+            Mutation::PauseSchedule {
+                namespace,
+                schedule_id,
+                paused,
+            } => format!(
+                "temporal schedule toggle --namespace {} --schedule-id {} {}",
+                shell_quote(namespace),
+                shell_quote(schedule_id),
+                if *paused { "--pause" } else { "--unpause" }
+            ),
+            Mutation::TriggerSchedule {
+                namespace,
+                schedule_id,
+            } => format!(
+                "temporal schedule trigger --namespace {} --schedule-id {}",
+                shell_quote(namespace),
+                shell_quote(schedule_id)
+            ),
+            Mutation::DeleteSchedule {
+                namespace,
+                schedule_id,
+            } => format!(
+                "temporal schedule delete --namespace {} --schedule-id {}",
+                shell_quote(namespace),
+                shell_quote(schedule_id)
+            ),
         }
     }
 
@@ -455,6 +538,64 @@ mod tests {
         ] {
             assert_eq!(m.past_tense(), expected);
         }
+    }
+
+    #[test]
+    fn pausing_a_schedule_renders_the_toggle_command() {
+        // The CLI has no `pause` subcommand: it is `toggle --pause`.
+        let m = Mutation::PauseSchedule {
+            namespace: "payments".into(),
+            schedule_id: "nightly".into(),
+            paused: true,
+        };
+        assert_eq!(
+            m.cli(),
+            "temporal schedule toggle --namespace payments --schedule-id nightly --pause"
+        );
+        assert_eq!(m.verb(), "Pause");
+        assert_eq!(m.past_tense(), "paused");
+        assert!(!m.is_destructive(), "unpausing puts it back");
+
+        let resumed = Mutation::PauseSchedule {
+            namespace: "payments".into(),
+            schedule_id: "nightly".into(),
+            paused: false,
+        };
+        assert!(resumed.cli().ends_with("--unpause"));
+        assert_eq!(resumed.verb(), "Resume");
+    }
+
+    #[test]
+    fn triggering_is_reversible_but_deleting_a_schedule_is_not() {
+        let trigger = Mutation::TriggerSchedule {
+            namespace: "d".into(),
+            schedule_id: "s".into(),
+        };
+        assert!(!trigger.is_destructive());
+        assert_eq!(
+            trigger.cli(),
+            "temporal schedule trigger --namespace d --schedule-id s"
+        );
+
+        let delete = Mutation::DeleteSchedule {
+            namespace: "d".into(),
+            schedule_id: "s".into(),
+        };
+        assert!(delete.is_destructive());
+        assert!(delete.destroys_history(), "the schedule is gone for good");
+        assert_eq!(Confirm::new(delete).typed_word.as_deref(), Some("delete"));
+    }
+
+    #[test]
+    fn a_schedule_operation_reports_its_id_and_has_no_run() {
+        let m = Mutation::TriggerSchedule {
+            namespace: "d".into(),
+            schedule_id: "nightly".into(),
+        };
+        assert_eq!(m.schedule_id(), Some("nightly"));
+        assert_eq!(m.workflow_id(), "nightly", "the id column shows it");
+        assert_eq!(m.run_id(), "", "a schedule has no execution");
+        assert_eq!(terminate("x").schedule_id(), None);
     }
 
     #[test]
