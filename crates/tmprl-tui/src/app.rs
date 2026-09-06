@@ -13,6 +13,7 @@ use tmprl_core::history::{NormalizedEvent, group_events, merge_events};
 use tmprl_core::mutation::{Confirm, Mutation};
 use tmprl_core::outline::{Outline, Row};
 use tmprl_core::payload::Payload;
+use tmprl_core::timerange::parse_backfill;
 use tmprl_core::{
     Action, Chord, Keymap, Loadable, Mode, Pending, PendingEntry, Registry, Resolution, SavedView,
     StatusCounts, WorkflowList, WorkflowRow, default_keymap,
@@ -50,12 +51,24 @@ pub enum MutationKind {
     PauseSchedule,
     TriggerSchedule,
     DeleteSchedule,
+    BackfillSchedule,
     Cancel,
     Terminate,
     Signal,
     Delete,
     Reset,
     Update,
+}
+
+/// Wall-clock now, epoch millis.
+///
+/// A backfill window is resolved against it, and a clock before the epoch would make the
+/// window nonsense rather than merely wrong, so it saturates at zero.
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 /// What a prompt at the bottom of the screen is collecting.
@@ -73,6 +86,8 @@ pub enum PromptKind {
     Signal,
     /// The name of an update to send.
     Update,
+    /// The window a schedule backfill covers, and optionally its overlap policy.
+    Backfill,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,6 +104,7 @@ impl Prompt {
             PromptKind::Pipe => "!",
             PromptKind::Signal => "signal:",
             PromptKind::Update => "update:",
+            PromptKind::Backfill => "backfill:",
         }
     }
 }
@@ -609,6 +625,7 @@ impl App {
             Action::PauseSchedule => self.confirm_mutation(MutationKind::PauseSchedule),
             Action::TriggerSchedule => self.confirm_mutation(MutationKind::TriggerSchedule),
             Action::DeleteSchedule => self.confirm_mutation(MutationKind::DeleteSchedule),
+            Action::BackfillSchedule => self.confirm_mutation(MutationKind::BackfillSchedule),
 
             Action::EnterInsert => {
                 self.mode = Mode::Insert;
@@ -1281,6 +1298,7 @@ impl App {
                     PromptKind::Command => self.run_typed_command(&entered),
                     PromptKind::Pipe => self.run_pipe(entered),
                     PromptKind::Signal | PromptKind::Update => self.confirm_named(kind, entered),
+                    PromptKind::Backfill => self.confirm_backfill(entered),
                 }
             }
             // Backspace on an empty line closes the prompt, as it does in vim.
@@ -1514,11 +1532,22 @@ impl App {
             MutationKind::PauseSchedule
                 | MutationKind::TriggerSchedule
                 | MutationKind::DeleteSchedule
+                | MutationKind::BackfillSchedule
         ) {
             let Some(row) = self.target_schedule() else {
                 self.note = Some(("no schedule under the cursor".into(), Note::Warn));
                 return;
             };
+            if matches!(kind, MutationKind::BackfillSchedule) {
+                // The window has to be typed, so this reaches a confirmation only after the
+                // prompt comes back.
+                self.prompt = Some(Prompt {
+                    kind: PromptKind::Backfill,
+                    buf: String::new(),
+                });
+                self.mode = Mode::Command;
+                return;
+            }
             let (namespace, schedule_id) = (row.namespace.clone(), row.schedule_id.clone());
             let mutation = match kind {
                 MutationKind::PauseSchedule => Mutation::PauseSchedule {
@@ -1586,7 +1615,8 @@ impl App {
             // Handled above, before a workflow target is looked for.
             MutationKind::PauseSchedule
             | MutationKind::TriggerSchedule
-            | MutationKind::DeleteSchedule => return,
+            | MutationKind::DeleteSchedule
+            | MutationKind::BackfillSchedule => return,
             MutationKind::Reset => {
                 // A reset needs an event to go back to, which only the history view has.
                 let Some(event_id) = self.reset_target() else {
@@ -1633,6 +1663,27 @@ impl App {
             },
         };
         self.confirm = Some(Confirm::new(mutation));
+    }
+
+    /// Turn a typed backfill window into a confirmation.
+    ///
+    /// A bad range stops here with the parser's own message rather than reaching the server,
+    /// which would answer with something less specific.
+    fn confirm_backfill(&mut self, entered: String) {
+        let Some(row) = self.target_schedule() else {
+            return;
+        };
+        match parse_backfill(&entered, now_ms()) {
+            Ok((range, overlap)) => {
+                self.confirm = Some(Confirm::new(Mutation::BackfillSchedule {
+                    namespace: row.namespace,
+                    schedule_id: row.schedule_id,
+                    range,
+                    overlap,
+                }));
+            }
+            Err(e) => self.note = Some((e, Note::Warn)),
+        }
     }
 
     /// The event a reset would go back to: the last completed workflow task at or before the
@@ -1700,11 +1751,7 @@ impl App {
     /// Appended, never rewritten, and failures go in too: the log is what was *attempted*,
     /// which is the question being asked when someone reads it.
     fn audit(&mut self, mutation: &Mutation, outcome: &str) {
-        let at = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or(0);
-        if let Err(e) = crate::config::append_audit(&mutation.audit_line(at, outcome)) {
+        if let Err(e) = crate::config::append_audit(&mutation.audit_line(now_ms(), outcome)) {
             // A failed audit write must not be silent: the log is the record that an
             // irreversible thing happened.
             self.note = Some((format!("audit log: {e}"), Note::Error));
@@ -3454,6 +3501,47 @@ mod tests {
             recent_runs: 0,
         }]);
         app
+    }
+
+    #[test]
+    fn a_backfill_asks_for_its_window_before_confirming() {
+        let mut app = on_schedules();
+        app.run("schedule.backfill", None);
+        assert!(app.confirm.is_none(), "a backfill needs a window first");
+        assert_eq!(app.prompt.clone().unwrap().kind, PromptKind::Backfill);
+
+        for ch in "-1d..now".chars() {
+            app.handle(Msg::Key(Chord::ch(ch)));
+        }
+        app.handle(Msg::Key(Chord::plain(tmprl_core::Key::Enter)));
+
+        let m = app
+            .confirm
+            .clone()
+            .expect("now it can be confirmed")
+            .mutation;
+        assert_eq!(m.verb(), "Backfill");
+        assert_eq!(m.schedule_id(), Some("nightly"));
+        let cli = m.cli();
+        assert!(cli.contains("--overlap-policy BufferAll"), "{cli}");
+        assert!(!m.is_destructive(), "it starts runs, it destroys nothing");
+    }
+
+    #[test]
+    fn an_unreadable_backfill_window_stops_at_the_prompt() {
+        // The server's answer to a bad range is less specific than the parser's, and
+        // confirming first would put a nonsense command in front of the reader.
+        let mut app = on_schedules();
+        app.run("schedule.backfill", None);
+        for ch in "yesterday".chars() {
+            app.handle(Msg::Key(Chord::ch(ch)));
+        }
+        app.handle(Msg::Key(Chord::plain(tmprl_core::Key::Enter)));
+
+        assert!(app.confirm.is_none(), "nothing to confirm");
+        let (msg, kind) = app.note.clone().unwrap();
+        assert_eq!(kind, Note::Warn);
+        assert!(msg.contains("START..END"), "got {msg}");
     }
 
     #[test]

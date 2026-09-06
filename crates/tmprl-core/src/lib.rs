@@ -16,6 +16,7 @@ pub mod outline;
 pub mod payload;
 pub mod query;
 pub mod schedule;
+pub mod timerange;
 pub mod workflow;
 
 pub use command::{Action, Command, Registry};
