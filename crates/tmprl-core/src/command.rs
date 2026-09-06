@@ -81,6 +81,7 @@ pub enum Action {
     PauseSchedule,
     TriggerSchedule,
     DeleteSchedule,
+    BackfillSchedule,
 
     NewTab,
     CloseTab,
@@ -179,6 +180,7 @@ impl Registry {
             "schedule.pause",     "Mutate",      "Pause or resume a schedule" => PauseSchedule;
             "schedule.trigger",   "Mutate",      "Run a schedule now"        => TriggerSchedule;
             "schedule.delete",    "Mutate",      "Delete this schedule"      => DeleteSchedule;
+            "schedule.backfill",  "Mutate",      "Backfill a time range"     => BackfillSchedule;
 
             "tab.new",            "Tabs",        "Open a tab"                => NewTab;
             "tab.close",          "Tabs",        "Close this tab"            => CloseTab;
