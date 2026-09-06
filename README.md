@@ -61,13 +61,14 @@ Web UI, built to be operated from the keyboard rather than a browser.
   confirmation that shows the equivalent `temporal` CLI command, so you read what is about to
   happen rather than trusting a verb. Every attempt is appended to
   `~/.local/state/tmprl/audit.jsonl`.
-- **Schedules** (`gs`, and `gw` back to workflows), with pause, resume, trigger, delete and
-  backfill behind the same confirmation. Cron specs read as cron, intervals as `every 1h`.
-  A backfill window is typed as `-7d..now` or `2026-09-01..2026-09-07`, with an optional
-  overlap policy after it.
+- **Schedules** (`gs`, and `gw` back to workflows), with create, pause, resume, trigger,
+  delete and backfill behind the same confirmation. Cron specs read as cron, intervals as
+  `every 1h`. A backfill window is typed as `-7d..now` or `2026-09-01..2026-09-07`, with an
+  optional overlap policy after it. Creating one opens a form, since a schedule needs six
+  values and a single line would be unreadable to type.
 - **Yank** (`y`, `Y`) to the system clipboard over OSC 52, so it works over SSH.
 
-Not yet: batch operations, and creating or editing a schedule.
+Not yet: batch operations, and editing an existing schedule.
 
 ## What it is meant to become
 
@@ -209,8 +210,8 @@ view key is reported in the statusline at startup rather than quietly skipped.
 
 ```
 crates/tmprl-client   all network IO: gRPC, TLS, codec, profiles built,  55 tests
-crates/tmprl-core     domain logic: modes, keymap, histories     built, 168 tests
-crates/tmprl-tui      ratatui rendering and input                built, 143 tests
+crates/tmprl-core     domain logic: modes, keymap, histories     built, 174 tests
+crates/tmprl-tui      ratatui rendering and input                built, 147 tests
 crates/tmprl-ui       window tree, splits, tabs, focus           built,  35 tests
 ```
 
@@ -225,7 +226,7 @@ diffing runs, lands in a layer that needs neither a terminal nor a server to tes
 - [x] **M1** workflow list, visibility queries, saved views, multi-namespace, `keys.toml`
 - [x] **M2** history views, follow mode, jq, codec server, splits and tabs
 - [x] **M3** mutations: signal, cancel, terminate, delete, reset, update
-- [ ] **M4** schedules: list, pause, trigger, delete, backfill *(done)*; create remains
+- [x] **M4** schedules: list, create, pause, trigger, delete, backfill
 - [ ] **M5** batch operations
 - [ ] **M6** task queues, workers, deployments, nexus, archival
 - [ ] **M7** diff, macros, headless `--exec`, themes

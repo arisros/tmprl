@@ -280,6 +280,7 @@ pub fn default_keymap() -> Keymap {
         bind(mode, "<leader>mg", "schedule.trigger");
         bind(mode, "<leader>mD", "schedule.delete");
         bind(mode, "<leader>mb", "schedule.backfill");
+        bind(mode, "<leader>mn", "schedule.create");
 
         bind(mode, "<leader>to", "tab.new");
         bind(mode, "<leader>tx", "tab.close");

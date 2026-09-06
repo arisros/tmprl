@@ -11,13 +11,18 @@
 
 use temporalio_client::tonic::Request;
 use temporalio_common::protos::temporal::api::{
-    common::v1::{Payload as ProtoPayload, Payloads, WorkflowExecution},
+    common::v1::{Payload as ProtoPayload, Payloads, WorkflowExecution, WorkflowType},
     enums::v1::UpdateWorkflowExecutionLifecycleStage,
-    schedule::v1::{BackfillRequest, SchedulePatch, TriggerImmediatelyRequest},
+    schedule::v1::{
+        BackfillRequest, Schedule, ScheduleAction, SchedulePatch, ScheduleSpec,
+        TriggerImmediatelyRequest, schedule_action::Action as ScheduleActionKind,
+    },
+    taskqueue::v1::TaskQueue,
     update::v1::{Input as UpdateInput, Meta as UpdateMeta, Request as UpdateRequest, WaitPolicy},
+    workflow::v1::NewWorkflowExecutionInfo,
     workflowservice::v1::{
-        DeleteScheduleRequest, DeleteWorkflowExecutionRequest, PatchScheduleRequest,
-        RequestCancelWorkflowExecutionRequest, ResetWorkflowExecutionRequest,
+        CreateScheduleRequest, DeleteScheduleRequest, DeleteWorkflowExecutionRequest,
+        PatchScheduleRequest, RequestCancelWorkflowExecutionRequest, ResetWorkflowExecutionRequest,
         SignalWorkflowExecutionRequest, TerminateWorkflowExecutionRequest,
         UpdateWorkflowExecutionRequest,
     },
@@ -265,6 +270,53 @@ impl Conn {
                     }))
                     .await
                     .map_err(|s| OpError::rpc("PatchSchedule", s))?;
+            }
+
+            Mutation::CreateSchedule {
+                namespace,
+                schedule_id,
+                workflow_id,
+                workflow_type,
+                task_queue,
+                spec,
+                input,
+            } => {
+                self.wf()
+                    .create_schedule(Request::new(CreateScheduleRequest {
+                        namespace: namespace.clone(),
+                        schedule_id: schedule_id.clone(),
+                        schedule: Some(Schedule {
+                            // The cron string is sent as typed. The server parses it, and it
+                            // accepts `@every 1h` as well as five-field cron, so validating
+                            // here would only reject specs the server would have taken.
+                            spec: Some(ScheduleSpec {
+                                cron_string: vec![spec.clone()],
+                                ..Default::default()
+                            }),
+                            action: Some(ScheduleAction {
+                                action: Some(ScheduleActionKind::StartWorkflow(
+                                    NewWorkflowExecutionInfo {
+                                        workflow_id: workflow_id.clone(),
+                                        workflow_type: Some(WorkflowType {
+                                            name: workflow_type.clone(),
+                                        }),
+                                        task_queue: Some(TaskQueue {
+                                            name: task_queue.clone(),
+                                            ..Default::default()
+                                        }),
+                                        input: input.as_deref().map(json_payload),
+                                        ..Default::default()
+                                    },
+                                )),
+                            }),
+                            ..Default::default()
+                        }),
+                        identity: identity(),
+                        request_id: request_id(),
+                        ..Default::default()
+                    }))
+                    .await
+                    .map_err(|s| OpError::rpc("CreateSchedule", s))?;
             }
 
             Mutation::BackfillSchedule {
