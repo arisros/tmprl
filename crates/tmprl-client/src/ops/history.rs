@@ -18,12 +18,15 @@
 //! workflow task that *caused* the command, not at the thing's own group, following it
 //! would file every activity under the task that scheduled it.
 
+use std::collections::HashMap;
+
 use temporalio_client::tonic::Request;
 use temporalio_common::protos::temporal::api::{
     common::v1::{Payload as ProtoPayload, Payloads, WorkflowExecution},
     enums::v1::HistoryEventFilterType,
     failure::v1::Failure,
     history::v1::{HistoryEvent, history_event::Attributes},
+    update::v1::outcome::Value as OutcomeValue,
     workflowservice::v1::GetWorkflowExecutionHistoryRequest,
 };
 use tmprl_core::history::{Category, GroupRef, NormalizedEvent, Outcome, Role};
@@ -216,6 +219,20 @@ impl Mapped {
         self
     }
 
+    /// Attach a keyed set of argument lists, as a marker records.
+    ///
+    /// The map has no order on the wire, so the keys are sorted: a detail pane that reshuffles
+    /// between refreshes cannot be read.
+    fn keyed_args(mut self, map: HashMap<String, Payloads>) -> Self {
+        let mut keys: Vec<String> = map.keys().cloned().collect();
+        keys.sort();
+        for k in keys {
+            let list = map[&k].clone();
+            self = self.args(&k, Some(list));
+        }
+        self
+    }
+
     /// Attach a single payload.
     fn arg(mut self, label: &str, p: Option<ProtoPayload>) -> Self {
         if let Some(raw) = p {
@@ -264,9 +281,13 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
                 )
                 .field("attempt", a.attempt.to_string())
                 .field("firstRunId", a.first_execution_run_id)
+                .args("input", a.input)
+                .args("lastCompletionResult", a.last_completion_result)
         }
-        Some(Attributes::WorkflowExecutionCompletedEventAttributes(_)) => {
-            at(Category::Workflow, GroupRef::Workflow, Role::Closes).ends(Outcome::Completed)
+        Some(Attributes::WorkflowExecutionCompletedEventAttributes(a)) => {
+            at(Category::Workflow, GroupRef::Workflow, Role::Closes)
+                .ends(Outcome::Completed)
+                .args("result", a.result)
         }
         Some(Attributes::WorkflowExecutionFailedEventAttributes(a)) => {
             at(Category::Workflow, GroupRef::Workflow, Role::Closes)
@@ -276,19 +297,24 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
         Some(Attributes::WorkflowExecutionTimedOutEventAttributes(_)) => {
             at(Category::Workflow, GroupRef::Workflow, Role::Closes).ends(Outcome::TimedOut)
         }
-        Some(Attributes::WorkflowExecutionCanceledEventAttributes(_)) => {
-            at(Category::Workflow, GroupRef::Workflow, Role::Closes).ends(Outcome::Canceled)
+        Some(Attributes::WorkflowExecutionCanceledEventAttributes(a)) => {
+            at(Category::Workflow, GroupRef::Workflow, Role::Closes)
+                .ends(Outcome::Canceled)
+                .args("details", a.details)
         }
         Some(Attributes::WorkflowExecutionTerminatedEventAttributes(a)) => {
             at(Category::Workflow, GroupRef::Workflow, Role::Closes)
                 .ends(Outcome::Terminated)
                 .field("reason", a.reason)
                 .field("identity", a.identity)
+                .args("details", a.details)
         }
         Some(Attributes::WorkflowExecutionContinuedAsNewEventAttributes(a)) => {
             at(Category::Workflow, GroupRef::Workflow, Role::Closes)
                 .ends(Outcome::ContinuedAsNew)
                 .field("newRunId", a.new_execution_run_id)
+                .args("input", a.input)
+                .args("lastCompletionResult", a.last_completion_result)
         }
         Some(Attributes::WorkflowExecutionCancelRequestedEventAttributes(a)) => {
             at(Category::Workflow, GroupRef::Workflow, Role::Continues)
@@ -299,6 +325,7 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
             at(Category::Workflow, GroupRef::Workflow, Role::Continues)
                 .subject(a.signal_name)
                 .field("identity", a.identity)
+                .args("input", a.input)
         }
         Some(Attributes::WorkflowExecutionPausedEventAttributes(_)) => {
             at(Category::Workflow, GroupRef::Workflow, Role::Continues)
@@ -399,7 +426,8 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
             GroupRef::Opened(a.scheduled_event_id),
             Role::Closes,
         )
-        .ends(Outcome::Canceled),
+        .ends(Outcome::Canceled)
+        .args("details", a.details),
         Some(Attributes::ActivityTaskCancelRequestedEventAttributes(a)) => at(
             Category::Activity,
             GroupRef::Opened(a.scheduled_event_id),
@@ -476,7 +504,8 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
             GroupRef::Opened(a.initiated_event_id),
             Role::Closes,
         )
-        .ends(Outcome::Canceled),
+        .ends(Outcome::Canceled)
+        .args("details", a.details),
         Some(Attributes::ChildWorkflowExecutionTimedOutEventAttributes(a)) => at(
             Category::ChildWorkflow,
             GroupRef::Opened(a.initiated_event_id),
@@ -547,14 +576,31 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
             at(Category::Update, GroupRef::Opened(id), Role::Opens)
         }
         Some(Attributes::WorkflowExecutionUpdateAcceptedEventAttributes(a)) => {
-            at(Category::Update, GroupRef::Opened(id), Role::Opens).subject(a.protocol_instance_id)
+            // The arguments live two levels down, on the request the acceptance echoes back.
+            let input = a
+                .accepted_request
+                .and_then(|r| r.input)
+                .and_then(|i| i.args);
+            at(Category::Update, GroupRef::Opened(id), Role::Opens)
+                .subject(a.protocol_instance_id)
+                .args("input", input)
         }
-        Some(Attributes::WorkflowExecutionUpdateCompletedEventAttributes(a)) => at(
-            Category::Update,
-            GroupRef::Opened(a.accepted_event_id),
-            Role::Closes,
-        )
-        .ends(Outcome::Completed),
+        Some(Attributes::WorkflowExecutionUpdateCompletedEventAttributes(a)) => {
+            // An update can be accepted and then fail, and the outcome is where that shows.
+            // Reading only the event type would report every such update as completed.
+            let m = at(
+                Category::Update,
+                GroupRef::Opened(a.accepted_event_id),
+                Role::Closes,
+            );
+            match a.outcome.and_then(|o| o.value) {
+                Some(OutcomeValue::Success(p)) => {
+                    m.ends(Outcome::Completed).args("result", Some(p))
+                }
+                Some(OutcomeValue::Failure(f)) => m.ends(Outcome::Failed).failed(Some(f)),
+                None => m.ends(Outcome::Completed),
+            }
+        }
         Some(Attributes::WorkflowExecutionUpdateRejectedEventAttributes(a)) => {
             // Rejected before acceptance, so there is no accepted event to hang it on.
             at(Category::Update, GroupRef::Opened(id), Role::Opens)
@@ -579,7 +625,8 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
             GroupRef::Opened(a.scheduled_event_id),
             Role::Closes,
         )
-        .ends(Outcome::Completed),
+        .ends(Outcome::Completed)
+        .arg("result", a.result),
         Some(Attributes::NexusOperationFailedEventAttributes(a)) => at(
             Category::Nexus,
             GroupRef::Opened(a.scheduled_event_id),
@@ -620,6 +667,7 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
             at(Category::Marker, GroupRef::Opened(id), Role::Opens)
                 .subject(a.marker_name)
                 .failed(a.failure)
+                .keyed_args(a.details)
         }
         Some(Attributes::UpsertWorkflowSearchAttributesEventAttributes(_)) => at(
             Category::SearchAttributes,
@@ -665,9 +713,13 @@ mod tests {
         enums::v1::EventType,
         history::v1::{
             ActivityTaskFailedEventAttributes, ActivityTaskScheduledEventAttributes,
-            ActivityTaskStartedEventAttributes, TimerFiredEventAttributes,
-            TimerStartedEventAttributes, WorkflowExecutionStartedEventAttributes,
+            ActivityTaskStartedEventAttributes, MarkerRecordedEventAttributes,
+            TimerFiredEventAttributes, TimerStartedEventAttributes,
+            WorkflowExecutionCompletedEventAttributes, WorkflowExecutionSignaledEventAttributes,
+            WorkflowExecutionStartedEventAttributes,
+            WorkflowExecutionUpdateCompletedEventAttributes,
         },
+        update::v1::Outcome as UpdateOutcome,
     };
 
     fn event(id: i64, ty: EventType, attrs: Attributes) -> HistoryEvent {
@@ -909,6 +961,150 @@ mod tests {
         let p = convert(raw);
         assert_eq!(p.encoding, "json/plain");
         assert_eq!(p.type_hint.as_deref(), Some("Keyword"));
+    }
+
+    #[test]
+    fn a_workflow_carries_its_own_input() {
+        // The first thing anyone opens a history to see. Reading only the activity events
+        // leaves the workflow's own arguments invisible.
+        let n = normalize(event(
+            1,
+            EventType::WorkflowExecutionStarted,
+            Attributes::WorkflowExecutionStartedEventAttributes(
+                WorkflowExecutionStartedEventAttributes {
+                    input: Some(Payloads {
+                        payloads: vec![json_payload(r#"{"orderId":7}"#)],
+                    }),
+                    ..Default::default()
+                },
+            ),
+        ));
+
+        let (label, p) = &n.payloads[0];
+        assert_eq!(label, "input");
+        assert_eq!(
+            p.render(),
+            tmprl_core::payload::Rendered::Text("{\n  \"orderId\": 7\n}".into())
+        );
+    }
+
+    #[test]
+    fn a_workflow_carries_its_own_result() {
+        let n = normalize(event(
+            11,
+            EventType::WorkflowExecutionCompleted,
+            Attributes::WorkflowExecutionCompletedEventAttributes(
+                WorkflowExecutionCompletedEventAttributes {
+                    result: Some(Payloads {
+                        payloads: vec![json_payload(r#""ok""#)],
+                    }),
+                    ..Default::default()
+                },
+            ),
+        ));
+
+        assert_eq!(n.outcome, Outcome::Completed);
+        let labels: Vec<&str> = n.payloads.iter().map(|(l, _)| l.as_str()).collect();
+        assert_eq!(labels, ["result"]);
+    }
+
+    #[test]
+    fn a_signal_carries_its_argument() {
+        let n = normalize(event(
+            8,
+            EventType::WorkflowExecutionSignaled,
+            Attributes::WorkflowExecutionSignaledEventAttributes(
+                WorkflowExecutionSignaledEventAttributes {
+                    signal_name: "approve".into(),
+                    input: Some(Payloads {
+                        payloads: vec![json_payload("true")],
+                    }),
+                    ..Default::default()
+                },
+            ),
+        ));
+
+        assert_eq!(n.subject, "approve");
+        assert_eq!(n.payloads.len(), 1);
+    }
+
+    #[test]
+    fn a_marker_details_map_is_ordered_by_key() {
+        // The map has no order on the wire, and a detail pane that reshuffles between
+        // refreshes cannot be read.
+        let details = HashMap::from([
+            (
+                "side-effect-id".to_string(),
+                Payloads {
+                    payloads: vec![json_payload("1")],
+                },
+            ),
+            (
+                "data".to_string(),
+                Payloads {
+                    payloads: vec![json_payload("2")],
+                },
+            ),
+        ]);
+        let n = normalize(event(
+            9,
+            EventType::MarkerRecorded,
+            Attributes::MarkerRecordedEventAttributes(MarkerRecordedEventAttributes {
+                marker_name: "SideEffect".into(),
+                details,
+                ..Default::default()
+            }),
+        ));
+
+        let labels: Vec<&str> = n.payloads.iter().map(|(l, _)| l.as_str()).collect();
+        assert_eq!(labels, ["data", "side-effect-id"]);
+    }
+
+    #[test]
+    fn an_update_that_the_workflow_rejected_is_not_reported_as_completed() {
+        // The event type says Completed either way; only the outcome oneof distinguishes a
+        // successful update from one the workflow refused.
+        let n = normalize(event(
+            12,
+            EventType::WorkflowExecutionUpdateCompleted,
+            Attributes::WorkflowExecutionUpdateCompletedEventAttributes(
+                WorkflowExecutionUpdateCompletedEventAttributes {
+                    outcome: Some(UpdateOutcome {
+                        value: Some(OutcomeValue::Failure(Failure {
+                            message: "not allowed in this state".into(),
+                            ..Default::default()
+                        })),
+                    }),
+                    ..Default::default()
+                },
+            ),
+        ));
+
+        assert_eq!(n.outcome, Outcome::Failed);
+        assert_eq!(n.failure.as_deref(), Some("not allowed in this state"));
+        assert!(n.payloads.is_empty());
+    }
+
+    #[test]
+    fn an_update_that_succeeded_carries_its_result() {
+        let n = normalize(event(
+            12,
+            EventType::WorkflowExecutionUpdateCompleted,
+            Attributes::WorkflowExecutionUpdateCompletedEventAttributes(
+                WorkflowExecutionUpdateCompletedEventAttributes {
+                    outcome: Some(UpdateOutcome {
+                        value: Some(OutcomeValue::Success(Payloads {
+                            payloads: vec![json_payload("42")],
+                        })),
+                    }),
+                    ..Default::default()
+                },
+            ),
+        ));
+
+        assert_eq!(n.outcome, Outcome::Completed);
+        let labels: Vec<&str> = n.payloads.iter().map(|(l, _)| l.as_str()).collect();
+        assert_eq!(labels, ["result"]);
     }
 
     #[test]
