@@ -410,13 +410,33 @@ The application used to hold one cursor and one history, which is what made a se
 impossible rather than merely unwritten. Everything a window owns now lives in a `View`,
 screen, cursor, query, scope, history, follow task, paging tokens, payload pane, and
 everything belonging to the session stays on `App`: the mode, the keymap, the prompt, the
-note line, the codec cache. There is one keyboard and one status line however many panes are
+form, the note line, the codec cache. There is one keyboard and one status line however many panes are
 open, and one decode cache is right because the same payload in two panes should cost one
 round trip.
 
 The focused pane's `View` is held directly on `App` and the others wait in a map; moving focus
 swaps between the two. That is what lets the whole reducer keep saying `self.view` without a
 lookup that could fail.
+
+Three things can own the keyboard, and they are checked in this order: a confirmation, a
+prompt, then a form. A confirmation outranks the rest because a pending change to a cluster
+must not be reachable around; a form outranks the keymap because inside a field `j` is the
+letter, not a cursor move.
+
+```mermaid
+flowchart LR
+    K[key] --> C{confirm?}
+    C -->|yes| CK[confirm_key]
+    C -->|no| P{prompt?}
+    P -->|yes| PK[prompt_key]
+    P -->|no| F{form?}
+    F -->|yes| FK[form_key]
+    F -->|no| KM[keymap resolve]
+```
+
+Editing a form lives in `tmprl-core`, not the renderer: field movement, validation and which
+field is missing are all decidable without knowing the terminal size, so they are unit-tested
+without one.
 
 Two consequences worth stating:
 
