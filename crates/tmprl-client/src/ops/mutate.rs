@@ -13,7 +13,7 @@ use temporalio_client::tonic::Request;
 use temporalio_common::protos::temporal::api::{
     common::v1::{Payload as ProtoPayload, Payloads, WorkflowExecution},
     enums::v1::UpdateWorkflowExecutionLifecycleStage,
-    schedule::v1::{SchedulePatch, TriggerImmediatelyRequest},
+    schedule::v1::{BackfillRequest, SchedulePatch, TriggerImmediatelyRequest},
     update::v1::{Input as UpdateInput, Meta as UpdateMeta, Request as UpdateRequest, WaitPolicy},
     workflowservice::v1::{
         DeleteScheduleRequest, DeleteWorkflowExecutionRequest, PatchScheduleRequest,
@@ -42,6 +42,14 @@ fn identity() -> String {
 /// effect.
 fn request_id() -> String {
     uuid::Uuid::new_v4().to_string()
+}
+
+/// Epoch millis as a protobuf timestamp.
+fn timestamp(ms: i64) -> prost_wkt_types::Timestamp {
+    prost_wkt_types::Timestamp {
+        seconds: ms.div_euclid(1_000),
+        nanos: (ms.rem_euclid(1_000) * 1_000_000) as i32,
+    }
 }
 
 fn execution(workflow_id: &str, run_id: &str) -> Option<WorkflowExecution> {
@@ -250,6 +258,31 @@ impl Conn {
                                 // None means now, which is what "trigger" asks for.
                                 scheduled_time: None,
                             }),
+                            ..Default::default()
+                        }),
+                        identity: identity(),
+                        request_id: request_id(),
+                    }))
+                    .await
+                    .map_err(|s| OpError::rpc("PatchSchedule", s))?;
+            }
+
+            Mutation::BackfillSchedule {
+                namespace,
+                schedule_id,
+                range,
+                overlap,
+            } => {
+                self.wf()
+                    .patch_schedule(Request::new(PatchScheduleRequest {
+                        namespace: namespace.clone(),
+                        schedule_id: schedule_id.clone(),
+                        patch: Some(SchedulePatch {
+                            backfill_request: vec![BackfillRequest {
+                                start_time: Some(timestamp(range.start_ms)),
+                                end_time: Some(timestamp(range.end_ms)),
+                                overlap_policy: overlap.code(),
+                            }],
                             ..Default::default()
                         }),
                         identity: identity(),

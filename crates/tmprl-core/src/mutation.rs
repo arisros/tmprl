@@ -10,6 +10,8 @@
 //! rendered command has to be *correct*: someone will copy it and run it. The flags here are
 //! checked against `temporal workflow --help`, and the quoting is tested.
 
+use crate::timerange::{Overlap, TimeRange, to_rfc3339};
+
 /// A change to a cluster, fully specified.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Mutation {
@@ -70,6 +72,13 @@ pub enum Mutation {
         namespace: String,
         schedule_id: String,
     },
+    /// Replay every action the schedule would have taken over a past window.
+    BackfillSchedule {
+        namespace: String,
+        schedule_id: String,
+        range: TimeRange,
+        overlap: Overlap,
+    },
 }
 
 /// The three schedule operations act on a schedule id rather than an execution, so they do
@@ -80,7 +89,8 @@ impl Mutation {
         match self {
             Mutation::PauseSchedule { schedule_id, .. }
             | Mutation::TriggerSchedule { schedule_id, .. }
-            | Mutation::DeleteSchedule { schedule_id, .. } => Some(schedule_id),
+            | Mutation::DeleteSchedule { schedule_id, .. }
+            | Mutation::BackfillSchedule { schedule_id, .. } => Some(schedule_id),
             _ => None,
         }
     }
@@ -100,6 +110,7 @@ impl Mutation {
             Mutation::PauseSchedule { paused: false, .. } => "Resume",
             Mutation::TriggerSchedule { .. } => "Trigger",
             Mutation::DeleteSchedule { .. } => "Delete schedule",
+            Mutation::BackfillSchedule { .. } => "Backfill",
         }
     }
 
@@ -117,6 +128,7 @@ impl Mutation {
             Mutation::PauseSchedule { paused: false, .. } => "resumed",
             Mutation::TriggerSchedule { .. } => "triggered",
             Mutation::DeleteSchedule { .. } => "deleted",
+            Mutation::BackfillSchedule { .. } => "backfilled",
         }
     }
 
@@ -130,7 +142,8 @@ impl Mutation {
             | Mutation::Update { namespace, .. }
             | Mutation::PauseSchedule { namespace, .. }
             | Mutation::TriggerSchedule { namespace, .. }
-            | Mutation::DeleteSchedule { namespace, .. } => namespace,
+            | Mutation::DeleteSchedule { namespace, .. }
+            | Mutation::BackfillSchedule { namespace, .. } => namespace,
         }
     }
 
@@ -145,7 +158,8 @@ impl Mutation {
             // Schedule operations have no execution; the id is the schedule's.
             Mutation::PauseSchedule { schedule_id, .. }
             | Mutation::TriggerSchedule { schedule_id, .. }
-            | Mutation::DeleteSchedule { schedule_id, .. } => schedule_id,
+            | Mutation::DeleteSchedule { schedule_id, .. }
+            | Mutation::BackfillSchedule { schedule_id, .. } => schedule_id,
         }
     }
 
@@ -159,7 +173,8 @@ impl Mutation {
             | Mutation::Update { run_id, .. } => run_id,
             Mutation::PauseSchedule { .. }
             | Mutation::TriggerSchedule { .. }
-            | Mutation::DeleteSchedule { .. } => "",
+            | Mutation::DeleteSchedule { .. }
+            | Mutation::BackfillSchedule { .. } => "",
         }
     }
 
@@ -177,6 +192,7 @@ impl Mutation {
                 | Mutation::Update { .. }
                 | Mutation::PauseSchedule { .. }
                 | Mutation::TriggerSchedule { .. }
+                | Mutation::BackfillSchedule { .. }
         )
     }
 
@@ -268,6 +284,20 @@ impl Mutation {
                 "temporal schedule delete --namespace {} --schedule-id {}",
                 shell_quote(namespace),
                 shell_quote(schedule_id)
+            ),
+            Mutation::BackfillSchedule {
+                namespace,
+                schedule_id,
+                range,
+                overlap,
+            } => format!(
+                "temporal schedule backfill --namespace {} --schedule-id {} \
+                 --start-time {} --end-time {} --overlap-policy {}",
+                shell_quote(namespace),
+                shell_quote(schedule_id),
+                to_rfc3339(range.start_ms),
+                to_rfc3339(range.end_ms),
+                overlap.name()
             ),
         }
     }
@@ -381,6 +411,31 @@ mod tests {
             run_id: "run-abc".into(),
             reason: reason.into(),
         }
+    }
+
+    #[test]
+    fn a_backfill_renders_the_cli_with_rfc3339_bounds() {
+        // Someone will copy this line and run it, so the times have to be in the format
+        // `temporal schedule backfill` accepts, not the millis tmprl holds internally.
+        let m = Mutation::BackfillSchedule {
+            namespace: "default".into(),
+            schedule_id: "nightly recon".into(),
+            range: TimeRange {
+                start_ms: 1_788_566_400_000,
+                end_ms: 1_788_652_800_000,
+            },
+            overlap: Overlap::BufferAll,
+        };
+        assert_eq!(
+            m.cli(),
+            "temporal schedule backfill --namespace default --schedule-id 'nightly recon' \
+             --start-time 2026-09-05T00:00:00Z --end-time 2026-09-06T00:00:00Z \
+             --overlap-policy BufferAll"
+        );
+        assert_eq!(m.verb(), "Backfill");
+        assert_eq!(m.past_tense(), "backfilled");
+        assert_eq!(m.schedule_id(), Some("nightly recon"));
+        assert!(!m.is_destructive(), "it starts runs, it destroys nothing");
     }
 
     #[test]
