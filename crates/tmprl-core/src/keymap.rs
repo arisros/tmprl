@@ -119,7 +119,7 @@ impl Keymap {
     }
 
     pub fn resolve(&self, mode: Mode, pending: &mut Pending, chord: Chord) -> Resolution {
-        // A digit starts or extends a count, but only when no sequence is in flight —
+        // A digit starts or extends a count, but only when no sequence is in flight,
         // otherwise `<leader>1` could never be bound.
         if mode.takes_counts()
             && pending.chords.is_empty()
@@ -192,7 +192,7 @@ impl Keymap {
 /// feature that is not built yet would make the which-key popup advertise things that do
 /// nothing, which is worse than an empty keymap.
 ///
-/// `C-h/j/k/l` are deliberately absent — see `docs/INTERFACE.md`.
+/// `C-h/j/k/l` are deliberately absent. See `docs/INTERFACE.md`.
 pub fn default_keymap() -> Keymap {
     let mut m = Keymap::new(Chord::ch(' '));
     let mut bind = |mode, seq, cmd| {
@@ -220,7 +220,7 @@ pub fn default_keymap() -> Keymap {
     }
 
     // `<CR>` opens in the visual modes too, where it means "open the selection": that is
-    // how several namespaces become one merged workflow list. `-` stays Normal-only —
+    // how several namespaces become one merged workflow list. `-` stays Normal-only,
     // walking up a level while selecting rows has no sensible meaning.
     for mode in [Mode::Normal, Mode::Visual, Mode::VisualLine] {
         bind(mode, "<CR>", "nav.open");
@@ -240,7 +240,7 @@ pub fn default_keymap() -> Keymap {
         bind(mode, "[f", "history.prev-failure");
         bind(mode, "F", "history.follow");
         // `K` is vim's "look up what is under the cursor", which is exactly what the detail
-        // pane does — it shows the payloads of the focused event or group.
+        // pane does, it shows the payloads of the focused event or group.
         bind(mode, "K", "history.detail");
         // vim scrolls a window by a line with <C-e>/<C-y>; here they scroll the payload
         // pane, which is the only thing on screen tall enough to need it.
@@ -249,7 +249,7 @@ pub fn default_keymap() -> Keymap {
         // vim's filter operator. Here it filters the focused payloads rather than lines.
         bind(mode, "!", "payload.pipe");
 
-        // Windows and tabs, with vim's bindings. `<C-w>` prefixes focus movement — never
+        // Windows and tabs, with vim's bindings. `<C-w>` prefixes focus movement, never
         // bare `<C-h/j/k/l>`, which tmux's vim-tmux-navigator swallows before any
         // application sees them.
         bind(mode, "<leader>sv", "window.split-right");
@@ -264,7 +264,7 @@ pub fn default_keymap() -> Keymap {
         bind(mode, "<leader>rj", "window.grow-down");
         bind(mode, "<leader>rk", "window.grow-up");
         bind(mode, "<leader>rl", "window.grow-right");
-        // Mutations live under `<leader>m` — for "mutate", and clear of bare `m`, which
+        // Mutations live under `<leader>m`, for "mutate", and clear of bare `m`, which
         // marks reserve. Every one of them opens a confirmation rather than acting.
         bind(mode, "<leader>mc", "workflow.cancel");
         bind(mode, "<leader>mt", "workflow.terminate");
@@ -341,7 +341,7 @@ mod tests {
 
     #[test]
     fn leading_zero_is_not_a_count() {
-        // In vim `0` is a motion, not a count — it may only extend one already started.
+        // In vim `0` is a motion, not a count, it may only extend one already started.
         let (m, mut p) = (map(), Pending::default());
         assert!(matches!(
             m.resolve(Mode::Normal, &mut p, Chord::ch('0')),

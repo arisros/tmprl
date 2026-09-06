@@ -12,10 +12,10 @@ repository = "https://github.com/arisjirat/tmprl"
 temporalio-client = "=0.7.0"
 temporalio-common = "=0.7.0"
 # Timestamps on the generated protos are `prost_wkt_types::Timestamp`, NOT
-# `prost_types::Timestamp` — temporalio-protos generates against prost-wkt-types and
+# `prost_types::Timestamp`, temporalio-protos generates against prost-wkt-types and
 # re-exports neither. Mapping a start time to epoch millis needs this crate by name.
 prost-wkt-types = "0.7"
-# "process" is for `!` — filtering a payload through an external command such as jq.
+# "process" is for `!`, filtering a payload through an external command such as jq.
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "signal", "process", "io-util"] }
 ratatui = "0.30"
 # ratatui pulls crossterm but not these two features: `event-stream` gives the async
@@ -29,7 +29,7 @@ thiserror = "2"
 # reading the files is the TUI's job.
 toml = "0.9"
 # Payload rendering: pretty-printing a json/plain payload, and deciding whether one is
-# valid JSON before it is piped anywhere. Parsing only — no derives.
+# valid JSON before it is piped anywhere. Parsing only, no derives.
 serde_json = "1"
 # The codec-server round trip is plain HTTP(S), not gRPC. rustls rather than native-tls
 # because temporalio-client already brings rustls in, so this shares its stack.

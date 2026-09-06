@@ -5,7 +5,7 @@
 //! drift apart: a command that exists is reachable and discoverable by construction.
 //!
 //! Commands carry an [`Action`] rather than a function pointer. Dispatch lives in
-//! `tmprl-tui`, which keeps this crate free of any application or terminal types — and
+//! `tmprl-tui`, which keeps this crate free of any application or terminal types, and
 //! makes the match on `Action` exhaustive, so a new command cannot be silently unhandled.
 
 /// What a command does. `tmprl-tui` matches on this exhaustively.
@@ -144,7 +144,7 @@ impl Registry {
             "history.plumbing",   "History",     "Show/hide workflow tasks"  => TogglePlumbing;
             "history.next-failure","History",    "Jump to the next failure"  => NextFailure;
             "history.prev-failure","History",    "Jump to the previous failure" => PrevFailure;
-            "history.follow",     "History",     "Follow — tail a running workflow" => ToggleFollow;
+            "history.follow",     "History",     "Follow, tail a running workflow" => ToggleFollow;
             "history.detail",     "History",     "Show the payloads under the cursor" => ToggleDetail;
             "history.detail-down","History",     "Scroll the payload pane down" => DetailDown;
             "history.detail-up",  "History",     "Scroll the payload pane up"   => DetailUp;
@@ -182,7 +182,7 @@ impl Registry {
     ///
     /// Views are user data, so their ids and titles are not known at compile time. They are
     /// leaked deliberately: a `Registry` is built once at startup and lives for the whole
-    /// process, so this is a bounded, one-off allocation — and it is what lets a saved view
+    /// process, so this is a bounded, one-off allocation, and it is what lets a saved view
     /// be a first-class command, reachable from `:`, the help overlay and a macro, rather
     /// than a special case wired past the registry.
     pub fn add_views(&mut self, views: &[crate::config::SavedView]) {
@@ -228,7 +228,7 @@ impl Registry {
         hits
     }
 
-    /// Every group name, in first-registered order — the help overlay renders in this order.
+    /// Every group name, in first-registered order, the help overlay renders in this order.
     pub fn groups(&self) -> Vec<&'static str> {
         let mut seen = Vec::new();
         for c in &self.commands {

@@ -4,7 +4,7 @@
 > workflow history outline, follow mode, payload rendering and piping, the visibility query
 > bar, saved views, counts, which-key, the `:` command line, the help overlay and yank all
 > work today. Bindings for features that do not exist yet (histories,
-> splits, pickers, follow mode) are **specified here but deliberately not bound** — a key
+> splits, pickers, follow mode) are **specified here but deliberately not bound**, a key
 > that opens an empty screen is worse than a key that does nothing at all. The keymap
 > tables below mark which is which.
 >
@@ -17,7 +17,7 @@
 
 `tmprl` is a modal application. It borrows Neovim's model rather than inventing one, on the
 grounds that the people who want a Temporal client in their terminal are overwhelmingly
-people who already have those motions in their fingers — and that a second, nearly-identical
+people who already have those motions in their fingers, and that a second, nearly-identical
 set of bindings to learn is a cost with no return.
 
 Modes: **Normal**, **Insert** (query bar, payload editors, forms), **Visual** and
@@ -28,15 +28,15 @@ Consequences that follow from taking the model seriously rather than decorativel
 
 - **Counts work.** `7j`, `10G`, `3<C-d>`. Lists render a hybrid relative/absolute gutter, so
   a count is something you can read off the screen rather than estimate.
-- **`jk` leaves Insert**, everywhere, in addition to `Esc`.
-- **Yank goes to the system clipboard by default** — `clipboard=unnamedplus` semantics, not a
+- **`jk` leaves Insert**: everywhere, in addition to `Esc`.
+- **Yank goes to the system clipboard by default**: `clipboard=unnamedplus` semantics, not a
   private register nobody can paste out of.
 - **Marks and a jumplist** (`m{a-z}`, `` `{a-z} ``, `<C-o>`, `<C-i>`) that work *across*
   workflows and namespaces, not just within one view.
 - **Macros** (`q{reg}`, `@{reg}`, `@@`) and `.` to repeat.
 
 Macros record command ids, not keystrokes. A recorded macro is therefore readable text that
-survives a remap — see [the command registry](ARCHITECTURE.md#4-the-command-registry--built).
+survives a remap. See [the command registry](ARCHITECTURE.md#4-the-command-registry--built).
 
 ## Two constraints imposed by tmux
 
@@ -62,7 +62,7 @@ choice regardless.
 ### Yank must be OSC 52, not `xclip`
 
 The common deployment is SSH into a remote host, often headless. There, `xclip` and `xsel`
-either fail outright or copy into a clipboard on the *server* — which helps nobody, silently.
+either fail outright or copy into a clipboard on the *server*, which helps nobody, silently.
 
 [OSC 52](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html#h4-Operating-System-Commands)
 transmits the copied text back over the terminal connection to the machine the human is
@@ -87,9 +87,9 @@ Leader is `Space`. A which-key-style popup appears after 500ms on an incomplete 
 |---|---|---|
 | `j` `k` `gg` `G` `<C-d>` `<C-u>` | move, with counts | **live** |
 | `<Down>` `<Up>` | move | **live** |
-| `Enter` | open the focused item — namespace → workflows → history | **live** |
+| `Enter` | open the focused item, namespace → workflows → history | **live** |
 | `Enter` (in Visual) | open every selected namespace as one merged list | **live** |
-| `-` | **go up a level** — run → workflow → namespace → cluster | **live** |
+| `-` | **go up a level**, run → workflow → namespace → cluster | **live** |
 | `<leader>-` | floating object browser | M2 |
 | `<C-o>` / `<C-i>` | jumplist back / forward | M7 |
 | `<leader>N` | switch namespace | M2 |
@@ -120,7 +120,7 @@ treatment of a directory as an editable buffer. Temporal's objects form a hierar
 Saved views are bound under the **leader**, not to bare digits as this document originally
 specified. A leading digit in Normal mode starts a count, and counts composing with every
 motion (`7j`, `10G`) is worth more than saving one keystroke. Only views that `views.toml`
-actually defines get a binding, so the which-key popup never advertises an empty slot — it
+actually defines get a binding, so the which-key popup never advertises an empty slot, it
 lists them by name.
 
 ### The query bar
@@ -129,7 +129,7 @@ The visibility query is always on screen and always the raw string. Anything tha
 list writes *into* that text rather than replacing it with a structure you cannot see: a
 saved view fills the bar and leaves it editable, and the filter builder planned for M2 will
 do the same. This is the one piece of the web UI's design being deliberately rejected rather
-than ported — a lossy abstraction over the query is what makes that filter widget
+than ported, a lossy abstraction over the query is what makes that filter widget
 frustrating to use.
 
 Pickers are bottom-docked with a preview pane, following Telescope's `ivy` layout.
@@ -154,8 +154,8 @@ a readable diff, is not built yet.
 ### Reading a history
 
 Events are folded into groups: an activity that was scheduled, started and completed is one
-row, not three, and it carries its own retry count and failure message. Workflow tasks — the
-worker polling — are the majority of events in a real history and almost never what you came
+row, not three, and it carries its own retry count and failure message. Workflow tasks, the
+worker polling, are the majority of events in a real history and almost never what you came
 to read, so they are folded away until `zp`.
 
 The fold bindings are vim's `z` family deliberately, so the which-key popup on `z` reads the
@@ -166,7 +166,7 @@ resembles. `]f` / `[f` follow vim-unimpaired's bracket-motion convention.
 lines. The prompt opens pre-filled with `jq .`, because that is what it is for and an empty
 prompt means retyping the same three characters every time.
 
-A row usually carries more than one payload — an activity has both an `input` and a `result` —
+A row usually carries more than one payload, an activity has both an `input` and a `result`,
 so "pipe the payload" would be ambiguous. What is piped is a JSON object keyed by label, which
 makes the obvious expressions work: `jq .` shows everything, `jq .result` picks one,
 `jq .input[1]` picks an argument. A payload that is encrypted or binary is left out and the
@@ -178,7 +178,7 @@ payload pane; a failure shows the command's own stderr, since when a `jq` expres
 jq's message is the entire diagnosis.
 
 `F` tails a running workflow, the way `tail -f` does. The statusline carries a **FOLLOW**
-badge while it is on, because a view that rewrites itself under you needs to say so — a
+badge while it is on, because a view that rewrites itself under you needs to say so, a
 screen that changes on its own otherwise reads as a glitch. Following stops on `F`, on leaving
 the history, and by itself when the workflow closes, which it reports rather than leaving the
 badge up over a view that has quietly stopped moving. Following a workflow that has *already*
@@ -193,7 +193,7 @@ closed is refused with a message instead of polling for events that can never ar
 | `zR` / `zM` | expand / collapse every group | **live** |
 | `zp` | show or hide the workflow-task plumbing | **live** |
 | `]f` / `[f` | jump to the next / previous failure | **live** |
-| `F` | follow — tail a running workflow | **live** |
+| `F` | follow, tail a running workflow | **live** |
 | `<leader>cs` | call stack (`__stack_trace` query) | M2 |
 | `<leader>cq` | send a query to the workflow | M2 |
 | `!` | pipe the focused payloads through a command | **live** |
@@ -218,7 +218,7 @@ closed is refused with a message instead of polling for events that can never ar
 | `<leader>md` | delete this workflow | **live** |
 | `<leader>mr` | reset to the event under the cursor | **live** |
 | `<leader>mu` | send an update and wait for its outcome | **live** |
-| `<leader>xx` | problem list — failed and task-failure workflows | M2 |
+| `<leader>xx` | problem list, failed and task-failure workflows | M2 |
 | `<leader>xQ` | open the quickfix list | M5 |
 
 The quickfix list is how batch operations are staged. Select rows, `<C-q>` to stage them,
@@ -258,7 +258,7 @@ Every mutation routes through one confirmation modal, which displays **the equiv
 gives an escape hatch to anyone who would rather not trust a TUI with it:
 
 ```
-┌ confirm — terminate ────────────────────────────────────────────────┐
+┌ confirm, terminate ────────────────────────────────────────────────┐
 │  Terminate kill-me                                                  │
 │  in default                                                         │
 │                                                                     │
@@ -277,15 +277,15 @@ run, so it wants the word `delete` typed.
 
 Batch operations will additionally show a `CountWorkflowExecutions` dry run and require typing
 the affected count. Every mutation appends to `~/.local/state/tmprl/audit.jsonl`, failures
-included — the question that log answers is what was *attempted*.
+included, the question that log answers is what was *attempted*.
 
 ## Theming
 
 Colours will come from `~/.config/tmprl/theme.toml`; that loader is not written yet, and the
 palette is currently compiled in. What *is* live is the part that matters most: status is
-encoded in shape as well as hue. Every execution status has its own glyph — `●` running,
+encoded in shape as well as hue. Every execution status has its own glyph, `●` running,
 `✓` completed, `✗` failed, `■` terminated, `⊘` cancelled, `◔` timed out, `↻` continued-as-new,
-`‖` paused — used identically in the table and in the header tallies. Colour only reinforces
+`‖` paused, used identically in the table and in the header tallies. Colour only reinforces
 it, so the workflow list stays readable in a 16-colour terminal and for a colour-blind
 reader.
 
@@ -293,11 +293,11 @@ reader.
 
 | File | Holds |
 |---|---|
-| `~/.config/tmprl/config.toml` | codec server endpoint — **live**; refresh intervals and defaults *planned* |
-| `~/.config/tmprl/keys.toml` | key chord → command id — **live** |
-| `~/.config/tmprl/theme.toml` | colours — *planned* |
-| `~/.config/tmprl/views.toml` | saved visibility queries — **live** |
-| `~/.local/state/tmprl/audit.jsonl` | every mutation attempted — **live** |
+| `~/.config/tmprl/config.toml` | codec server endpoint, **live**; refresh intervals and defaults *planned* |
+| `~/.config/tmprl/keys.toml` | key chord → command id, **live** |
+| `~/.config/tmprl/theme.toml` | colours, *planned* |
+| `~/.config/tmprl/views.toml` | saved visibility queries, **live** |
+| `~/.local/state/tmprl/audit.jsonl` | every mutation attempted, **live** |
 
 The directory is `$TMPRL_CONFIG_DIR`, else `$XDG_CONFIG_HOME/tmprl`, else `~/.config/tmprl`.
 A `config.toml` points at a codec server, if the cluster uses one:
@@ -308,7 +308,7 @@ endpoint = "http://localhost:8081"
 auth     = "Bearer …"   # optional; sent verbatim as Authorization
 ```
 
-Encrypted payloads are decoded lazily — only what the pane is showing, never a whole history —
+Encrypted payloads are decoded lazily, only what the pane is showing, never a whole history,
 and cached, so scrolling back over a row costs nothing. Without an endpoint the badge says
 where to set one.
 A `views.toml` looks like:
@@ -325,5 +325,5 @@ name  = "Broken"
 query = "ExecutionStatus = 'Failed' OR ExecutionStatus = 'Terminated'"
 ```
 
-Connection settings are deliberately *not* in this list — those come from
+Connection settings are deliberately *not* in this list, those come from
 `~/.config/temporalio/temporal.toml`, the same file the `temporal` CLI uses.

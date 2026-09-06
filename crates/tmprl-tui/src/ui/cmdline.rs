@@ -1,7 +1,7 @@
 //! Completions for the `:` command line.
 //!
 //! Candidates come from the command registry, so anything runnable is discoverable by
-//! typing part of its name — there is no second list to keep in sync.
+//! typing part of its name, there is no second list to keep in sync.
 
 use ratatui::Frame;
 use ratatui::layout::Rect;

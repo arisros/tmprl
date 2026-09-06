@@ -37,7 +37,6 @@ async fn main() -> anyhow::Result<()> {
         conn.namespace()
     );
 
-    // ── namespaces ───────────────────────────────────────────────────────────
     let mut wf = conn.wf();
     let ns = wf
         .list_namespaces(Request::new(ListNamespacesRequest {
@@ -53,7 +52,6 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    // ── counts, the cheap header stat ────────────────────────────────────────
     let count = wf
         .count_workflow_executions(Request::new(CountWorkflowExecutionsRequest {
             namespace: conn.namespace().to_string(),
@@ -67,7 +65,6 @@ async fn main() -> anyhow::Result<()> {
         count.count
     );
 
-    // ── the workflow table ───────────────────────────────────────────────────
     let list = wf
         .list_workflow_executions(Request::new(ListWorkflowExecutionsRequest {
             namespace: conn.namespace().to_string(),
@@ -92,7 +89,6 @@ async fn main() -> anyhow::Result<()> {
     }
     println!("  next_page_token: {} bytes", list.next_page_token.len());
 
-    // ── history: the shape follow mode long-polls on ─────────────────────────
     if let Some(exec) = first {
         let hist = wf
             .get_workflow_execution_history(Request::new(GetWorkflowExecutionHistoryRequest {

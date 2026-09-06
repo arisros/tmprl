@@ -25,7 +25,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
         let msg = if view.namespaces.is_loading() {
             "loading namespaces…"
         } else if view.namespaces.error().is_some() {
-            "could not load namespaces — R to retry"
+            "could not load namespaces (R to retry)"
         } else {
             "no namespaces"
         };
