@@ -160,6 +160,9 @@ pub enum Msg {
     Mutated {
         mutation: Box<Mutation>,
         result: Result<(), String>,
+        /// `Some((done, total))` when this is one row of a batch, so the status line can
+        /// count up rather than flashing each row's name in turn.
+        batch: Option<(usize, usize)>,
     },
     /// Payloads a codec server decoded, paired with the hash of what was sent.
     Decoded(Result<Vec<(u64, Payload)>, String>),
@@ -372,7 +375,11 @@ impl App {
             Msg::Key(chord) => self.on_key(chord),
             Msg::Quit => self.should_quit = true,
             Msg::Tick | Msg::Redraw => {}
-            Msg::Mutated { mutation, result } => {
+            Msg::Mutated {
+                mutation,
+                result,
+                batch,
+            } => {
                 let outcome = match &result {
                     Ok(()) => "ok".to_string(),
                     Err(e) => format!("failed: {e}"),
@@ -381,7 +388,14 @@ impl App {
                 match result {
                     Ok(()) => {
                         self.note = Some((
-                            format!("{} {}", mutation.past_tense(), mutation.workflow_id()),
+                            match batch {
+                                Some((done, total)) => {
+                                    format!("{} {done}/{total}", mutation.past_tense())
+                                }
+                                None => {
+                                    format!("{} {}", mutation.past_tense(), mutation.workflow_id())
+                                }
+                            },
                             Note::Info,
                         ));
                         // ListSchedules is eventually consistent, so the refresh below can
@@ -1525,6 +1539,31 @@ impl App {
 
     /// The workflow a mutation would act on: the row under the cursor on the workflow list,
     /// or the one whose history is open.
+    /// Every workflow a mutation would act on.
+    ///
+    /// The visual selection when there is one, otherwise the single row under the cursor.
+    /// One path rather than two, so a batch cannot drift from what a single action does.
+    fn target_workflows(&self) -> Vec<WorkflowRow> {
+        if self.view.screen == Screen::Workflows
+            && let Some((lo, hi)) = self.view.selection()
+        {
+            let rows = self.view.workflow_rows();
+            return rows[lo.min(rows.len())..(hi + 1).min(rows.len())].to_vec();
+        }
+        self.target_workflow().into_iter().collect()
+    }
+
+    /// Every schedule a mutation would act on, on the same rule.
+    fn target_schedules(&self) -> Vec<ScheduleRow> {
+        if self.view.screen == Screen::Schedules
+            && let Some((lo, hi)) = self.view.selection()
+        {
+            let rows = self.view.schedule_rows();
+            return rows[lo.min(rows.len())..(hi + 1).min(rows.len())].to_vec();
+        }
+        self.target_schedule().into_iter().collect()
+    }
+
     fn target_workflow(&self) -> Option<WorkflowRow> {
         match self.view.screen {
             Screen::Workflows => self.view.workflow_rows().get(self.view.cursor).cloned(),
@@ -1543,10 +1582,11 @@ impl App {
                 | MutationKind::DeleteSchedule
                 | MutationKind::BackfillSchedule
         ) {
-            let Some(row) = self.target_schedule() else {
+            let rows = self.target_schedules();
+            if rows.is_empty() {
                 self.note = Some(("no schedule under the cursor".into(), Note::Warn));
                 return;
-            };
+            }
             if matches!(kind, MutationKind::BackfillSchedule) {
                 // The window has to be typed, so this reaches a confirmation only after the
                 // prompt comes back.
@@ -1557,121 +1597,146 @@ impl App {
                 self.mode = Mode::Command;
                 return;
             }
-            let (namespace, schedule_id) = (row.namespace.clone(), row.schedule_id.clone());
-            let mutation = match kind {
-                MutationKind::PauseSchedule => Mutation::PauseSchedule {
-                    namespace,
-                    schedule_id,
-                    // One key toggles, so the target state is the opposite of now.
-                    paused: !row.paused,
-                },
-                MutationKind::TriggerSchedule => Mutation::TriggerSchedule {
-                    namespace,
-                    schedule_id,
-                },
-                _ => Mutation::DeleteSchedule {
-                    namespace,
-                    schedule_id,
-                },
-            };
-            self.confirm = Some(Confirm::new(mutation));
+            // Pause reads the state of the *first* row and moves every selected schedule to
+            // the same one. Toggling each independently would leave a mixed selection still
+            // mixed, which is never what one keypress was asking for.
+            let target_paused = !rows[0].paused;
+            let mutations = rows
+                .into_iter()
+                .map(|row| {
+                    let (namespace, schedule_id) = (row.namespace, row.schedule_id);
+                    match kind {
+                        MutationKind::PauseSchedule => Mutation::PauseSchedule {
+                            namespace,
+                            schedule_id,
+                            paused: target_paused,
+                        },
+                        MutationKind::TriggerSchedule => Mutation::TriggerSchedule {
+                            namespace,
+                            schedule_id,
+                        },
+                        _ => Mutation::DeleteSchedule {
+                            namespace,
+                            schedule_id,
+                        },
+                    }
+                })
+                .collect();
+            self.confirm = Some(Confirm::batch(mutations));
             return;
         }
 
-        let Some(row) = self.target_workflow() else {
-            self.note = Some(("no workflow under the cursor".into(), Note::Warn));
-            return;
-        };
-        let (namespace, workflow_id, run_id) = (
-            row.namespace.clone(),
-            row.workflow_id.clone(),
-            row.run_id.clone(),
-        );
-
-        let mutation = match kind {
-            MutationKind::Cancel => Mutation::Cancel {
-                namespace,
-                workflow_id,
-                run_id,
-            },
-            MutationKind::Terminate => Mutation::Terminate {
-                namespace,
-                workflow_id,
-                run_id,
-                // A reason is required by the API and useful in the history. Editing it
-                // before confirming is M4 work; a default beats an empty string.
-                reason: "terminated from tmprl".into(),
-            },
-            MutationKind::Delete => Mutation::Delete {
-                namespace,
-                workflow_id,
-                run_id,
-            },
-            MutationKind::Signal | MutationKind::Update => {
-                // Both need a name, which has to be typed. Reuse the prompt rather than
-                // inventing a second text field.
-                self.prompt = Some(Prompt {
-                    kind: if matches!(kind, MutationKind::Signal) {
-                        PromptKind::Signal
-                    } else {
-                        PromptKind::Update
-                    },
-                    buf: String::new(),
-                });
-                self.mode = Mode::Command;
+        // Both need a name, which has to be typed. Reuse the prompt rather than inventing a
+        // second text field; the name applies to every row the selection covers.
+        if matches!(kind, MutationKind::Signal | MutationKind::Update) {
+            if self.target_workflows().is_empty() {
+                self.note = Some(("no workflow under the cursor".into(), Note::Warn));
                 return;
             }
-            // Handled above, before a workflow target is looked for.
-            MutationKind::PauseSchedule
-            | MutationKind::TriggerSchedule
-            | MutationKind::DeleteSchedule
-            | MutationKind::BackfillSchedule => return,
-            MutationKind::Reset => {
-                // A reset needs an event to go back to, which only the history view has.
-                let Some(event_id) = self.reset_target() else {
-                    self.note = Some((
-                        "reset needs a workflow history with a completed workflow task above \
-                         the cursor"
-                            .into(),
-                        Note::Warn,
-                    ));
-                    return;
-                };
-                Mutation::Reset {
-                    namespace,
-                    workflow_id,
-                    run_id,
-                    event_id,
-                    reason: "reset from tmprl".into(),
+            self.prompt = Some(Prompt {
+                kind: if matches!(kind, MutationKind::Signal) {
+                    PromptKind::Signal
+                } else {
+                    PromptKind::Update
+                },
+                buf: String::new(),
+            });
+            self.mode = Mode::Command;
+            return;
+        }
+
+        if matches!(kind, MutationKind::Reset) {
+            // A reset goes back to an event, which only a history has, and a history is one
+            // workflow. There is nothing to batch.
+            let Some(row) = self.target_workflow() else {
+                self.note = Some(("no workflow under the cursor".into(), Note::Warn));
+                return;
+            };
+            let Some(event_id) = self.reset_target() else {
+                self.note = Some((
+                    "reset needs a workflow history with a completed workflow task above \
+                     the cursor"
+                        .into(),
+                    Note::Warn,
+                ));
+                return;
+            };
+            self.confirm = Some(Confirm::new(Mutation::Reset {
+                namespace: row.namespace,
+                workflow_id: row.workflow_id,
+                run_id: row.run_id,
+                event_id,
+                reason: "reset from tmprl".into(),
+            }));
+            return;
+        }
+
+        let rows = self.target_workflows();
+        if rows.is_empty() {
+            self.note = Some(("no workflow under the cursor".into(), Note::Warn));
+            return;
+        }
+
+        let mutations = rows
+            .into_iter()
+            .map(|row| {
+                let (namespace, workflow_id, run_id) = (row.namespace, row.workflow_id, row.run_id);
+                match kind {
+                    MutationKind::Terminate => Mutation::Terminate {
+                        namespace,
+                        workflow_id,
+                        run_id,
+                        // A reason is required by the API and useful in the history. Editing
+                        // it before confirming is not built; a default beats an empty string.
+                        reason: "terminated from tmprl".into(),
+                    },
+                    MutationKind::Delete => Mutation::Delete {
+                        namespace,
+                        workflow_id,
+                        run_id,
+                    },
+                    // Cancel, and the kinds already returned above.
+                    _ => Mutation::Cancel {
+                        namespace,
+                        workflow_id,
+                        run_id,
+                    },
                 }
-            }
-        };
-        self.confirm = Some(Confirm::new(mutation));
+            })
+            .collect();
+        self.confirm = Some(Confirm::batch(mutations));
     }
 
     /// Turn a typed signal or update name into a confirmation.
     fn confirm_named(&mut self, kind: PromptKind, name: String) {
-        let Some(row) = self.target_workflow() else {
+        let rows = self.target_workflows();
+        if rows.is_empty() {
             return;
-        };
-        let (namespace, workflow_id, run_id) = (row.namespace, row.workflow_id, row.run_id);
-        let mutation = match kind {
-            PromptKind::Update => Mutation::Update {
-                namespace,
-                workflow_id,
-                run_id,
-                name,
-                input: None,
-            },
-            _ => Mutation::Signal {
-                namespace,
-                workflow_id,
-                run_id,
-                name,
-                input: None,
-            },
-        };
-        self.confirm = Some(Confirm::new(mutation));
+        }
+        let mutations = rows
+            .into_iter()
+            .map(|row| {
+                let (namespace, workflow_id, run_id) = (row.namespace, row.workflow_id, row.run_id);
+                let name = name.clone();
+                match kind {
+                    PromptKind::Update => Mutation::Update {
+                        namespace,
+                        workflow_id,
+                        run_id,
+                        name,
+                        input: None,
+                    },
+                    _ => Mutation::Signal {
+                        namespace,
+                        workflow_id,
+                        run_id,
+                        name,
+                        input: None,
+                    },
+                }
+            })
+            .collect();
+        self.confirm = Some(Confirm::batch(mutations));
     }
 
     /// Turn a typed backfill window into a confirmation.
@@ -1794,9 +1859,14 @@ impl App {
                 self.note = Some(("cancelled".into(), Note::Info));
             }
             Key::Enter if confirm.is_satisfied() => {
-                let mutation = confirm.mutation.clone();
+                let mutations = std::mem::take(&mut confirm.mutations);
                 self.confirm = None;
-                self.run_mutation(mutation);
+                // The rows it covered are about to change or disappear, so the selection
+                // that named them is spent. Leaving it up would invite a second batch over
+                // a range that no longer means what it did.
+                self.view.anchor = None;
+                self.mode = Mode::Normal;
+                self.run_mutations(mutations);
             }
             // Enter with the word unfinished is not a refusal, just not yet.
             Key::Enter => {}
@@ -1809,18 +1879,39 @@ impl App {
     }
 
     /// Send it. Spawned like every other RPC, a mutation must not freeze a keystroke either.
-    fn run_mutation(&mut self, mutation: Mutation) {
+    /// Carry out every mutation a confirmation covered.
+    ///
+    /// One after another rather than all at once: the fan-out paging bug taught that a
+    /// request count scaling with the size of the set is how a namespace rate limit is hit,
+    /// and a batch the reader selected by hand is never large enough for the latency to
+    /// matter. Each result comes back as its own `Mutated`, so a failure halfway through is
+    /// reported for the row it happened on rather than sinking the whole set.
+    fn run_mutations(&mut self, mutations: Vec<Mutation>) {
         let Some(conn) = self.conn.clone() else {
             return;
         };
-        self.note = Some((format!("{}…", mutation.verb().to_lowercase()), Note::Info));
+        let Some(first) = mutations.first() else {
+            return;
+        };
+        let total = mutations.len();
+        self.note = Some((
+            if total > 1 {
+                format!("{} {total}…", first.verb().to_lowercase())
+            } else {
+                format!("{}…", first.verb().to_lowercase())
+            },
+            Note::Info,
+        ));
         let tx = self.tx.clone();
         tokio::spawn(async move {
-            let result = conn.mutate(&mutation).await.map_err(|e| e.to_string());
-            let _ = tx.send(Msg::Mutated {
-                mutation: Box::new(mutation),
-                result,
-            });
+            for (i, mutation) in mutations.into_iter().enumerate() {
+                let result = conn.mutate(&mutation).await.map_err(|e| e.to_string());
+                let _ = tx.send(Msg::Mutated {
+                    mutation: Box::new(mutation),
+                    result,
+                    batch: (total > 1).then_some((i + 1, total)),
+                });
+            }
         });
     }
 
@@ -3337,9 +3428,9 @@ mod tests {
         app.run("workflow.terminate", None);
 
         let c = app.confirm.clone().expect("a confirmation should open");
-        assert_eq!(c.mutation.verb(), "Terminate");
-        assert_eq!(c.mutation.workflow_id(), "order-r1");
-        assert_eq!(c.mutation.namespace(), "default");
+        assert_eq!(c.first().verb(), "Terminate");
+        assert_eq!(c.first().workflow_id(), "order-r1");
+        assert_eq!(c.first().namespace(), "default");
     }
 
     #[test]
@@ -3411,7 +3502,156 @@ mod tests {
             .confirm
             .clone()
             .expect("the open workflow is the target");
-        assert_eq!(c.mutation.workflow_id(), "order-r1");
+        assert_eq!(c.first().workflow_id(), "order-r1");
+    }
+
+    /// Four running workflows, cursor on the first.
+    fn on_four_workflows() -> App {
+        let mut app = app();
+        loaded(
+            &mut app,
+            vec![
+                wf("default", "r1", 400),
+                wf("default", "r2", 300),
+                wf("default", "r3", 200),
+                wf("default", "r4", 100),
+            ],
+            vec![],
+        );
+        app
+    }
+
+    /// Select `count` rows downwards from the cursor with `V` and `j`.
+    fn select(app: &mut App, count: usize) {
+        app.run("mode.visual-line", None);
+        for _ in 1..count {
+            app.handle(Msg::Key(Chord::ch('j')));
+        }
+    }
+
+    #[test]
+    fn a_mutation_over_a_selection_covers_every_selected_row() {
+        let mut app = on_four_workflows();
+        select(&mut app, 3);
+        app.run("workflow.cancel", None);
+
+        let c = app.confirm.clone().expect("confirmed");
+        assert_eq!(c.len(), 3);
+        assert!(c.is_batch());
+        let ids: Vec<&str> = c.mutations.iter().map(|m| m.workflow_id()).collect();
+        assert_eq!(ids, ["order-r1", "order-r2", "order-r3"]);
+        assert_eq!(c.first().verb(), "Cancel");
+    }
+
+    #[test]
+    fn without_a_selection_a_mutation_still_covers_one_row() {
+        // The batch path and the single path are the same code, so they cannot drift.
+        let mut app = on_four_workflows();
+        app.run("workflow.cancel", None);
+        let c = app.confirm.clone().expect("confirmed");
+        assert_eq!(c.len(), 1);
+        assert!(!c.is_batch());
+        assert_eq!(c.first().workflow_id(), "order-r1");
+    }
+
+    #[test]
+    fn a_selection_upwards_covers_the_same_rows_as_one_downwards() {
+        let mut app = on_four_workflows();
+        app.handle(Msg::Key(Chord::ch('j')));
+        app.handle(Msg::Key(Chord::ch('j')));
+        app.run("mode.visual-line", None);
+        app.handle(Msg::Key(Chord::ch('k')));
+        app.run("workflow.cancel", None);
+
+        let c = app.confirm.clone().unwrap();
+        let ids: Vec<&str> = c.mutations.iter().map(|m| m.workflow_id()).collect();
+        assert_eq!(ids, ["order-r2", "order-r3"]);
+    }
+
+    #[test]
+    fn a_destructive_batch_costs_the_count_rather_than_a_keypress() {
+        // One key is too cheap to end three workflows at once.
+        let mut app = on_four_workflows();
+        select(&mut app, 3);
+        app.run("workflow.terminate", None);
+
+        let c = app.confirm.clone().unwrap();
+        assert_eq!(c.typed_word.as_deref(), Some("3"));
+        assert!(!c.is_satisfied(), "Enter alone does not go ahead");
+
+        for ch in "3".chars() {
+            app.handle(Msg::Key(Chord::ch(ch)));
+        }
+        assert!(app.confirm.clone().unwrap().is_satisfied());
+    }
+
+    #[test]
+    fn a_batch_that_destroys_histories_still_costs_the_word() {
+        // Delete outranks the count: it destroys the record itself.
+        let mut app = on_four_workflows();
+        select(&mut app, 2);
+        app.run("workflow.delete", None);
+        assert_eq!(
+            app.confirm.clone().unwrap().typed_word.as_deref(),
+            Some("delete")
+        );
+    }
+
+    #[test]
+    fn a_single_non_destructive_action_still_costs_nothing() {
+        let mut app = on_four_workflows();
+        app.run("workflow.cancel", None);
+        let c = app.confirm.clone().unwrap();
+        assert_eq!(c.typed_word, None);
+        assert!(c.is_satisfied());
+    }
+
+    #[test]
+    fn running_a_batch_spends_the_selection() {
+        // The rows it covered are about to change, so a second batch must not be one
+        // keypress away from a range that no longer means what it did.
+        let mut app = on_four_workflows();
+        select(&mut app, 2);
+        assert!(app.view.selection().is_some());
+        app.run("workflow.cancel", None);
+        // A cancel over two rows is destructive, so it owes the count first.
+        app.handle(Msg::Key(Chord::ch('2')));
+        app.handle(Msg::Key(Chord::plain(tmprl_core::Key::Enter)));
+
+        assert!(app.view.selection().is_none());
+        assert_eq!(app.mode, Mode::Normal);
+    }
+
+    #[test]
+    fn a_signal_over_a_selection_sends_the_same_name_to_each() {
+        let mut app = on_four_workflows();
+        select(&mut app, 2);
+        app.run("workflow.signal", None);
+        for ch in "retry".chars() {
+            app.handle(Msg::Key(Chord::ch(ch)));
+        }
+        app.handle(Msg::Key(Chord::plain(tmprl_core::Key::Enter)));
+
+        let c = app.confirm.clone().expect("confirmed");
+        assert_eq!(c.len(), 2);
+        assert!(c.mutations.iter().all(|m| m.cli().contains("--name retry")));
+        assert_eq!(c.typed_word, None, "a signal is not a loss");
+    }
+
+    #[test]
+    fn a_batch_reports_progress_rather_than_each_row_in_turn() {
+        let mut app = on_four_workflows();
+        app.handle(Msg::Mutated {
+            mutation: Box::new(Mutation::Cancel {
+                namespace: "default".into(),
+                workflow_id: "order-r1".into(),
+                run_id: "r1".into(),
+            }),
+            result: Ok(()),
+            batch: Some((2, 3)),
+        });
+        let (msg, _) = app.note.clone().unwrap();
+        assert_eq!(msg, "cancelled 2/3");
     }
 
     #[test]
@@ -3428,11 +3668,11 @@ mod tests {
 
         let c = app.confirm.clone().expect("now it can be confirmed");
         assert!(
-            c.mutation.cli().contains("--name retry"),
+            c.first().cli().contains("--name retry"),
             "{}",
-            c.mutation.cli()
+            c.first().cli()
         );
-        assert!(!c.mutation.is_destructive(), "a signal is not a loss");
+        assert!(!c.first().is_destructive(), "a signal is not a loss");
     }
 
     #[test]
@@ -3460,11 +3700,11 @@ mod tests {
         app.run("workflow.reset", None);
         let c = app.confirm.clone().expect("a confirmation");
         assert!(
-            c.mutation.cli().contains("--event-id 3"),
+            c.first().cli().contains("--event-id 3"),
             "should resolve back to the completed workflow task: {}",
-            c.mutation.cli()
+            c.first().cli()
         );
-        assert!(c.mutation.is_destructive(), "a reset abandons work");
+        assert!(c.first().is_destructive(), "a reset abandons work");
     }
 
     #[test]
@@ -3507,13 +3747,13 @@ mod tests {
 
         let c = app.confirm.clone().expect("a confirmation");
         assert!(
-            c.mutation.cli().contains("update execute"),
+            c.first().cli().contains("update execute"),
             "{}",
-            c.mutation.cli()
+            c.first().cli()
         );
-        assert!(c.mutation.cli().contains("--name setLimit"));
+        assert!(c.first().cli().contains("--name setLimit"));
         assert!(
-            !c.mutation.is_destructive(),
+            !c.first().is_destructive(),
             "an update adds, it does not end"
         );
     }
@@ -3526,7 +3766,7 @@ mod tests {
             app.handle(Msg::Key(Chord::ch(ch)));
         }
         app.handle(Msg::Key(Chord::plain(tmprl_core::Key::Enter)));
-        let cli = app.confirm.clone().unwrap().mutation.cli();
+        let cli = app.confirm.clone().unwrap().first().cli();
         assert!(cli.contains("workflow signal"), "{cli}");
         assert!(!cli.contains("update"), "{cli}");
     }
@@ -3542,6 +3782,7 @@ mod tests {
         app.handle(Msg::Mutated {
             mutation: Box::new(m),
             result: Ok(()),
+            batch: None,
         });
         let (msg, kind) = app.note.clone().unwrap();
         assert_eq!(kind, Note::Info);
@@ -3558,6 +3799,7 @@ mod tests {
                 run_id: "r".into(),
             }),
             result: Err("PermissionDenied: not allowed".into()),
+            batch: None,
         });
         let (msg, kind) = app.note.clone().unwrap();
         assert_eq!(kind, Note::Error);
@@ -3603,7 +3845,7 @@ mod tests {
         app.handle(Msg::Key(Chord::plain(tmprl_core::Key::Enter)));
 
         assert!(app.form.is_none(), "the form closes once it is complete");
-        let cli = app.confirm.clone().expect("confirmed").mutation.cli();
+        let cli = app.confirm.clone().expect("confirmed").first().cli();
         assert!(cli.contains("--schedule-id nightly"), "{cli}");
         assert!(cli.contains("--workflow-id recon"), "{cli}");
         assert!(cli.contains("--type OrderWorkflow"), "{cli}");
@@ -3670,7 +3912,8 @@ mod tests {
             .confirm
             .clone()
             .expect("now it can be confirmed")
-            .mutation;
+            .first()
+            .clone();
         assert_eq!(m.verb(), "Backfill");
         assert_eq!(m.schedule_id(), Some("nightly"));
         let cli = m.cli();
@@ -3700,14 +3943,14 @@ mod tests {
         // One key does both, so the target state is whatever the schedule is not.
         let mut app = on_schedules();
         app.run("schedule.pause", None);
-        let m = app.confirm.clone().unwrap().mutation;
+        let m = app.confirm.clone().unwrap().first().clone();
         assert_eq!(m.verb(), "Pause");
         assert!(m.cli().ends_with("--pause"));
 
         app.confirm = None;
         app.view.schedules.value_mut().unwrap()[0].paused = true;
         app.run("schedule.pause", None);
-        let m = app.confirm.clone().unwrap().mutation;
+        let m = app.confirm.clone().unwrap().first().clone();
         assert_eq!(m.verb(), "Resume");
         assert!(m.cli().ends_with("--unpause"));
     }
@@ -3724,6 +3967,7 @@ mod tests {
                 paused: true,
             }),
             result: Ok(()),
+            batch: None,
         });
         assert!(app.view.schedule_rows()[0].paused);
     }
@@ -3734,7 +3978,7 @@ mod tests {
         app.run("schedule.delete", None);
         let c = app.confirm.clone().unwrap();
         assert_eq!(c.typed_word.as_deref(), Some("delete"));
-        assert!(c.mutation.cli().starts_with("temporal schedule delete "));
+        assert!(c.first().cli().starts_with("temporal schedule delete "));
     }
 
     #[test]

@@ -100,6 +100,16 @@ opens those namespaces as one table, merge-sorted by start time, with each row t
 namespace it came from. Selection is machinery the interface already has, so this needed no
 new concept.
 
+The same selection drives batch mutations. `V` a range of workflows or schedules and any
+`<leader>m` action applies to every selected row rather than the one under the cursor, one
+request per row, in order. A destructive batch asks for the count to be typed before it
+runs, because one keypress is too cheap to end a dozen workflows; deleting still asks for
+`delete`, since that destroys the histories themselves.
+
+This acts on the rows you picked, not on a query. Temporal's server-side batch API takes a
+visibility query and acts on whatever matches at the time it runs, which can be more than
+was counted when it was confirmed. That is a separate command, not this one.
+
 `-` deserves a note: it is modelled on [oil.nvim](https://github.com/stevearc/oil.nvim)'s
 treatment of a directory as an editable buffer. Temporal's objects form a hierarchy, and
 "go up" is a more useful primitive than a breadcrumb you have to aim at.
@@ -212,10 +222,10 @@ closed is refused with a message instead of polling for events that can never ar
 | `R` | reload from the server | **live** |
 | `<leader>q` / `<C-c>` | quit | **live** |
 | `<C-q>` | send selection to the quickfix list | M5 |
-| `<leader>mc` | cancel this workflow | **live** |
-| `<leader>mt` | terminate this workflow | **live** |
-| `<leader>ms` | signal this workflow | **live** |
-| `<leader>md` | delete this workflow | **live** |
+| `<leader>mc` | cancel this workflow, or the selection | **live** |
+| `<leader>mt` | terminate this workflow, or the selection | **live** |
+| `<leader>ms` | signal this workflow, or the selection | **live** |
+| `<leader>md` | delete this workflow, or the selection | **live** |
 | `<leader>mr` | reset to the event under the cursor | **live** |
 | `<leader>mp` | pause or resume a schedule | **live** |
 | `<leader>mg` | run a schedule now | **live** |
