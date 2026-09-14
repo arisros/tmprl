@@ -2808,6 +2808,7 @@ dependencies = [
  "tmprl-core",
  "tmprl-ui",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

@@ -266,7 +266,10 @@ mod tests {
         let mut p = picker(&["a"]);
         p.push('a');
         assert!(p.backspace(), "deleted the 'a'");
-        assert!(!p.backspace(), "empty, so the caller should close the picker");
+        assert!(
+            !p.backspace(),
+            "empty, so the caller should close the picker"
+        );
     }
 
     #[test]

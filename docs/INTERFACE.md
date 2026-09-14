@@ -92,7 +92,7 @@ Leader is `Space`. A which-key-style popup appears after 500ms on an incomplete 
 | `Enter` (in Visual) | open every selected namespace as one merged list | **live** |
 | `-` | **go up a level**, run → workflow → namespace → cluster | **live** |
 | `<leader>-` | floating object browser | M2 |
-| `<C-o>` / `<C-i>` | jumplist back / forward | **live** |
+| `<C-o>` / `<C-i>` (or `<Tab>`) | jumplist back / forward | **live** |
 | `<leader>N` | switch namespace | **live** |
 | `<leader>P` | switch connection profile | M2 |
 
@@ -101,9 +101,18 @@ opens those namespaces as one table, merge-sorted by start time, with each row t
 namespace it came from. Selection is machinery the interface already has, so this needed no
 new concept.
 
+`<Tab>` is bound alongside `<C-i>` because on a terminal they are the same key: Ctrl+I is
+byte `0x09`, which is exactly what Tab sends, so a binding on `<C-i>` alone never fires
+outside the few terminals speaking the Kitty keyboard protocol. Terminal vim has the same
+collision and resolves it the same way.
+
 The jumplist records the moves vim would call jumps, changing screen, `gg` and `G`, a
-search, taking something from a picker, and not the ones it would not: `j`, `k` and `n` are
-walking, not jumping. A jumplist that recorded every line is a scroll history, and `<C-o>`
+search that found something, taking a row or a filter from a picker, and not the ones it
+would not: `j`, `k` and `n` are walking, not jumping. Switching pane with `<leader>fb` is
+not a jump either, since every entry describes a position *within* a pane and changing which
+pane is focused moves no cursor. A move that gets refused records nothing, because recording
+one discards the forward entries and a keystroke that did nothing should not cost you
+`<C-i>`. A jumplist that recorded every line is a scroll history, and `<C-o>`
 stops being worth pressing. A position is stored as a run id rather than a row index,
 because every index a pane has is into a list a refresh can replace; coming back re-fetches,
 so a jump shows what is there now rather than reinstating a stale table.

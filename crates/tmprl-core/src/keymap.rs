@@ -228,8 +228,15 @@ pub fn default_keymap() -> Keymap {
     bind(Mode::Normal, "-", "nav.up");
     // The jumplist. `<C-o>` and `<C-i>` are free here: neither is one of the four
     // chords tmux's pane navigation takes.
+    //
+    // `<Tab>` is bound alongside `<C-i>` because on a terminal they are the *same key*:
+    // Ctrl+I is byte 0x09, which is what Tab sends, and crossterm reports it as
+    // `KeyCode::Tab`. Binding only `<C-i>` gives a jump-forward that never fires outside
+    // the few terminals speaking the Kitty keyboard protocol. Terminal vim has the same
+    // collision and resolves it the same way.
     bind(Mode::Normal, "<C-o>", "nav.jump-back");
     bind(Mode::Normal, "<C-i>", "nav.jump-forward");
+    bind(Mode::Normal, "<Tab>", "nav.jump-forward");
     // `g` is vim's goto prefix, so `gs` and `gw` switch between the two lists a namespace
     // holds.
     bind(Mode::Normal, "gs", "nav.schedules");
