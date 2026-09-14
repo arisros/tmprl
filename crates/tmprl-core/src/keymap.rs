@@ -226,6 +226,17 @@ pub fn default_keymap() -> Keymap {
         bind(mode, "<CR>", "nav.open");
     }
     bind(Mode::Normal, "-", "nav.up");
+    // The jumplist. `<C-o>` and `<C-i>` are free here: neither is one of the four
+    // chords tmux's pane navigation takes.
+    //
+    // `<Tab>` is bound alongside `<C-i>` because on a terminal they are the *same key*:
+    // Ctrl+I is byte 0x09, which is what Tab sends, and crossterm reports it as
+    // `KeyCode::Tab`. Binding only `<C-i>` gives a jump-forward that never fires outside
+    // the few terminals speaking the Kitty keyboard protocol. Terminal vim has the same
+    // collision and resolves it the same way.
+    bind(Mode::Normal, "<C-o>", "nav.jump-back");
+    bind(Mode::Normal, "<C-i>", "nav.jump-forward");
+    bind(Mode::Normal, "<Tab>", "nav.jump-forward");
     // `g` is vim's goto prefix, so `gs` and `gw` switch between the two lists a namespace
     // holds.
     bind(Mode::Normal, "gs", "nav.schedules");
@@ -288,6 +299,27 @@ pub fn default_keymap() -> Keymap {
         bind(mode, "<leader>tp", "tab.previous");
     }
 
+    // `/` `n` `N` as vim has them. Reverse-open (`?`) is not bound: `?` is the help
+    // overlay here, and help is reached far more often than a backwards search is started.
+    // `N` still walks backwards, which is the part that matters.
+    bind(Mode::Normal, "/", "search.open");
+    bind(Mode::Normal, "n", "search.next");
+    bind(Mode::Normal, "N", "search.previous");
+
+    // The `<leader>f` family, Telescope's `f` for find. Each is the same picker over a
+    // different list, which is why they share a prefix rather than being spread across the
+    // keyboard by what they happen to search.
+    bind(Mode::Normal, "<leader>ff", "find.workflow");
+    bind(Mode::Normal, "<leader>fl", "find.event");
+    bind(Mode::Normal, "<leader>fb", "find.pane");
+    bind(Mode::Normal, "<leader>fh", "find.command");
+    bind(Mode::Normal, "<leader>fg", "find.filter");
+    // `<leader>N` sits outside the `f` family on purpose: switching namespace is changing
+    // *where you are*, not finding something inside where you already are.
+    bind(Mode::Normal, "<leader>N", "find.namespace");
+    bind(Mode::Normal, "<leader>xx", "list.problems");
+    bind(Mode::Normal, "<leader>e", "payload.edit");
+
     bind(Mode::Normal, "i", "mode.insert");
     bind(Mode::Normal, "v", "mode.visual");
     bind(Mode::Normal, "V", "mode.visual-line");
@@ -313,6 +345,39 @@ mod tests {
             last = m.resolve(mode, p, c);
         }
         last
+    }
+
+    #[test]
+    fn every_default_binding_names_a_command_that_exists() {
+        // `Keymap::bind` validates the *chord* and panics on a bad one, but it has no
+        // registry to check the command id against, so a typo in a default binding is a key
+        // that silently does nothing. `keys.toml` is checked at load; this is the same
+        // guarantee for the built-in map.
+        let registry = crate::command::Registry::builtin();
+        let map = map();
+        let missing: Vec<&str> = map
+            .bindings()
+            .iter()
+            .map(|b| b.command)
+            .filter(|id| registry.get(id).is_none())
+            .collect();
+        assert!(missing.is_empty(), "bound to nothing: {missing:?}");
+    }
+
+    #[test]
+    fn no_two_default_bindings_claim_the_same_keys_in_one_mode() {
+        // A duplicate is not an error the keymap can raise, the later one simply wins, so
+        // the earlier binding vanishes without a word.
+        let map = map();
+        let mut seen: Vec<(Mode, &ChordSeq)> = Vec::new();
+        let mut clashes = Vec::new();
+        for b in map.bindings() {
+            if seen.iter().any(|(m, s)| *m == b.mode && *s == &b.seq) {
+                clashes.push(format!("{:?} {:?} -> {}", b.mode, b.seq, b.command));
+            }
+            seen.push((b.mode, &b.seq));
+        }
+        assert!(clashes.is_empty(), "duplicate bindings: {clashes:?}");
     }
 
     #[test]

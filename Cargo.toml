@@ -39,12 +39,15 @@ base64 = "0.22"
 # mutation a fresh one makes a retried request idempotent rather than doubled.
 uuid = { version = "1", features = ["v4"] }
 
-# Debug info for 227 crates (temporalio-protos especially) does not fit in the
-# 4.6G free on this box. Keep dev builds lean; use `--profile dbg` when a real
-# debugger is actually needed.
+# Debug info for 227 crates (temporalio-protos especially) is large enough to be
+# worth not carrying: `target` lives on a 184G volume now, so this is about build
+# time rather than space. Use `--profile dbg` when a debugger is actually needed.
+#
+# `incremental` stays on: without it every edit recompiles all four workspace
+# crates, which is the whole edit-test loop paying for a full build.
 [profile.dev]
 debug = false
-incremental = false
+incremental = true
 
 [profile.dbg]
 inherits = "dev"
