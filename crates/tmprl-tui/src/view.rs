@@ -12,10 +12,11 @@
 
 use tmprl_client::NamespaceInfo;
 use tmprl_core::history::NormalizedEvent;
-use tmprl_core::outline::Outline;
+use tmprl_core::outline::{Outline, Row};
 use tmprl_core::{Loadable, ScheduleRow, StatusCounts, WorkflowList, WorkflowRow};
 
 use crate::app::Screen;
+use crate::ui::category_label;
 
 pub struct View {
     pub screen: Screen,
@@ -171,6 +172,99 @@ impl View {
 
     pub fn schedule_rows(&self) -> &[ScheduleRow] {
         self.schedules.value().map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    /// The text `/` matches against, one string per row, in row order.
+    ///
+    /// Built on demand rather than cached: a search is something a person types, a handful
+    /// of times a minute, while the rows underneath it change on every page and every
+    /// refresh. A cache would have to be invalidated from six places and would be wrong in
+    /// the one case that matters, a list still growing under a follow.
+    ///
+    /// Each label is generous, wider than the columns that fit on screen: a run id is not
+    /// rendered but is exactly the kind of thing pasted in from a log line, and a search
+    /// that cannot find it would send you back to the query bar for something the pane has
+    /// already loaded.
+    pub fn search_labels(&self) -> Vec<String> {
+        match self.screen {
+            Screen::Namespaces => self
+                .namespace_rows()
+                .iter()
+                .map(|n| format!("{} {} {}", n.name, n.state, n.description))
+                .collect(),
+            Screen::Workflows => self
+                .workflow_rows()
+                .iter()
+                .map(|w| {
+                    format!(
+                        "{} {} {} {} {} {}",
+                        w.workflow_id,
+                        w.workflow_type,
+                        w.task_queue,
+                        w.status.query_name(),
+                        w.namespace,
+                        w.run_id,
+                    )
+                })
+                .collect(),
+            Screen::Schedules => self
+                .schedule_rows()
+                .iter()
+                .map(|s| {
+                    format!(
+                        "{} {} {} {} {}",
+                        s.schedule_id,
+                        s.workflow_type,
+                        s.spec,
+                        s.notes,
+                        if s.paused { "paused" } else { "running" },
+                    )
+                })
+                .collect(),
+            Screen::History => self.history_labels(),
+        }
+    }
+
+    /// Labels for the history outline.
+    ///
+    /// A group and an event read differently, and both are searchable, because both are
+    /// rows you can put the cursor on. A group carries the name you would search for, the
+    /// activity type; an event carries the protocol name and its fields, which is how you
+    /// find `ActivityTaskTimedOut` or the row whose `activityId` is the one from the alert.
+    fn history_labels(&self) -> Vec<String> {
+        let Some(outline) = self.history.value() else {
+            return Vec::new();
+        };
+        (0..outline.len())
+            .map(|row| match outline.row_at(row) {
+                Some(Row::Group { group, .. }) => match outline.group(group) {
+                    Some(g) => {
+                        let mut s = format!("{} {}", category_label(g.category), g.subject);
+                        if let Some(f) = &g.failure {
+                            s.push(' ');
+                            s.push_str(f);
+                        }
+                        s
+                    }
+                    None => String::new(),
+                },
+                Some(Row::Event { event, .. }) => match outline.event(event) {
+                    Some(e) => {
+                        let mut s = format!("{} {}", e.id, e.name);
+                        for (k, v) in &e.fields {
+                            s.push_str(&format!(" {k}={v}"));
+                        }
+                        if let Some(f) = &e.failure {
+                            s.push(' ');
+                            s.push_str(f);
+                        }
+                        s
+                    }
+                    None => String::new(),
+                },
+                None => String::new(),
+            })
+            .collect()
     }
 
     /// How many rows this pane's screen has.

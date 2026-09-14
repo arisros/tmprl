@@ -227,9 +227,15 @@ diffing runs, lands in a layer that needs neither a terminal nor a server to tes
 - [x] **M2** history views, follow mode, jq, codec server, splits and tabs
 - [x] **M3** mutations: signal, cancel, terminate, delete, reset, update
 - [x] **M4** schedules: list, create, pause, trigger, delete, backfill
+- [x] **M2b** finding: `/` search, the `<leader>f` pickers, jumplist, `$EDITOR`, problem list
 - [ ] **M5** batch operations
 - [ ] **M6** task queues, workers, deployments, nexus, archival
 - [ ] **M7** diff, macros, headless `--exec`, themes
+
+M2's "Finding" section was specified in [docs/INTERFACE.md](docs/INTERFACE.md) but never
+built, so it is broken out as **M2b** rather than quietly folded into the M2 tick above.
+Still open from it: `<leader>P` connection profiles, `<leader>-` object browser, and
+`<leader>cs` / `<leader>cq` workflow queries.
 
 ## Prior art
 

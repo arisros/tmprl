@@ -23,6 +23,8 @@ pub enum Action {
     GoUp,
     GoSchedules,
     GoWorkflows,
+    JumpBack,
+    JumpForward,
 
     // Motion
     MoveDown,
@@ -37,6 +39,24 @@ pub enum Action {
     LeaveInsert,
     EnterVisual,
     EnterVisualLine,
+
+    // Finding. Search moves the cursor within the rows already loaded; it never refetches,
+    // which is what distinguishes it from the visibility query.
+    OpenSearch,
+    SearchNext,
+    SearchPrev,
+    /// The `<leader>f` family. Each opens the one picker over a different set of items.
+    FindWorkflow,
+    FindEvent,
+    FindPane,
+    FindCommand,
+    FindFilter,
+    FindNamespace,
+    /// The failed-and-stuck list, `<leader>xx`. A query preset, not a screen of its own.
+    ProblemList,
+    PickerDown,
+    PickerUp,
+    PickerAccept,
 
     // Data
     YankField,
@@ -57,6 +77,8 @@ pub enum Action {
     DetailDown,
     DetailUp,
     OpenPipe,
+    /// Open what is under the cursor in `$EDITOR`, `<leader>e`.
+    OpenEditor,
 
     // Windows and tabs
     SplitRight,
@@ -141,6 +163,22 @@ impl Registry {
             "nav.up",             "Navigation",  "Go up a level"             => GoUp;
             "nav.schedules",      "Navigation",  "Go to schedules"           => GoSchedules;
             "nav.workflows",      "Navigation",  "Go to workflows"           => GoWorkflows;
+            "nav.jump-back",      "Navigation",  "Jump back"                 => JumpBack;
+            "nav.jump-forward",   "Navigation",  "Jump forward"              => JumpForward;
+
+            "search.open",        "Find",        "Search within this view"   => OpenSearch;
+            "search.next",        "Find",        "Next match"                => SearchNext;
+            "search.previous",    "Find",        "Previous match"            => SearchPrev;
+            "find.workflow",      "Find",        "Find a workflow"           => FindWorkflow;
+            "find.event",         "Find",        "Find an event here"        => FindEvent;
+            "find.pane",          "Find",        "Find an open pane"         => FindPane;
+            "find.command",       "Find",        "Find a command"            => FindCommand;
+            "find.filter",        "Find",        "Build a query filter"      => FindFilter;
+            "find.namespace",     "Find",        "Switch namespace"          => FindNamespace;
+            "list.problems",      "Find",        "Failed and stuck workflows" => ProblemList;
+            "picker.down",        "Find",        "Next entry in the picker"  => PickerDown;
+            "picker.up",          "Find",        "Previous entry"            => PickerUp;
+            "picker.accept",      "Find",        "Take the selected entry"   => PickerAccept;
 
             "yank.field",         "Yank",        "Yank the focused value"    => YankField;
             "yank.record",        "Yank",        "Yank the row as JSON"      => YankRecord;
@@ -158,6 +196,7 @@ impl Registry {
             "history.detail-down","History",     "Scroll the payload pane down" => DetailDown;
             "history.detail-up",  "History",     "Scroll the payload pane up"   => DetailUp;
             "payload.pipe",       "History",     "Pipe payloads through a command" => OpenPipe;
+            "payload.edit",       "History",     "Open the payloads in $EDITOR" => OpenEditor;
 
             "window.split-right", "Windows",     "Split side by side"        => SplitRight;
             "window.split-down",  "Windows",     "Split above and below"     => SplitDown;
@@ -230,16 +269,22 @@ impl Registry {
             all.sort_by_key(|c| c.id);
             return all;
         }
-        let mut hits: Vec<&Command> = self
+        // Scored by the same matcher the pickers use, so `:` and `<leader>ff` rank the
+        // same way. Before, this was a bare subsequence test with a prefix-first sort,
+        // which is adequate for eighty command ids and not for anything longer.
+        let mut hits: Vec<(&Command, i32)> = self
             .commands
             .iter()
-            .filter(|c| {
-                subsequence(&q, &c.id.to_ascii_lowercase())
-                    || subsequence(&q, &c.title.to_ascii_lowercase())
+            .filter_map(|c| {
+                // An id and a title are two ways of naming the same command, so the better
+                // of the two scores is the command's score.
+                let by_id = crate::fuzzy::match_score(&q, c.id).map(|m| m.score);
+                let by_title = crate::fuzzy::match_score(&q, c.title).map(|m| m.score);
+                by_id.max(by_title).map(|s| (c, s))
             })
             .collect();
-        hits.sort_by_key(|c| (!c.id.to_ascii_lowercase().starts_with(&q), c.id.len(), c.id));
-        hits
+        hits.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.id.cmp(b.0.id)));
+        hits.into_iter().map(|(c, _)| c).collect()
     }
 
     /// Every group name, in first-registered order, the help overlay renders in this order.
@@ -258,11 +303,6 @@ impl Default for Registry {
     fn default() -> Self {
         Self::builtin()
     }
-}
-
-fn subsequence(needle: &str, haystack: &str) -> bool {
-    let mut h = haystack.chars();
-    needle.chars().all(|c| h.any(|x| x == c))
 }
 
 #[cfg(test)]

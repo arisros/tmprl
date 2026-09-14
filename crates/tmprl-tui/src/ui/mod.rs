@@ -6,13 +6,20 @@ mod confirm;
 mod detail;
 mod form;
 mod help;
+mod highlight;
 mod history;
 mod namespaces;
+mod picker;
 mod query;
 mod schedules;
 mod statusline;
 mod whichkey;
 mod workflows;
+
+// The row labels the search matches against are built in `view`, and must read the same
+// way the rows render, otherwise `/activity` finds rows that do not look like they say it.
+pub(crate) use highlight::{highlight, match_style};
+pub(crate) use history::category_label;
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout};
@@ -85,6 +92,11 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         .is_some_and(|p| p.kind == PromptKind::Command)
     {
         cmdline::render(frame, app, &theme);
+    }
+    // The picker docks over the bottom of the panes. Above which-key and help, because
+    // while it is open it owns the keyboard and they cannot be reached anyway.
+    if let Some(p) = &app.picker {
+        picker::render(frame, p, &theme);
     }
     if !app.which_key.is_empty() {
         whichkey::render(frame, app, &theme);
