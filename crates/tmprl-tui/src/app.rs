@@ -2466,11 +2466,9 @@ impl App {
             Key::Enter => self.confirm_new_schedule(),
             // Backspace on an empty field moves back rather than closing the form: a form is
             // several fields deep, so losing all of them to one key would be a trap.
-            Key::Backspace => {
-                if !form.backspace() {
-                    form.previous();
-                }
-            }
+            // The guard does the deleting, as `prompt_key` and `picker_key` do.
+            Key::Backspace if !form.backspace() => form.previous(),
+            Key::Backspace => {}
             Key::Char(c) if chord.mods.is_none() => form.push(c),
             _ => {}
         }
