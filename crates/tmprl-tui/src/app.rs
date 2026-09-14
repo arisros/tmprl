@@ -10,8 +10,8 @@ use std::sync::Arc;
 use tmprl_client::{Codec, Conn, NamespaceInfo};
 use tmprl_core::ScheduleRow;
 use tmprl_core::form::Form;
-use tmprl_core::jumplist::Jumplist;
 use tmprl_core::history::{NormalizedEvent, group_events, merge_events};
+use tmprl_core::jumplist::Jumplist;
 use tmprl_core::mutation::{Confirm, Mutation};
 use tmprl_core::outline::{Outline, Row};
 use tmprl_core::payload::Payload;
@@ -90,7 +90,46 @@ pub struct Jump {
     pub scope: Vec<String>,
     pub query: String,
     pub viewing: Option<WorkflowRow>,
+    /// Which row, by index. Only a fallback: on the workflow list `cursor_key` is what
+    /// actually gets you back, and this is what is used where there is no identity to use,
+    /// the namespace list and a history outline.
     pub cursor: usize,
+    /// Which row, by identity, on the workflow list. A live list grows at the top, so an
+    /// index alone would return you to a different workflow than the one you left.
+    pub cursor_key: Option<(String, String)>,
+}
+
+/// Create a directory only this user can enter.
+///
+/// The mode is set at creation on Unix rather than afterwards, so there is no window in
+/// which the directory exists with the default permissions.
+fn create_private_dir(path: &std::path::Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        std::fs::DirBuilder::new().mode(0o700).create(path)
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::create_dir(path)
+    }
+}
+
+/// Write a file only this user can read, failing if it already exists.
+///
+/// `create_new` rather than `create`: it refuses to follow a symlink someone else planted,
+/// which is the attack the private directory already makes impractical and this closes
+/// outright.
+fn write_private_file(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path)?.write_all(bytes)
 }
 
 /// A payload written to disk, waiting for `$EDITOR` to be run over it.
@@ -103,6 +142,9 @@ pub struct Jump {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EditRequest {
     pub path: std::path::PathBuf,
+    /// The private directory holding `path`, removed once the editor exits. Decoded
+    /// payloads should not outlive the moment they were being read.
+    pub dir: std::path::PathBuf,
     /// What was written, for the message afterwards.
     pub what: String,
 }
@@ -793,9 +835,6 @@ impl App {
             Action::FindFilter => self.open_picker(picker::Kind::Filters),
             Action::FindNamespace => self.open_picker(picker::Kind::Namespaces),
             Action::ProblemList => self.show_problems(),
-            Action::PickerDown => self.move_picker(n as isize),
-            Action::PickerUp => self.move_picker(-(n as isize)),
-            Action::PickerAccept => self.accept_picker(),
             Action::SearchNext => self.jump_match(true),
             Action::SearchPrev => self.jump_match(false),
 
@@ -906,26 +945,27 @@ impl App {
     }
 
     fn go_up(&mut self) {
-        self.mark_jump();
+        // Recorded per arm, not once at the top: `Jumplist::push` truncates the forward
+        // entries, so marking a jump that then turns out to be refused would silently
+        // destroy the `<C-i>` list for a keystroke that did nothing.
         match self.view.screen {
             Screen::History => {
-                self.stop_following();
+                self.mark_jump();
                 self.view.screen = Screen::Workflows;
                 self.view.cursor = self.view.workflow_cursor;
                 self.view.viewing = None;
-                self.view.history = Loadable::NotAsked;
-                self.view.history_events.clear();
-                self.view.history_token.clear();
-                self.view.history_resume.clear();
+                self.reset_history();
                 self.restore_cursor();
             }
             Screen::Workflows => {
+                self.mark_jump();
                 self.view.screen = Screen::Namespaces;
                 self.view.cursor = self.view.namespace_cursor;
                 self.view.anchor = None;
                 self.clamp_cursor();
             }
             Screen::Schedules => {
+                self.mark_jump();
                 self.view.screen = Screen::Namespaces;
                 self.view.cursor = self.view.namespace_cursor;
                 self.view.anchor = None;
@@ -1213,8 +1253,15 @@ impl App {
             .search("")
             .into_iter()
             .map(|c| {
-                picker::Item::new(c.id, Target::Command(c.id.to_string()))
-                    .with_note(format!("{}  ·  {}", c.group, c.title))
+                // Id *and* title in the label, because `Picker` matches the label and
+                // nothing else. With the title in the note, `:` found `list.problems` by
+                // typing `failed` while `<leader>fh` did not, which is a confusing split
+                // between two things that are both "find a command".
+                picker::Item::new(
+                    format!("{}  {}", c.id, c.title),
+                    Target::Command(c.id.to_string()),
+                )
+                .with_note(c.group)
             })
             .collect()
     }
@@ -1314,12 +1361,22 @@ impl App {
         match target {
             Target::Workflow { namespace, run_id } => self.open_workflow(&namespace, &run_id),
             Target::Row(row) => {
-                let len = self.row_count();
-                if row < len {
-                    self.set_cursor(row);
+                // The snapshot was taken when the picker opened. A history that re-grouped
+                // while it was up, or a page arriving under a follow, can leave it short.
+                // Saying so beats an `Enter` that closes the picker and moves nothing.
+                if row >= self.row_count() {
+                    self.note = Some(("that row has gone".into(), Note::Warn));
+                    return;
                 }
+                // A jump, as docs/INTERFACE.md promises: crossing a thousand-row history is
+                // exactly the move `<C-o>` should undo.
+                self.mark_jump();
+                self.set_cursor(row);
             }
             Target::Command(id) => self.run(&id, None),
+            // Not a jump. Every jumplist entry describes a position *within* a pane, and
+            // switching which pane is focused moves no cursor; recording it would make
+            // `<C-o>` mean two different things.
             Target::Pane(id) => self.focus_pane(ViewId(id)),
             Target::Query(clause) => self.add_clause(&clause),
             Target::Namespace(name) => self.switch_namespace(&name),
@@ -1366,8 +1423,10 @@ impl App {
         if self.view.screen != Screen::Workflows {
             self.view.screen = Screen::Workflows;
             self.view.viewing = None;
-            self.view.history = Loadable::NotAsked;
-            self.view.history_events.clear();
+            // Including the continuation tokens: `load_history` passes `history_token`
+            // unconditionally, so a token left over from the history being abandoned would
+            // be sent to whichever run is opened next.
+            self.reset_history();
         }
         self.view.cursor = 0;
         self.view.cursor_key = None;
@@ -1396,7 +1455,26 @@ impl App {
         self.view.screen = Screen::History;
         self.view.viewing = Some(row);
         self.view.cursor = 0;
+        // Everything the *previous* history left behind has to go, because unlike `Enter`
+        // on the list this can be pressed while already inside a history. Left alone,
+        // `load_history` sees non-empty events and neither bumps the generation nor starts
+        // a refresh, sends the old run's continuation token to the new run, and merges
+        // whatever comes back into the old run's events, so one outline shows two
+        // workflows. A follow poll left running would keep feeding it too.
+        self.reset_history();
         self.load_history();
+    }
+
+    /// Drop everything belonging to the history currently on screen.
+    ///
+    /// Every path that changes which workflow is being looked at needs this, and the ones
+    /// that open-code it have drifted apart before, so it lives in one place.
+    fn reset_history(&mut self) {
+        self.stop_following();
+        self.view.history = Loadable::NotAsked;
+        self.view.history_events.clear();
+        self.view.history_token.clear();
+        self.view.history_resume.clear();
     }
 
     /// Focus a pane by id, switching tabs if it lives in another one.
@@ -1409,8 +1487,11 @@ impl App {
             self.refocus(previous);
             return;
         }
-        // Not in this tab. Walk the others, and only commit once one of them has it, so a
-        // miss leaves the current tab where it was.
+        // Not in this tab. `Tabs` exposes no way to look inside a tab that is not current,
+        // so finding it means rotating; the starting index is kept so a miss can put the
+        // rotation back. Without that, failing to find a pane silently leaves you on a
+        // different tab from the one you were on.
+        let start = self.tabs.index();
         for _ in 1..self.tabs.len() {
             self.tabs.next();
             if self.tabs.current().views().contains(&id) {
@@ -1418,6 +1499,9 @@ impl App {
                 self.refocus(previous);
                 return;
             }
+        }
+        while self.tabs.index() != start {
+            self.tabs.next();
         }
         self.note = Some(("that pane has gone".into(), Note::Warn));
     }
@@ -1429,9 +1513,13 @@ impl App {
     /// stays in the bar and stays editable, which is the rule the whole query bar is built
     /// on.
     fn add_clause(&mut self, clause: &str) {
+        self.mark_jump();
         // An `ORDER BY` is a trailing clause, not a predicate: `AND`ing it produces a query
         // the server rejects.
-        let ordering = clause.trim_start().to_ascii_lowercase().starts_with("order by");
+        let ordering = clause
+            .trim_start()
+            .to_ascii_lowercase()
+            .starts_with("order by");
         let current = self.view.query.trim().to_string();
         self.view.query = if current.is_empty() {
             clause.to_string()
@@ -1455,6 +1543,7 @@ impl App {
             query: self.view.query.clone(),
             viewing: self.view.viewing.clone(),
             cursor: self.view.cursor,
+            cursor_key: self.view.cursor_key.clone(),
         }
     }
 
@@ -1505,7 +1594,10 @@ impl App {
         self.view.screen = to.screen;
         self.view.viewing = to.viewing;
         self.view.cursor = to.cursor;
-        self.view.cursor_key = None;
+        // Carried, not cleared: `restore_cursor` uses it to find the workflow again
+        // wherever the refetched list has put it, and falls back to the index when the row
+        // has genuinely gone.
+        self.view.cursor_key = to.cursor_key;
 
         match to.screen {
             Screen::Namespaces => self.clamp_cursor(),
@@ -1525,6 +1617,9 @@ impl App {
         // Seeded empty rather than with the last pattern. `/` almost always means "look for
         // something else"; repeating the last search is what `n` is for, and pre-filling
         // would mean clearing the line before every second search.
+        // As `:` and `!` do. Without it the statusline reads NORMAL while a `/` prompt is
+        // open and being typed into, and `close_prompt` resets a mode that was never set.
+        self.mode = Mode::Command;
         self.prompt = Some(Prompt {
             kind: PromptKind::Search,
             buf: String::new(),
@@ -1537,16 +1632,20 @@ impl App {
     /// pattern, and a `/` that skips a visible match one line up reads as not having found
     /// it. Starting one row back and searching forward is how that falls out.
     fn run_search(&mut self, pattern: String) {
-        // `/` is a jump, `n` is not. vim draws the line in the same place, and for the
-        // same reason: the first search is how you left, the repeats are the walking.
-        self.mark_jump();
         self.search = Search::new(pattern);
-        let len = self.row_count();
-        if len == 0 {
+        if self.row_count() == 0 {
             return;
         }
-        let from = (self.view.cursor + len - 1) % len;
-        self.seek(from, true);
+        // `/` is a jump, `n` is not. vim draws the line in the same place, and for the same
+        // reason: the first search is how you left, the repeats are the walking.
+        //
+        // Captured before the seek and pushed only if it landed: `Jumplist::push` truncates
+        // the forward entries, so recording a search that matched nothing would throw away
+        // the `<C-i>` list for a keystroke that moved nothing.
+        let from = self.here();
+        if self.seek(self.view.cursor, true, true) {
+            self.jumps.push(from);
+        }
     }
 
     /// `n` and `N`: the same pattern again, from where the cursor is now.
@@ -1555,7 +1654,7 @@ impl App {
             self.note = Some(("no search yet, press / first".into(), Note::Warn));
             return;
         }
-        self.seek(self.view.cursor, forward);
+        self.seek(self.view.cursor, forward, false);
     }
 
     /// Move the cursor to the next row matching the current pattern, and say what happened.
@@ -1563,10 +1662,13 @@ impl App {
     /// Every outcome gets a message, because the alternatives are all worse: a silent
     /// no-match looks like the key is unbound, and a silent wrap looks like the cursor
     /// jumped on its own.
-    fn seek(&mut self, from: usize, forward: bool) {
+    ///
+    /// Reports whether it landed anywhere, so a caller can decide not to record a jump for
+    /// a search that found nothing.
+    fn seek(&mut self, from: usize, forward: bool, inclusive: bool) -> bool {
         let labels = self.view.search_labels();
         let total = search::count(&self.search, &labels);
-        match search::find(&self.search, &labels, from, forward) {
+        match search::find(&self.search, &labels, from, forward, inclusive) {
             Some(hit) => {
                 self.set_cursor(hit.row);
                 let where_ = if hit.wrapped {
@@ -1582,12 +1684,14 @@ impl App {
                     format!("/{}  {total} match(es){where_}", self.search.pattern()),
                     Note::Info,
                 ));
+                true
             }
             None => {
                 self.note = Some((
                     format!("no match for /{}", self.search.pattern()),
                     Note::Warn,
                 ));
+                false
             }
         }
     }
@@ -2689,29 +2793,47 @@ impl App {
             return;
         };
 
-        // Named after the run and event so a directory of these is navigable, and suffixed
-        // `.json` so the editor picks its own syntax highlighting without being told.
+        // A fresh directory per invocation, mode 0700, with the payload inside it at 0600.
+        //
+        // Not `temp_dir().join("tmprl-<run>-<row>.json")`, which was the first attempt and
+        // is wrong twice over on a shared box: the name is derivable from a run id, so
+        // another user can pre-create it as a symlink and have `fs::write` follow it, and
+        // the file is created 0644, leaving decoded payloads world-readable in /tmp. A
+        // unique directory removes the guess and the mode removes the audience.
+        let dir = std::env::temp_dir().join(format!("tmprl-{}", uuid::Uuid::new_v4()));
+        if let Err(e) = create_private_dir(&dir) {
+            self.note = Some((
+                format!("could not create {}: {e}", dir.display()),
+                Note::Error,
+            ));
+            return;
+        }
+        // Named after the run so a stack of editor tabs is still navigable, and suffixed
+        // `.json` so the editor picks its own highlighting without being told.
         let stem = self
             .view
             .viewing
             .as_ref()
             .map(|w| w.run_id.clone())
             .unwrap_or_else(|| "payload".into());
-        let path = std::env::temp_dir().join(format!("tmprl-{stem}-{}.json", self.view.cursor));
-        if let Err(e) = std::fs::write(&path, json.as_bytes()) {
-            self.note = Some((format!("could not write {}: {e}", path.display()), Note::Error));
+        let path = dir.join(format!("{stem}.json"));
+        if let Err(e) = write_private_file(&path, json.as_bytes()) {
+            let _ = std::fs::remove_dir_all(&dir);
+            self.note = Some((
+                format!("could not write {}: {e}", path.display()),
+                Note::Error,
+            ));
             return;
         }
+
+        // Carried on the request rather than set as a note here: the event loop takes the
+        // request before the next draw, and `finish_edit` writes the note afterwards, so a
+        // note set now is overwritten without ever being shown.
+        let mut what = "a read-only copy; edits are not saved back".to_string();
         if !skipped.is_empty() {
-            self.note = Some((
-                format!("without {} (not readable)", skipped.join(", ")),
-                Note::Warn,
-            ));
+            what = format!("{what}; without {} (not readable)", skipped.join(", "));
         }
-        self.editing = Some(EditRequest {
-            path,
-            what: "a read-only copy; edits are not saved back".into(),
-        });
+        self.editing = Some(EditRequest { path, dir, what });
     }
 
     /// Hand the pending edit to the caller that owns the terminal.
@@ -2722,9 +2844,16 @@ impl App {
     /// Report how the editor went, once the terminal is back.
     pub fn finish_edit(&mut self, req: &EditRequest, error: Option<String>) {
         self.dirty = true;
+        // The copy goes away with the editor. Leaving it would accumulate readable
+        // payloads in the temp directory for the length of the session, and the file was
+        // never a document anyone can save.
+        let _ = std::fs::remove_dir_all(&req.dir);
         self.note = Some(match error {
             Some(e) => (format!("editor: {e}"), Note::Error),
-            None => (format!("{} — {}", req.path.display(), req.what), Note::Info),
+            None => (
+                format!("closed {} — {}", req.path.display(), req.what),
+                Note::Info,
+            ),
         });
     }
 
@@ -3059,7 +3188,11 @@ mod tests {
         let mut app = app();
         four(&mut app);
         search_for(&mut app, "refund");
-        assert_eq!(at_cursor(&app), "r4", "r4 is the first Refund in display order");
+        assert_eq!(
+            at_cursor(&app),
+            "r4",
+            "r4 is the first Refund in display order"
+        );
     }
 
     #[test]
@@ -3070,7 +3203,11 @@ mod tests {
         four(&mut app);
         app.view.cursor = row_of(&app, "r2");
         search_for(&mut app, "refund");
-        assert_eq!(at_cursor(&app), "r2", "should have stayed on the visible match");
+        assert_eq!(
+            at_cursor(&app),
+            "r2",
+            "should have stayed on the visible match"
+        );
     }
 
     #[test]
@@ -3157,9 +3294,11 @@ mod tests {
         four(&mut app);
         assert_eq!(app.search.pattern(), "refund");
         app.run("search.next", None);
-        assert!(app.workflow_rows()[app.view.cursor]
-            .workflow_type
-            .contains("Refund"));
+        assert!(
+            app.workflow_rows()[app.view.cursor]
+                .workflow_type
+                .contains("Refund")
+        );
     }
 
     // ---- pickers ----
@@ -3457,7 +3596,9 @@ mod tests {
         });
 
         app.run("payload.edit", None);
-        let request = app.take_edit_request().expect("a request should be waiting");
+        let request = app
+            .take_edit_request()
+            .expect("a request should be waiting");
         let written = std::fs::read_to_string(&request.path).expect("file should exist");
         assert!(written.contains("amount"), "got: {written}");
         assert!(
@@ -3465,7 +3606,63 @@ mod tests {
             "the copy must say it is a copy: {}",
             request.what
         );
-        let _ = std::fs::remove_file(&request.path);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&request.path)
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(
+                mode & 0o077,
+                0,
+                "decoded payloads must not be group/world readable"
+            );
+        }
+
+        // Finishing removes the copy: it is not a document, and leaving it would pile up
+        // readable payloads in the temp directory for the rest of the session.
+        app.finish_edit(&request, None);
+        assert!(
+            !request.path.exists(),
+            "the copy should have been cleaned up"
+        );
+    }
+
+    #[test]
+    fn an_unreadable_payload_is_reported_on_the_request_not_as_a_note() {
+        // The note set during `open_editor` is never seen: the loop takes the request
+        // before the next draw and `finish_edit` overwrites the note afterwards.
+        let mut app = app();
+        loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
+        app.run("nav.open", None);
+
+        use tmprl_core::history::{Category as C, GroupRef as G, Role as R};
+        let mut started = hev(1, G::Workflow, R::Opens, C::Workflow).with_subject("Order");
+        started.payloads.push((
+            "input".into(),
+            Payload::new("json/plain", br#"{"amount":100}"#.to_vec()),
+        ));
+        started.payloads.push((
+            "secret".into(),
+            Payload::new("binary/encrypted", vec![1, 2, 3]),
+        ));
+        app.handle(Msg::History {
+            generation: app.view.generation,
+            result: Ok((vec![started], Vec::new())),
+        });
+
+        app.run("payload.edit", None);
+        let request = app
+            .take_edit_request()
+            .expect("a request should be waiting");
+        assert!(
+            request.what.contains("secret"),
+            "the skipped payload must reach the user: {}",
+            request.what
+        );
+        app.finish_edit(&request, None);
     }
 
     #[test]
@@ -3473,7 +3670,8 @@ mod tests {
         // The loop must not open the same file twice on the next pass round.
         let mut app = app();
         app.editing = Some(EditRequest {
-            path: std::path::PathBuf::from("/tmp/x.json"),
+            path: std::path::PathBuf::from("/tmp/tmprl-nonexistent/x.json"),
+            dir: std::path::PathBuf::from("/tmp/tmprl-nonexistent"),
             what: "test".into(),
         });
         assert!(app.take_edit_request().is_some());
@@ -3582,6 +3780,211 @@ mod tests {
         assert_ne!(app.view.query, query);
         app.run("nav.jump-back", None);
         assert_eq!(app.view.query, query, "back to the query it replaced");
+    }
+
+    #[test]
+    fn tab_jumps_forward_because_it_is_the_same_key_as_ctrl_i() {
+        // Ctrl+I is byte 0x09 on a terminal, which arrives as Tab. Binding only `<C-i>`
+        // gives a key that never fires.
+        let mut app = app();
+        four(&mut app);
+        app.run("nav.open", None);
+        app.run("nav.jump-back", None);
+        assert_eq!(app.view.screen, Screen::Workflows);
+
+        app.handle(Msg::Key(Chord::plain(Key::Tab)));
+        assert_eq!(app.view.screen, Screen::History, "Tab should jump forward");
+    }
+
+    #[test]
+    fn failing_to_find_a_pane_leaves_the_tab_where_it_was() {
+        // Finding a pane in another tab means rotating, because Tabs cannot be inspected
+        // without being made current. A miss must undo the rotation.
+        let mut app = app();
+        four(&mut app);
+        app.run("tab.new", None);
+        app.run("tab.new", None);
+        let before = app.tabs.index();
+
+        app.focus_pane(ViewId(9999));
+        assert_eq!(app.tabs.index(), before, "a miss must not move the tab");
+        let (msg, _) = app.note.clone().expect("should have said so");
+        assert!(msg.contains("gone"), "got: {msg}");
+    }
+
+    #[test]
+    fn jumping_back_to_a_list_returns_to_the_workflow_not_the_row_number() {
+        // A live list grows at the top. Restoring a bare index would put the cursor on
+        // whatever has since taken that slot.
+        let mut app = app();
+        four(&mut app);
+        app.run("motion.down", None);
+        let left = at_cursor(&app);
+
+        app.run("nav.open", None);
+        assert_eq!(app.view.screen, Screen::History);
+
+        app.run("nav.jump-back", None);
+        // Two newer workflows arrive while we were away, pushing everything down.
+        let mut rows = vec![wf("default", "r9", 900), wf("default", "r8", 800)];
+        for run in ["r4", "r3", "r2", "r1"] {
+            let start = 100 * run[1..].parse::<i64>().unwrap();
+            rows.push(wf("default", run, start));
+        }
+        app.handle(Msg::Workflows {
+            generation: app.view.generation,
+            append: false,
+            result: Ok((rows, vec![])),
+        });
+
+        assert_eq!(
+            at_cursor(&app),
+            left,
+            "should have followed the workflow down"
+        );
+    }
+
+    // ---- regressions from the review of #17 ----
+
+    #[test]
+    fn picking_a_workflow_from_inside_a_history_does_not_merge_the_two() {
+        // The bug this pins: `open_workflow` set `viewing` and called `load_history`
+        // without clearing the previous run's events or continuation token. `load_history`
+        // then saw non-empty events, skipped bumping the generation, sent r1's page token
+        // to r2, and merged the reply into r1's events, so one outline showed two
+        // workflows.
+        let mut app = app();
+        four(&mut app);
+        app.run("nav.open", None);
+        assert_eq!(app.view.screen, Screen::History);
+
+        // A paged history: a non-empty token is what made the old code send the wrong one.
+        app.handle(Msg::History {
+            generation: app.view.generation,
+            result: Ok((history_events(), b"page-2".to_vec())),
+        });
+        assert!(!app.view.history_events.is_empty());
+        assert!(!app.view.history_token.is_empty());
+        let first = app.view.viewing.clone().unwrap().run_id;
+
+        app.run("find.workflow", None);
+        type_into_picker(&mut app, "r2");
+        app.handle(Msg::Key(Chord::plain(Key::Enter)));
+
+        assert_ne!(app.view.viewing.clone().unwrap().run_id, first);
+        assert!(
+            app.view.history_events.is_empty(),
+            "the previous run's events must not survive"
+        );
+        assert!(
+            app.view.history_token.is_empty(),
+            "the previous run's page token must not be sent to this one"
+        );
+        assert!(app.view.history_resume.is_empty());
+    }
+
+    #[test]
+    fn the_problem_list_clears_the_history_it_leaves_behind() {
+        // `load_history` passes `history_token` unconditionally, so a token left over from
+        // an abandoned history goes to whichever run is opened next.
+        let mut app = app();
+        four(&mut app);
+        app.run("nav.open", None);
+        app.handle(Msg::History {
+            generation: app.view.generation,
+            result: Ok((history_events(), b"page-2".to_vec())),
+        });
+
+        app.run("list.problems", None);
+        assert_eq!(app.view.screen, Screen::Workflows);
+        assert!(app.view.history_token.is_empty(), "token must not survive");
+        assert!(app.view.history_resume.is_empty());
+        assert!(app.view.history_events.is_empty());
+    }
+
+    #[test]
+    fn a_refused_dash_does_not_destroy_the_forward_jumps() {
+        // `Jumplist::push` truncates everything ahead of the cursor, so marking a jump for
+        // a move that turns out to be refused silently empties the `<C-i>` list.
+        //
+        // Getting to the state that shows it needs care: a *legal* `-` truncates the
+        // forward entries too, and correctly so. What is needed is to be sitting on the
+        // namespace list, where `-` is refused, with forward entries still ahead.
+        let mut app = app();
+        app.handle(Msg::Namespaces(Ok(vec![NamespaceInfo {
+            name: "default".into(),
+            state: "Registered".into(),
+            retention_days: 3,
+            description: String::new(),
+        }])));
+        app.view.screen = Screen::Namespaces;
+
+        app.run("nav.open", None); // namespaces -> workflows
+        four(&mut app);
+        app.run("nav.open", None); // workflows -> history
+        assert_eq!(app.view.screen, Screen::History);
+
+        app.run("nav.jump-back", None); // -> workflows
+        app.run("nav.jump-back", None); // -> namespaces, with two entries ahead
+        assert_eq!(app.view.screen, Screen::Namespaces);
+
+        let ahead = app.jumps.len();
+        app.run("nav.up", None); // refused: already at the top level
+        assert_eq!(
+            app.jumps.len(),
+            ahead,
+            "a refused move must not touch the jumplist"
+        );
+
+        app.run("nav.jump-forward", None);
+        assert_eq!(
+            app.view.screen,
+            Screen::Workflows,
+            "the forward list should still lead back down"
+        );
+    }
+
+    #[test]
+    fn a_first_search_from_the_top_does_not_claim_to_have_wrapped() {
+        // Row 0 is where a freshly loaded pane puts the cursor, so the old `cursor - 1`
+        // seek made almost every first search report a wrap.
+        let mut app = app();
+        four(&mut app);
+        assert_eq!(app.view.cursor, 0);
+        search_for(&mut app, "refund");
+        let (msg, _) = app.note.clone().expect("a search reports itself");
+        assert!(!msg.contains("wrapped"), "got: {msg}");
+    }
+
+    #[test]
+    fn a_search_that_matches_nothing_does_not_record_a_jump() {
+        let mut app = app();
+        four(&mut app);
+        app.run("nav.open", None); // a real jump, so there is something to lose
+        app.run("nav.jump-back", None);
+
+        search_for(&mut app, "nothing-matches-this");
+        app.run("nav.jump-forward", None);
+        assert_eq!(
+            app.view.screen,
+            Screen::History,
+            "a failed search must not have truncated the forward list"
+        );
+    }
+
+    #[test]
+    fn the_command_picker_finds_a_command_by_its_title() {
+        // `:` matches ids and titles; `<leader>fh` matched only ids, so `failed` found
+        // `list.problems` in one and not the other.
+        let mut app = app();
+        four(&mut app);
+        app.run("find.command", None);
+        type_into_picker(&mut app, "failed");
+        let shown = picker_labels(&app);
+        assert!(
+            shown.iter().any(|l| l.starts_with("list.problems")),
+            "got {shown:?}"
+        );
     }
 
     #[test]

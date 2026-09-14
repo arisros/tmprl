@@ -69,10 +69,7 @@ fn render_prompt(frame: &mut Frame, area: Rect, picker: &Picker, t: &Theme) {
         Span::styled(picker.prompt.clone(), Style::new().fg(t.fg)),
         // A block caret, since the terminal's own is parked in the statusline.
         Span::styled("▏", Style::new().fg(t.accent)),
-        Span::styled(
-            format!("  {counts}"),
-            Style::new().fg(t.faint),
-        ),
+        Span::styled(format!("  {counts}"), Style::new().fg(t.faint)),
     ]);
     frame.render_widget(Paragraph::new(line), area);
 }
@@ -86,10 +83,7 @@ fn render_list(frame: &mut Frame, area: Rect, picker: &Picker, t: &Theme) {
 
     if picker.is_empty() {
         frame.render_widget(
-            Paragraph::new(Span::styled(
-                "  no matches",
-                Style::new().fg(t.faint),
-            )),
+            Paragraph::new(Span::styled("  no matches", Style::new().fg(t.faint))),
             inner,
         );
         return;
@@ -141,12 +135,7 @@ fn render_list(frame: &mut Frame, area: Rect, picker: &Picker, t: &Theme) {
 /// This is what tells you *why* an entry is in the list: with a fuzzy match, a row can be a
 /// hit for reasons that are not obvious from looking at it, and underlining the matched
 /// characters is the difference between trusting the ranking and fighting it.
-fn marked<'a>(
-    label: &'a str,
-    positions: &[usize],
-    base: Style,
-    t: &Theme,
-) -> Vec<Span<'a>> {
+fn marked<'a>(label: &'a str, positions: &[usize], base: Style, t: &Theme) -> Vec<Span<'a>> {
     if positions.is_empty() {
         return vec![Span::styled(label, base)];
     }

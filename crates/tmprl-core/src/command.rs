@@ -54,9 +54,6 @@ pub enum Action {
     FindNamespace,
     /// The failed-and-stuck list, `<leader>xx`. A query preset, not a screen of its own.
     ProblemList,
-    PickerDown,
-    PickerUp,
-    PickerAccept,
 
     // Data
     YankField,
@@ -176,9 +173,6 @@ impl Registry {
             "find.filter",        "Find",        "Build a query filter"      => FindFilter;
             "find.namespace",     "Find",        "Switch namespace"          => FindNamespace;
             "list.problems",      "Find",        "Failed and stuck workflows" => ProblemList;
-            "picker.down",        "Find",        "Next entry in the picker"  => PickerDown;
-            "picker.up",          "Find",        "Previous entry"            => PickerUp;
-            "picker.accept",      "Find",        "Take the selected entry"   => PickerAccept;
 
             "yank.field",         "Yank",        "Yank the focused value"    => YankField;
             "yank.record",        "Yank",        "Yank the row as JSON"      => YankRecord;

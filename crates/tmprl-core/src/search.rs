@@ -124,30 +124,44 @@ fn smartcase(pattern: &str) -> bool {
 
 /// The next matching row from `from`, wrapping once.
 ///
-/// `from` is the cursor, and it is **excluded**: `n` on a match moves to the next one
-/// rather than sitting still, which is what makes repeated `n` walk the results.
+/// `inclusive` decides whether the row the cursor is on is a candidate. `n` excludes it, so
+/// repeated presses walk the results; a freshly typed `/` includes it, because you have just
+/// typed the pattern while looking at the screen and skipping a match that is right there
+/// reads as not having found it.
 ///
 /// Wrapping is unconditional, unlike `]f`, which stops at the end. A failure jump is
 /// "where did this go wrong", asked once; a search is "show me the next one", asked
 /// repeatedly, and a `n` that silently stops at the last match reads as a broken key.
-pub fn find(search: &Search, labels: &[String], from: usize, forward: bool) -> Option<Hit> {
+///
+/// The `inclusive` flag exists rather than letting the caller pass `from - 1`, which is the
+/// obvious trick and is wrong: at `from == 0` it underflows to the last row, and every
+/// subsequent hit then looks like it wrapped. Since 0 is where a freshly loaded pane puts
+/// the cursor, that made essentially every first search claim to have wrapped, which is the
+/// one signal meant to explain a cursor that jumped backwards.
+pub fn find(
+    search: &Search,
+    labels: &[String],
+    from: usize,
+    forward: bool,
+    inclusive: bool,
+) -> Option<Hit> {
     if search.is_empty() || labels.is_empty() {
         return None;
     }
     let n = labels.len();
-    // Walk every row once, starting one past the cursor, so the cursor's own row is only
-    // considered last, as the wrap case.
-    (1..=n).find_map(|step| {
-        let row = if forward {
-            (from + step) % n
+    let offset = if inclusive { 0 } else { 1 };
+
+    // `step` counts how far from the cursor a candidate is, which is what decides both the
+    // row and whether getting to it went round the end. Both directions use the same rule:
+    // a wrap is a step that runs past the edge of the list.
+    (0..n).find_map(|i| {
+        let step = i + offset;
+        let (row, wrapped) = if forward {
+            ((from + step) % n, from + step >= n)
         } else {
-            (from + n - (step % n)) % n
+            ((from + n - (step % n)) % n, step > from)
         };
-        if !search.matches(&labels[row]) {
-            return None;
-        }
-        let wrapped = if forward { row <= from } else { row >= from };
-        Some(Hit { row, wrapped })
+        search.matches(&labels[row]).then_some(Hit { row, wrapped })
     })
 }
 
@@ -187,7 +201,7 @@ mod tests {
         // being bound to something else entirely.
         let s = Search::new("");
         assert!(!s.matches("anything"));
-        assert_eq!(find(&s, &labels(&["a", "b"]), 0, true), None);
+        assert_eq!(find(&s, &labels(&["a", "b"]), 0, true, false), None);
     }
 
     #[test]
@@ -222,14 +236,14 @@ mod tests {
     fn find_skips_the_row_the_cursor_is_on() {
         let rows = labels(&["charge", "ship", "charge"]);
         let s = Search::new("charge");
-        assert_eq!(find(&s, &rows, 0, true).unwrap().row, 2);
+        assert_eq!(find(&s, &rows, 0, true, false).unwrap().row, 2);
     }
 
     #[test]
     fn find_wraps_and_says_so() {
         let rows = labels(&["charge", "ship", "refund"]);
         let s = Search::new("charge");
-        let hit = find(&s, &rows, 1, true).unwrap();
+        let hit = find(&s, &rows, 1, true, false).unwrap();
         assert_eq!(hit.row, 0);
         assert!(hit.wrapped, "going forward past the last match wraps");
     }
@@ -238,7 +252,7 @@ mod tests {
     fn find_backwards_wraps_too() {
         let rows = labels(&["charge", "ship", "refund"]);
         let s = Search::new("refund");
-        let hit = find(&s, &rows, 0, false).unwrap();
+        let hit = find(&s, &rows, 0, false, false).unwrap();
         assert_eq!(hit.row, 2);
         assert!(hit.wrapped);
     }
@@ -249,7 +263,7 @@ mod tests {
         // which is what vim does.
         let rows = labels(&["charge", "ship"]);
         let s = Search::new("charge");
-        let hit = find(&s, &rows, 0, true).unwrap();
+        let hit = find(&s, &rows, 0, true, false).unwrap();
         assert_eq!(hit.row, 0);
         assert!(hit.wrapped);
     }
@@ -257,7 +271,41 @@ mod tests {
     #[test]
     fn no_match_is_none_rather_than_a_jump_to_zero() {
         let rows = labels(&["charge", "ship"]);
-        assert_eq!(find(&Search::new("nope"), &rows, 0, true), None);
+        assert_eq!(find(&Search::new("nope"), &rows, 0, true, false), None);
+    }
+
+    #[test]
+    fn an_inclusive_search_from_row_zero_does_not_claim_to_have_wrapped() {
+        // The regression this flag exists for. Row 0 is where a freshly loaded pane puts
+        // the cursor, so getting this wrong made almost every first search say "wrapped".
+        let rows = labels(&["charge", "ship", "refund"]);
+        let hit = find(&Search::new("charge"), &rows, 0, true, true).unwrap();
+        assert_eq!(hit.row, 0);
+        assert!(!hit.wrapped, "row 0 is where we started, not a wrap");
+    }
+
+    #[test]
+    fn an_inclusive_search_matches_the_row_it_starts_on() {
+        let rows = labels(&["charge", "ship", "charge"]);
+        let hit = find(&Search::new("charge"), &rows, 2, true, true).unwrap();
+        assert_eq!(hit.row, 2, "the cursor's own row is a candidate");
+        assert!(!hit.wrapped);
+    }
+
+    #[test]
+    fn an_inclusive_search_still_reports_a_real_wrap() {
+        let rows = labels(&["charge", "ship", "refund"]);
+        let hit = find(&Search::new("charge"), &rows, 1, true, true).unwrap();
+        assert_eq!(hit.row, 0);
+        assert!(hit.wrapped, "going past the end to reach it is a wrap");
+    }
+
+    #[test]
+    fn an_exclusive_search_from_row_zero_reports_a_backward_wrap() {
+        let rows = labels(&["charge", "ship", "refund"]);
+        let hit = find(&Search::new("refund"), &rows, 0, false, false).unwrap();
+        assert_eq!(hit.row, 2);
+        assert!(hit.wrapped);
     }
 
     #[test]
