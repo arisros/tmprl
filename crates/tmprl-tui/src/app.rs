@@ -10,14 +10,17 @@ use std::sync::Arc;
 use tmprl_client::{Codec, Conn, NamespaceInfo};
 use tmprl_core::ScheduleRow;
 use tmprl_core::form::Form;
+use tmprl_core::jumplist::Jumplist;
 use tmprl_core::history::{NormalizedEvent, group_events, merge_events};
 use tmprl_core::mutation::{Confirm, Mutation};
 use tmprl_core::outline::{Outline, Row};
 use tmprl_core::payload::Payload;
+use tmprl_core::picker::{self, Picker, Target};
+use tmprl_core::search::{self, Search};
 use tmprl_core::timerange::parse_backfill;
 use tmprl_core::{
     Action, Chord, Keymap, Loadable, Mode, Pending, PendingEntry, Registry, Resolution, SavedView,
-    StatusCounts, WorkflowList, WorkflowRow, default_keymap,
+    StatusCounts, WorkflowList, WorkflowRow, WorkflowStatus, default_keymap,
 };
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -72,6 +75,61 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
+/// Somewhere the cursor has been, in enough detail to get back to it.
+///
+/// Held by value rather than as an index, because every index a pane has is into a list that
+/// a refresh can replace. A jump back to "row 12 of the workflow list" would land on a
+/// different workflow ten seconds later; a jump back to a run id lands on the workflow.
+///
+/// The history itself is not stored, only which workflow it was. Coming back re-fetches,
+/// which is a round trip, but the alternative is keeping every history ever visited in
+/// memory for the length of the session.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Jump {
+    pub screen: Screen,
+    pub scope: Vec<String>,
+    pub query: String,
+    pub viewing: Option<WorkflowRow>,
+    pub cursor: usize,
+}
+
+/// A payload written to disk, waiting for `$EDITOR` to be run over it.
+///
+/// `App` cannot open an editor itself: the editor wants the terminal, and the terminal
+/// belongs to the event loop. So the reducer does the part it can do, choosing the payload
+/// and writing the file, and leaves this behind for the loop to act on. That keeps `App`
+/// free of terminal types and keeps the whole thing testable, the test asserts a file was
+/// written and never spawns anything.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EditRequest {
+    pub path: std::path::PathBuf,
+    /// What was written, for the message afterwards.
+    pub what: String,
+}
+
+/// A one-line description of what a pane is showing, for the pane picker.
+///
+/// Named by *what is in it* rather than by an id, because "pane 3" tells you nothing about
+/// which of four open histories it is. This mirrors how vim's `:ls` names buffers by file.
+fn describe_pane(v: &View) -> String {
+    match v.screen {
+        Screen::Namespaces => "namespaces".to_string(),
+        Screen::Workflows => {
+            let scope = v.scope.join(", ");
+            if v.query.trim().is_empty() {
+                format!("workflows  {scope}")
+            } else {
+                format!("workflows  {scope}  [{}]", v.query.trim())
+            }
+        }
+        Screen::History => match &v.viewing {
+            Some(w) => format!("history  {}  {}", w.workflow_id, w.workflow_type),
+            None => "history".to_string(),
+        },
+        Screen::Schedules => format!("schedules  {}", v.scope.join(", ")),
+    }
+}
+
 /// What a prompt at the bottom of the screen is collecting.
 ///
 /// Both prompts edit identically, the same keys, the same backspace-on-empty-closes rule,
@@ -83,6 +141,8 @@ pub enum PromptKind {
     Command,
     /// `!`, a shell command to filter the focused payloads through.
     Pipe,
+    /// `/`, a pattern to find within the rows already on screen.
+    Search,
     /// The name of a signal to send.
     Signal,
     /// The name of an update to send.
@@ -103,6 +163,7 @@ impl Prompt {
         match self.kind {
             PromptKind::Command => ":",
             PromptKind::Pipe => "!",
+            PromptKind::Search => "/",
             PromptKind::Signal => "signal:",
             PromptKind::Update => "update:",
             PromptKind::Backfill => "backfill:",
@@ -224,6 +285,22 @@ pub struct App {
     pub form: Option<Form>,
     pub insert_buf: String,
     pub insert_target: InsertTarget,
+    /// `Some` while a `<leader>f` picker is open. It owns the keyboard while it is, the
+    /// way a prompt does.
+    pub picker: Option<Picker>,
+    /// Set when `<leader>e` has written a payload out; the event loop takes it, drops
+    /// the terminal, runs the editor and puts the terminal back.
+    pub editing: Option<EditRequest>,
+    /// `<C-o>` / `<C-i>`. Session-level, not per-pane: the jumps you want to retrace
+    /// are the ones *you* made, and they cross panes as readily as they cross screens.
+    pub jumps: Jumplist<Jump>,
+    /// The last pattern searched for, vim's `/` register.
+    ///
+    /// Session-level rather than per-pane, and deliberately so: the pattern is something
+    /// *you* are looking for, not a property of a window. Splitting a pane and pressing `n`
+    /// should keep looking for the same thing, and typing a query you have already typed
+    /// once into the other half is exactly the friction this is avoiding.
+    pub search: Search,
 
     pub note: Option<(String, Note)>,
     pub should_quit: bool,
@@ -278,6 +355,10 @@ impl App {
             form: None,
             insert_buf: String::new(),
             insert_target: InsertTarget::Scratch,
+            picker: None,
+            editing: None,
+            jumps: Jumplist::default(),
+            search: Search::default(),
             note: None,
             should_quit: false,
             dirty: true,
@@ -543,6 +624,10 @@ impl App {
             self.prompt_key(chord);
             return;
         }
+        if self.picker.is_some() {
+            self.picker_key(chord);
+            return;
+        }
         if self.form.is_some() {
             self.form_key(chord);
             return;
@@ -620,8 +705,16 @@ impl App {
 
             Action::MoveDown => self.move_cursor(n as isize),
             Action::MoveUp => self.move_cursor(-(n as isize)),
-            Action::MoveTop => self.set_cursor(0),
-            Action::MoveBottom => self.set_cursor(self.row_count().saturating_sub(1)),
+            // `gg` and `G` are jumps, as they are in vim: they are how you leave where
+            // you were, which is exactly what `<C-o>` is for getting back from.
+            Action::MoveTop => {
+                self.mark_jump();
+                self.set_cursor(0)
+            }
+            Action::MoveBottom => {
+                self.mark_jump();
+                self.set_cursor(self.row_count().saturating_sub(1))
+            }
             Action::HalfPageDown => self.move_cursor((self.view.page / 2).max(1) as isize),
             Action::HalfPageUp => self.move_cursor(-((self.view.page / 2).max(1) as isize)),
 
@@ -629,6 +722,8 @@ impl App {
             Action::GoUp => self.go_up(),
             Action::GoSchedules => self.go_to(Screen::Schedules),
             Action::GoWorkflows => self.go_to(Screen::Workflows),
+            Action::JumpBack => self.jump(true),
+            Action::JumpForward => self.jump(false),
 
             Action::PauseSchedule => self.confirm_mutation(MutationKind::PauseSchedule),
             Action::TriggerSchedule => self.confirm_mutation(MutationKind::TriggerSchedule),
@@ -690,12 +785,27 @@ impl App {
                     Note::Info,
                 ));
             }
+            Action::OpenSearch => self.open_search(),
+            Action::FindWorkflow => self.open_picker(picker::Kind::Workflows),
+            Action::FindEvent => self.open_picker(picker::Kind::HistoryRows),
+            Action::FindPane => self.open_picker(picker::Kind::Panes),
+            Action::FindCommand => self.open_picker(picker::Kind::Commands),
+            Action::FindFilter => self.open_picker(picker::Kind::Filters),
+            Action::FindNamespace => self.open_picker(picker::Kind::Namespaces),
+            Action::ProblemList => self.show_problems(),
+            Action::PickerDown => self.move_picker(n as isize),
+            Action::PickerUp => self.move_picker(-(n as isize)),
+            Action::PickerAccept => self.accept_picker(),
+            Action::SearchNext => self.jump_match(true),
+            Action::SearchPrev => self.jump_match(false),
+
             Action::NextFailure => self.jump_failure(true),
             Action::PrevFailure => self.jump_failure(false),
             Action::ToggleFollow => self.toggle_follow(),
             Action::DetailDown => self.scroll_detail(n as isize),
             Action::DetailUp => self.scroll_detail(-(n as isize)),
             Action::OpenPipe => self.open_pipe(),
+            Action::OpenEditor => self.open_editor(),
 
             Action::CancelWorkflow => self.confirm_mutation(MutationKind::Cancel),
             Action::TerminateWorkflow => self.confirm_mutation(MutationKind::Terminate),
@@ -758,6 +868,7 @@ impl App {
                     return;
                 }
 
+                self.mark_jump();
                 self.view.namespace_cursor = self.view.cursor;
                 self.view.anchor = None;
                 self.mode = Mode::Normal;
@@ -772,6 +883,7 @@ impl App {
                     self.note = Some(("nothing to open".into(), Note::Warn));
                     return;
                 };
+                self.mark_jump();
                 self.view.workflow_cursor = self.view.cursor;
                 self.view.anchor = None;
                 self.mode = Mode::Normal;
@@ -794,6 +906,7 @@ impl App {
     }
 
     fn go_up(&mut self) {
+        self.mark_jump();
         match self.view.screen {
             Screen::History => {
                 self.stop_following();
@@ -956,6 +1069,529 @@ impl App {
         self.view.stop_following();
     }
 
+    /// Open a picker over whatever `kind` names.
+    ///
+    /// Items are gathered once, at open. A picker over a live list that reshuffled itself
+    /// under the cursor while you typed would be unusable, and every one of these lists is
+    /// live: workflows page in, a followed history grows. A snapshot is also what makes
+    /// `Target::Row` sound, an index into a list that cannot change while the picker holds
+    /// the keyboard.
+    fn open_picker(&mut self, kind: picker::Kind) {
+        let items = match kind {
+            picker::Kind::Workflows => self.workflow_items(),
+            picker::Kind::HistoryRows => self.history_items(),
+            picker::Kind::Panes => self.pane_items(),
+            picker::Kind::Commands => self.command_items(),
+            picker::Kind::Filters => self.filter_items(),
+            picker::Kind::Namespaces => self.namespace_items(),
+        };
+        if items.is_empty() {
+            // Saying why beats opening an empty box: the answer is nearly always "you are
+            // on the wrong screen" or "nothing has loaded yet".
+            self.note = Some((
+                match kind {
+                    picker::Kind::Workflows => "no workflows loaded; open a namespace first",
+                    picker::Kind::HistoryRows => "no history here; open a workflow first",
+                    picker::Kind::Panes => "only this pane is open",
+                    picker::Kind::Commands => "no commands",
+                    picker::Kind::Filters => "nothing to filter on yet",
+                    picker::Kind::Namespaces => "no namespaces loaded yet",
+                }
+                .into(),
+                Note::Warn,
+            ));
+            return;
+        }
+        self.picker = Some(Picker::new(kind, items));
+    }
+
+    fn workflow_items(&self) -> Vec<picker::Item> {
+        self.view
+            .workflow_rows()
+            .iter()
+            .map(|w| {
+                picker::Item::new(
+                    w.workflow_id.clone(),
+                    Target::Workflow {
+                        namespace: w.namespace.clone(),
+                        run_id: w.run_id.clone(),
+                    },
+                )
+                .with_note(format!("{}  {}", w.workflow_type, w.status.query_name()))
+                .with_preview(format!(
+                    "workflow id  {}\nrun id       {}\ntype         {}\ntask queue   {}\nnamespace    {}\nstatus       {}\nevents       {}",
+                    w.workflow_id,
+                    w.run_id,
+                    w.workflow_type,
+                    w.task_queue,
+                    w.namespace,
+                    w.status.query_name(),
+                    w.history_length,
+                ))
+            })
+            .collect()
+    }
+
+    /// Rows of the history outline, as the outline currently stands.
+    ///
+    /// Folded rows are not listed, deliberately: the picker offers what you can navigate to,
+    /// and a row inside a collapsed group is not somewhere the cursor can go. `zR` first if
+    /// you want the events too.
+    fn history_items(&self) -> Vec<picker::Item> {
+        if self.view.screen != Screen::History {
+            return Vec::new();
+        }
+        let labels = self.view.search_labels();
+        let Some(outline) = self.view.history.value() else {
+            return Vec::new();
+        };
+        labels
+            .into_iter()
+            .enumerate()
+            .map(|(row, label)| {
+                let note = match outline.row_at(row) {
+                    Some(Row::Group { group, .. }) => outline
+                        .group(group)
+                        .map(|g| g.outcome.label().to_string())
+                        .unwrap_or_default(),
+                    Some(Row::Event { event, .. }) => outline
+                        .event(event)
+                        .map(|e| format!("event {}", e.id))
+                        .unwrap_or_default(),
+                    None => String::new(),
+                };
+                picker::Item::new(label, Target::Row(row)).with_note(note)
+            })
+            .collect()
+    }
+
+    /// Every open pane, across every tab. vim's `:ls`, and `<leader>fb` is its `:b`.
+    fn pane_items(&self) -> Vec<picker::Item> {
+        let ids = self.tabs.views();
+        if ids.len() < 2 {
+            return Vec::new();
+        }
+        let focused = self.tabs.current().focused();
+        ids.into_iter()
+            .map(|id| {
+                // The focused pane's state is in `self.view`; every other one is parked.
+                let view = if id == focused {
+                    Some(&self.view)
+                } else {
+                    self.parked_view(id)
+                };
+                let label = match view {
+                    Some(v) => describe_pane(v),
+                    None => format!("pane {}", id.0),
+                };
+                picker::Item::new(label, Target::Pane(id.0)).with_note(if id == focused {
+                    "current".to_string()
+                } else {
+                    String::new()
+                })
+            })
+            .collect()
+    }
+
+    fn namespace_items(&self) -> Vec<picker::Item> {
+        self.view
+            .namespace_rows()
+            .iter()
+            .map(|n| {
+                picker::Item::new(n.name.clone(), Target::Namespace(n.name.clone()))
+                    .with_note(n.state.clone())
+                    .with_preview(format!(
+                        "namespace   {}\nstate       {}\nretention   {} days\n\n{}",
+                        n.name, n.state, n.retention_days, n.description,
+                    ))
+            })
+            .collect()
+    }
+
+    fn command_items(&self) -> Vec<picker::Item> {
+        self.registry
+            .search("")
+            .into_iter()
+            .map(|c| {
+                picker::Item::new(c.id, Target::Command(c.id.to_string()))
+                    .with_note(format!("{}  ·  {}", c.group, c.title))
+            })
+            .collect()
+    }
+
+    /// Clauses to build a visibility query out of.
+    ///
+    /// Two sources, and the second is the point of the thing. The statuses are fixed and
+    /// come from the protocol. The **types and task queues are read off the rows already
+    /// loaded**, so the picker offers the values that actually exist in this namespace
+    /// rather than asking you to remember how a workflow type is spelled.
+    ///
+    /// Each entry is a clause, not a whole query: accepting one appends it to the bar with
+    /// `AND`, and leaves the text editable. The query is the interface, and a builder that
+    /// replaced it with something you could not see is the web UI's mistake.
+    fn filter_items(&self) -> Vec<picker::Item> {
+        let mut items: Vec<picker::Item> = WorkflowStatus::DISPLAY_ORDER
+            .iter()
+            .map(|s| {
+                let clause = format!("ExecutionStatus = '{}'", s.query_name());
+                picker::Item::new(clause.clone(), Target::Query(clause)).with_note("status")
+            })
+            .collect();
+
+        let rows = self.view.workflow_rows();
+        let mut types: Vec<&str> = rows.iter().map(|w| w.workflow_type.as_str()).collect();
+        types.sort_unstable();
+        types.dedup();
+        for t in types {
+            let clause = format!("WorkflowType = '{t}'");
+            items.push(picker::Item::new(clause.clone(), Target::Query(clause)).with_note("type"));
+        }
+
+        let mut queues: Vec<&str> = rows.iter().map(|w| w.task_queue.as_str()).collect();
+        queues.sort_unstable();
+        queues.dedup();
+        for q in queues {
+            let clause = format!("TaskQueue = '{q}'");
+            items.push(
+                picker::Item::new(clause.clone(), Target::Query(clause)).with_note("task queue"),
+            );
+        }
+
+        for clause in ["ORDER BY StartTime DESC", "ORDER BY StartTime ASC"] {
+            items.push(
+                picker::Item::new(clause, Target::Query(clause.to_string())).with_note("order"),
+            );
+        }
+        items
+    }
+
+    fn picker_key(&mut self, chord: Chord) {
+        use tmprl_core::Key;
+        let Some(p) = self.picker.as_mut() else {
+            return;
+        };
+        // `<C-n>` / `<C-p>` rather than `<C-j>` / `<C-k>`: tmux's pane navigation eats the
+        // latter before this application ever sees them. See docs/INTERFACE.md.
+        let ctrl = chord.mods.ctrl;
+        match chord.key {
+            Key::Esc => self.picker = None,
+            Key::Enter => self.accept_picker(),
+            Key::Down => self.move_picker(1),
+            Key::Up => self.move_picker(-1),
+            Key::Char('n') if ctrl => self.move_picker(1),
+            Key::Char('p') if ctrl => self.move_picker(-1),
+            // Backspace on an empty prompt closes, as it does at every other prompt here.
+            // The guard does the deleting, matching how `prompt_key` is written.
+            Key::Backspace if !p.backspace() => self.picker = None,
+            Key::Backspace => {}
+            Key::Char(c) if chord.mods.is_none() => p.push(c),
+            _ => {}
+        }
+    }
+
+    fn move_picker(&mut self, delta: isize) {
+        if let Some(p) = self.picker.as_mut() {
+            p.move_cursor(delta);
+        }
+    }
+
+    /// Take the selected entry and close.
+    ///
+    /// The match on `Target` is exhaustive, so adding a picker whose outcome is genuinely
+    /// new is a compile error here rather than a key that does nothing.
+    fn accept_picker(&mut self) {
+        let Some(p) = self.picker.as_ref() else {
+            return;
+        };
+        let Some(target) = p.accept().cloned() else {
+            // Nothing matched what was typed. Closing silently would look like it took
+            // something, so leave the picker open and say nothing happened.
+            self.note = Some(("no entry selected".into(), Note::Warn));
+            return;
+        };
+        self.picker = None;
+
+        match target {
+            Target::Workflow { namespace, run_id } => self.open_workflow(&namespace, &run_id),
+            Target::Row(row) => {
+                let len = self.row_count();
+                if row < len {
+                    self.set_cursor(row);
+                }
+            }
+            Target::Command(id) => self.run(&id, None),
+            Target::Pane(id) => self.focus_pane(ViewId(id)),
+            Target::Query(clause) => self.add_clause(&clause),
+            Target::Namespace(name) => self.switch_namespace(&name),
+        }
+    }
+
+    /// Point this pane at one namespace and show its workflows.
+    ///
+    /// The query is kept. Switching namespace is usually "the same question, over there",
+    /// and having to retype the filter every time would make the picker cost more than the
+    /// navigation it replaces. Any fan-out collapses to the one namespace chosen.
+    fn switch_namespace(&mut self, name: &str) {
+        self.mark_jump();
+        self.stop_following();
+        self.view.scope = vec![name.to_string()];
+        self.view.screen = Screen::Workflows;
+        self.view.viewing = None;
+        self.view.history = Loadable::NotAsked;
+        self.view.history_events.clear();
+        self.view.history_token.clear();
+        self.view.history_resume.clear();
+        self.view.cursor = 0;
+        self.view.cursor_key = None;
+        self.view.anchor = None;
+        self.mode = Mode::Normal;
+        self.note = Some((format!("namespace: {name}"), Note::Info));
+        self.load_workflows(false);
+    }
+
+    /// `<leader>xx`: everything that went wrong.
+    ///
+    /// A query preset rather than a screen of its own, which is the whole reason the query
+    /// bar is the interface. It lands in the bar, visible and editable, so narrowing it
+    /// further is ordinary editing rather than a feature this would have had to grow.
+    ///
+    /// `IN` rather than three `OR`s: Temporal's visibility grammar takes it, and the result
+    /// is short enough to read in the bar, which a three-clause disjunction is not.
+    fn show_problems(&mut self) {
+        self.mark_jump();
+        const PROBLEMS: &str =
+            "ExecutionStatus IN ('Failed', 'TimedOut', 'Terminated') ORDER BY StartTime DESC";
+        self.stop_following();
+        self.view.query = PROBLEMS.to_string();
+        if self.view.screen != Screen::Workflows {
+            self.view.screen = Screen::Workflows;
+            self.view.viewing = None;
+            self.view.history = Loadable::NotAsked;
+            self.view.history_events.clear();
+        }
+        self.view.cursor = 0;
+        self.view.cursor_key = None;
+        self.note = Some(("problems: failed, timed out, terminated".into(), Note::Info));
+        self.load_workflows(false);
+    }
+
+    /// Jump straight to a workflow's history from the picker.
+    ///
+    /// The same landing as `Enter` on its row, reached without first putting the cursor
+    /// there, which is the entire reason a picker beats scrolling.
+    fn open_workflow(&mut self, namespace: &str, run_id: &str) {
+        let Some(row) = self
+            .workflow_rows()
+            .iter()
+            .find(|w| w.namespace == namespace && w.run_id == run_id)
+            .cloned()
+        else {
+            self.note = Some(("that workflow is no longer in the list".into(), Note::Warn));
+            return;
+        };
+        self.mark_jump();
+        self.view.workflow_cursor = self.view.cursor;
+        self.view.anchor = None;
+        self.mode = Mode::Normal;
+        self.view.screen = Screen::History;
+        self.view.viewing = Some(row);
+        self.view.cursor = 0;
+        self.load_history();
+    }
+
+    /// Focus a pane by id, switching tabs if it lives in another one.
+    fn focus_pane(&mut self, id: ViewId) {
+        if self.tabs.current().focused() == id {
+            return;
+        }
+        let previous = self.tabs.current().focused();
+        if self.tabs.current_mut().focus_view(id) {
+            self.refocus(previous);
+            return;
+        }
+        // Not in this tab. Walk the others, and only commit once one of them has it, so a
+        // miss leaves the current tab where it was.
+        for _ in 1..self.tabs.len() {
+            self.tabs.next();
+            if self.tabs.current().views().contains(&id) {
+                self.tabs.current_mut().focus_view(id);
+                self.refocus(previous);
+                return;
+            }
+        }
+        self.note = Some(("that pane has gone".into(), Note::Warn));
+    }
+
+    /// Append a clause to the visibility query and apply it.
+    ///
+    /// `AND`ed onto whatever is already there rather than replacing it, so the picker
+    /// composes: status, then type, then task queue, three visits and no typing. The text
+    /// stays in the bar and stays editable, which is the rule the whole query bar is built
+    /// on.
+    fn add_clause(&mut self, clause: &str) {
+        // An `ORDER BY` is a trailing clause, not a predicate: `AND`ing it produces a query
+        // the server rejects.
+        let ordering = clause.trim_start().to_ascii_lowercase().starts_with("order by");
+        let current = self.view.query.trim().to_string();
+        self.view.query = if current.is_empty() {
+            clause.to_string()
+        } else if ordering {
+            format!("{current} {clause}")
+        } else {
+            format!("{current} AND {clause}")
+        };
+        if self.view.screen == Screen::Namespaces {
+            self.view.screen = Screen::Workflows;
+        }
+        self.note = Some((format!("query: {}", self.view.query), Note::Info));
+        self.load_workflows(false);
+    }
+
+    /// Where this pane is now, for the jumplist.
+    fn here(&self) -> Jump {
+        Jump {
+            screen: self.view.screen,
+            scope: self.view.scope.clone(),
+            query: self.view.query.clone(),
+            viewing: self.view.viewing.clone(),
+            cursor: self.view.cursor,
+        }
+    }
+
+    /// Record the current position before a navigation that counts as a jump.
+    ///
+    /// Called by the handful of moves vim would also call jumps: changing screen, `gg` and
+    /// `G`, a search, taking something from a picker. Ordinary `j` and `k` are not jumps,
+    /// which is the entire point, a jumplist that recorded every line would be a scroll
+    /// history and `<C-o>` would be useless.
+    fn mark_jump(&mut self) {
+        let here = self.here();
+        self.jumps.push(here);
+    }
+
+    /// `<C-o>` and `<C-i>`.
+    fn jump(&mut self, back: bool) {
+        let here = self.here();
+        let target = if back {
+            self.jumps.back(here).cloned()
+        } else {
+            self.jumps.forward().cloned()
+        };
+        let Some(target) = target else {
+            self.note = Some((
+                if back {
+                    "no earlier position".into()
+                } else {
+                    "no later position".into()
+                },
+                Note::Warn,
+            ));
+            return;
+        };
+        self.go_to_jump(target);
+    }
+
+    /// Put the pane back where a jump says it was.
+    ///
+    /// A screen change re-fetches rather than restoring a cached list: what is there now is
+    /// what should be shown, and a jump that reinstated a ten-minute-old workflow table
+    /// would be showing history as if it were current.
+    fn go_to_jump(&mut self, to: Jump) {
+        self.stop_following();
+        self.mode = Mode::Normal;
+        self.view.anchor = None;
+        self.view.scope = to.scope;
+        self.view.query = to.query;
+        self.view.screen = to.screen;
+        self.view.viewing = to.viewing;
+        self.view.cursor = to.cursor;
+        self.view.cursor_key = None;
+
+        match to.screen {
+            Screen::Namespaces => self.clamp_cursor(),
+            Screen::Workflows => self.load_workflows(false),
+            Screen::Schedules => self.load_schedules(),
+            Screen::History => {
+                self.view.history = Loadable::NotAsked;
+                self.view.history_events.clear();
+                self.view.history_token.clear();
+                self.view.history_resume.clear();
+                self.load_history();
+            }
+        }
+    }
+
+    fn open_search(&mut self) {
+        // Seeded empty rather than with the last pattern. `/` almost always means "look for
+        // something else"; repeating the last search is what `n` is for, and pre-filling
+        // would mean clearing the line before every second search.
+        self.prompt = Some(Prompt {
+            kind: PromptKind::Search,
+            buf: String::new(),
+        });
+    }
+
+    /// Apply a freshly typed pattern and jump to the first match.
+    ///
+    /// Unlike `n`, this considers the row the cursor is already on: you have just typed the
+    /// pattern, and a `/` that skips a visible match one line up reads as not having found
+    /// it. Starting one row back and searching forward is how that falls out.
+    fn run_search(&mut self, pattern: String) {
+        // `/` is a jump, `n` is not. vim draws the line in the same place, and for the
+        // same reason: the first search is how you left, the repeats are the walking.
+        self.mark_jump();
+        self.search = Search::new(pattern);
+        let len = self.row_count();
+        if len == 0 {
+            return;
+        }
+        let from = (self.view.cursor + len - 1) % len;
+        self.seek(from, true);
+    }
+
+    /// `n` and `N`: the same pattern again, from where the cursor is now.
+    fn jump_match(&mut self, forward: bool) {
+        if self.search.is_empty() {
+            self.note = Some(("no search yet, press / first".into(), Note::Warn));
+            return;
+        }
+        self.seek(self.view.cursor, forward);
+    }
+
+    /// Move the cursor to the next row matching the current pattern, and say what happened.
+    ///
+    /// Every outcome gets a message, because the alternatives are all worse: a silent
+    /// no-match looks like the key is unbound, and a silent wrap looks like the cursor
+    /// jumped on its own.
+    fn seek(&mut self, from: usize, forward: bool) {
+        let labels = self.view.search_labels();
+        let total = search::count(&self.search, &labels);
+        match search::find(&self.search, &labels, from, forward) {
+            Some(hit) => {
+                self.set_cursor(hit.row);
+                let where_ = if hit.wrapped {
+                    if forward {
+                        " (wrapped to the top)"
+                    } else {
+                        " (wrapped to the bottom)"
+                    }
+                } else {
+                    ""
+                };
+                self.note = Some((
+                    format!("/{}  {total} match(es){where_}", self.search.pattern()),
+                    Note::Info,
+                ));
+            }
+            None => {
+                self.note = Some((
+                    format!("no match for /{}", self.search.pattern()),
+                    Note::Warn,
+                ));
+            }
+        }
+    }
+
     fn jump_failure(&mut self, forward: bool) {
         let Some(outline) = self.view.history.value() else {
             return;
@@ -986,6 +1622,7 @@ impl App {
             return;
         };
         let (name, query) = (view.name.clone(), view.query.clone());
+        self.mark_jump();
         // A view is a bookmark, not a mode: it fills the query bar, which stays editable.
         self.view.query = query;
         if self.view.screen == Screen::Namespaces {
@@ -1306,6 +1943,7 @@ impl App {
                 match kind {
                     PromptKind::Command => self.run_typed_command(&entered),
                     PromptKind::Pipe => self.run_pipe(entered),
+                    PromptKind::Search => self.run_search(entered),
                     PromptKind::Signal | PromptKind::Update => self.confirm_named(kind, entered),
                     PromptKind::Backfill => self.confirm_backfill(entered),
                 }
@@ -2031,6 +2669,65 @@ impl App {
         });
     }
 
+    /// Write the payloads under the cursor to a file and ask the loop to open it.
+    ///
+    /// The same JSON object `!` pipes, for one representation rather than two: `.result`
+    /// means the same thing whether it is going to `jq` or to your editor.
+    ///
+    /// A **copy**, and the message says so. Nothing can be written back, Temporal history is
+    /// immutable and a payload is not a document. Letting an editor open it and then
+    /// silently discarding what was typed would be the worst of both, so the note is the
+    /// honest part of the feature, not an afterthought.
+    fn open_editor(&mut self) {
+        if self.view.screen != Screen::History {
+            self.note = Some(("payloads live in a workflow history".into(), Note::Warn));
+            return;
+        }
+        let (json, skipped) = tmprl_core::payload::payloads_as_json(&self.payloads_under_cursor());
+        let Some(json) = json else {
+            self.note = Some(("nothing readable here to open".into(), Note::Warn));
+            return;
+        };
+
+        // Named after the run and event so a directory of these is navigable, and suffixed
+        // `.json` so the editor picks its own syntax highlighting without being told.
+        let stem = self
+            .view
+            .viewing
+            .as_ref()
+            .map(|w| w.run_id.clone())
+            .unwrap_or_else(|| "payload".into());
+        let path = std::env::temp_dir().join(format!("tmprl-{stem}-{}.json", self.view.cursor));
+        if let Err(e) = std::fs::write(&path, json.as_bytes()) {
+            self.note = Some((format!("could not write {}: {e}", path.display()), Note::Error));
+            return;
+        }
+        if !skipped.is_empty() {
+            self.note = Some((
+                format!("without {} (not readable)", skipped.join(", ")),
+                Note::Warn,
+            ));
+        }
+        self.editing = Some(EditRequest {
+            path,
+            what: "a read-only copy; edits are not saved back".into(),
+        });
+    }
+
+    /// Hand the pending edit to the caller that owns the terminal.
+    pub fn take_edit_request(&mut self) -> Option<EditRequest> {
+        self.editing.take()
+    }
+
+    /// Report how the editor went, once the terminal is back.
+    pub fn finish_edit(&mut self, req: &EditRequest, error: Option<String>) {
+        self.dirty = true;
+        self.note = Some(match error {
+            Some(e) => (format!("editor: {e}"), Note::Error),
+            None => (format!("{} — {}", req.path.display(), req.what), Note::Info),
+        });
+    }
+
     fn close_prompt(&mut self) {
         self.prompt = None;
         self.mode = Mode::Normal;
@@ -2306,6 +3003,585 @@ mod tests {
         for c in s.chars() {
             app.handle(Msg::Key(Chord::ch(c)));
         }
+    }
+
+    /// Type a pattern into an open `/` prompt and submit it.
+    fn search_for(app: &mut App, pattern: &str) {
+        app.run("search.open", None);
+        type_chars(app, pattern);
+        app.handle(Msg::Key(Chord::plain(Key::Enter)));
+    }
+
+    /// Four workflows, two of them `Refund`.
+    ///
+    /// The list renders newest first, so the display order is the reverse of the order
+    /// written here: **r4, r3, r2, r1**, which puts the two Refunds on rows 0 and 2. The
+    /// assertions below name run ids rather than indices wherever they can, because that
+    /// reversal is exactly the kind of thing a reader gets wrong.
+    fn four(app: &mut App) {
+        let mut rows = vec![
+            wf("default", "r1", 100),
+            wf("default", "r2", 200),
+            wf("default", "r3", 300),
+            wf("default", "r4", 400),
+        ];
+        rows[1].workflow_type = "Refund".into();
+        rows[3].workflow_type = "Refund".into();
+        loaded(app, rows, vec![]);
+    }
+
+    /// The run id under the cursor, which is what the search assertions are really about.
+    fn at_cursor(app: &App) -> String {
+        app.workflow_rows()[app.view.cursor].run_id.clone()
+    }
+
+    /// Row index of a run id in display order.
+    fn row_of(app: &App, run: &str) -> usize {
+        app.workflow_rows()
+            .iter()
+            .position(|w| w.run_id == run)
+            .expect("run should be in the list")
+    }
+
+    #[test]
+    fn slash_opens_a_prompt_that_says_it_is_a_search() {
+        let mut app = app();
+        four(&mut app);
+        app.run("search.open", None);
+        let prompt = app.prompt.as_ref().expect("/ should open a prompt");
+        assert_eq!(prompt.kind, PromptKind::Search);
+        assert_eq!(prompt.sigil(), "/");
+        assert_eq!(prompt.buf, "", "a new search starts empty, not pre-filled");
+    }
+
+    #[test]
+    fn a_search_moves_the_cursor_to_the_first_match() {
+        let mut app = app();
+        four(&mut app);
+        search_for(&mut app, "refund");
+        assert_eq!(at_cursor(&app), "r4", "r4 is the first Refund in display order");
+    }
+
+    #[test]
+    fn a_search_can_match_the_row_the_cursor_is_already_on() {
+        // `/` is typed while looking at the screen. Skipping a match that is right there,
+        // the way `n` deliberately does, would read as the search having failed.
+        let mut app = app();
+        four(&mut app);
+        app.view.cursor = row_of(&app, "r2");
+        search_for(&mut app, "refund");
+        assert_eq!(at_cursor(&app), "r2", "should have stayed on the visible match");
+    }
+
+    #[test]
+    fn n_walks_to_the_next_match_and_wraps() {
+        let mut app = app();
+        four(&mut app);
+        search_for(&mut app, "refund");
+        assert_eq!(at_cursor(&app), "r4");
+
+        app.run("search.next", None);
+        assert_eq!(at_cursor(&app), "r2", "the other Refund, further down");
+
+        app.run("search.next", None);
+        assert_eq!(at_cursor(&app), "r4", "wrapped back to the first");
+        let (msg, _) = app.note.clone().expect("a wrap must announce itself");
+        assert!(msg.contains("wrapped"), "got: {msg}");
+    }
+
+    #[test]
+    fn capital_n_walks_backwards() {
+        let mut app = app();
+        four(&mut app);
+        search_for(&mut app, "refund");
+        assert_eq!(at_cursor(&app), "r4");
+        app.run("search.previous", None);
+        assert_eq!(
+            at_cursor(&app),
+            "r2",
+            "backwards from the topmost match wraps to the bottom one"
+        );
+    }
+
+    #[test]
+    fn n_without_a_previous_search_says_so_rather_than_moving() {
+        let mut app = app();
+        four(&mut app);
+        app.view.cursor = 2;
+        app.run("search.next", None);
+        assert_eq!(app.view.cursor, 2, "nothing should have moved");
+        let (msg, level) = app.note.clone().expect("should have explained itself");
+        assert_eq!(level, Note::Warn);
+        assert!(msg.contains("/"), "got: {msg}");
+    }
+
+    #[test]
+    fn a_search_finds_a_run_id_that_is_not_on_screen() {
+        // The reason labels are wider than the columns: a run id pasted out of a log is
+        // exactly what you arrive with, and it is not one of the rendered fields.
+        let mut app = app();
+        four(&mut app);
+        search_for(&mut app, "r3");
+        assert_eq!(at_cursor(&app), "r3");
+    }
+
+    #[test]
+    fn a_failed_search_reports_it_and_leaves_the_cursor_alone() {
+        let mut app = app();
+        four(&mut app);
+        app.view.cursor = 2;
+        search_for(&mut app, "nothing-matches-this");
+        assert_eq!(app.view.cursor, 2);
+        let (msg, level) = app.note.clone().expect("should have said no match");
+        assert_eq!(level, Note::Warn);
+        assert!(msg.contains("no match"), "got: {msg}");
+    }
+
+    #[test]
+    fn the_match_count_is_reported() {
+        let mut app = app();
+        four(&mut app);
+        search_for(&mut app, "refund");
+        let (msg, _) = app.note.clone().expect("a search should report its count");
+        assert!(msg.contains("2 match"), "got: {msg}");
+    }
+
+    #[test]
+    fn the_pattern_survives_so_n_keeps_working_after_a_refresh() {
+        // The search register is session state, not view state. A reload replaces every row
+        // in the pane, and having to retype the pattern afterwards is the friction this
+        // avoids.
+        let mut app = app();
+        four(&mut app);
+        search_for(&mut app, "refund");
+        four(&mut app);
+        assert_eq!(app.search.pattern(), "refund");
+        app.run("search.next", None);
+        assert!(app.workflow_rows()[app.view.cursor]
+            .workflow_type
+            .contains("Refund"));
+    }
+
+    // ---- pickers ----
+
+    fn type_into_picker(app: &mut App, s: &str) {
+        for c in s.chars() {
+            app.handle(Msg::Key(Chord::ch(c)));
+        }
+    }
+
+    fn picker_labels(app: &App) -> Vec<String> {
+        app.picker
+            .as_ref()
+            .expect("a picker should be open")
+            .rows()
+            .map(|(i, _)| i.label.clone())
+            .collect()
+    }
+
+    #[test]
+    fn the_workflow_picker_lists_every_loaded_workflow() {
+        let mut app = app();
+        four(&mut app);
+        app.run("find.workflow", None);
+        assert_eq!(picker_labels(&app).len(), 4);
+    }
+
+    #[test]
+    fn the_picker_owns_the_keyboard_while_it_is_open() {
+        // `j` must type a `j` into the prompt, not move the list underneath. A picker that
+        // let motions leak through would scroll the thing it is covering.
+        let mut app = app();
+        four(&mut app);
+        let before = app.view.cursor;
+        app.run("find.workflow", None);
+        app.handle(Msg::Key(Chord::ch('j')));
+        assert_eq!(app.view.cursor, before, "the list must not have moved");
+        assert_eq!(app.picker.as_ref().unwrap().prompt, "j");
+    }
+
+    #[test]
+    fn typing_narrows_the_workflow_picker() {
+        let mut app = app();
+        four(&mut app);
+        app.run("find.workflow", None);
+        type_into_picker(&mut app, "r2");
+        let shown = picker_labels(&app);
+        assert_eq!(shown, vec!["order-r2"], "got {shown:?}");
+    }
+
+    #[test]
+    fn accepting_a_workflow_opens_its_history() {
+        let mut app = app();
+        four(&mut app);
+        app.run("find.workflow", None);
+        type_into_picker(&mut app, "r2");
+        app.handle(Msg::Key(Chord::plain(Key::Enter)));
+
+        assert!(app.picker.is_none(), "accepting closes the picker");
+        assert_eq!(app.view.screen, Screen::History);
+        assert_eq!(
+            app.view.viewing.as_ref().map(|w| w.run_id.as_str()),
+            Some("r2")
+        );
+    }
+
+    #[test]
+    fn ctrl_n_and_ctrl_p_move_the_picker_cursor() {
+        // Not `<C-j>` / `<C-k>`: tmux eats those before tmprl sees them.
+        let mut app = app();
+        four(&mut app);
+        app.run("find.workflow", None);
+        app.handle(Msg::Key(Chord::ctrl('n')));
+        assert_eq!(app.picker.as_ref().unwrap().cursor, 1);
+        app.handle(Msg::Key(Chord::ctrl('p')));
+        assert_eq!(app.picker.as_ref().unwrap().cursor, 0);
+    }
+
+    #[test]
+    fn esc_closes_a_picker_without_taking_anything() {
+        let mut app = app();
+        four(&mut app);
+        let before = app.view.screen;
+        app.run("find.workflow", None);
+        app.handle(Msg::Key(Chord::plain(Key::Esc)));
+        assert!(app.picker.is_none());
+        assert_eq!(app.view.screen, before, "nothing should have been opened");
+    }
+
+    #[test]
+    fn backspace_on_an_empty_picker_prompt_closes_it() {
+        let mut app = app();
+        four(&mut app);
+        app.run("find.workflow", None);
+        type_into_picker(&mut app, "r");
+        app.handle(Msg::Key(Chord::plain(Key::Backspace)));
+        assert!(app.picker.is_some(), "that backspace deleted the 'r'");
+        app.handle(Msg::Key(Chord::plain(Key::Backspace)));
+        assert!(app.picker.is_none(), "empty, so it closes");
+    }
+
+    #[test]
+    fn a_picker_with_nothing_to_show_says_why_instead_of_opening() {
+        // On the namespace screen there are no workflows loaded yet. An empty box would
+        // look broken; the reason is the useful answer.
+        let mut app = app();
+        app.view.screen = Screen::Namespaces;
+        app.run("find.workflow", None);
+        assert!(app.picker.is_none());
+        let (msg, level) = app.note.clone().expect("should have explained itself");
+        assert_eq!(level, Note::Warn);
+        assert!(msg.contains("no workflows"), "got: {msg}");
+    }
+
+    #[test]
+    fn the_filter_builder_offers_the_types_actually_loaded() {
+        // The point of building filters from the rows on screen: it offers `Refund` because
+        // this namespace has one, not because someone hardcoded a list.
+        let mut app = app();
+        four(&mut app);
+        app.run("find.filter", None);
+        let offered = picker_labels(&app);
+        assert!(
+            offered.iter().any(|l| l == "WorkflowType = 'Refund'"),
+            "got {offered:?}"
+        );
+        assert!(offered.iter().any(|l| l == "ExecutionStatus = 'Running'"));
+    }
+
+    #[test]
+    fn a_filter_clause_is_anded_onto_the_query_already_there() {
+        let mut app = app();
+        four(&mut app);
+        app.view.query = "WorkflowType = 'Checkout'".into();
+        app.run("find.filter", None);
+        type_into_picker(&mut app, "Running");
+        app.handle(Msg::Key(Chord::plain(Key::Enter)));
+        assert_eq!(
+            app.view.query,
+            "WorkflowType = 'Checkout' AND ExecutionStatus = 'Running'"
+        );
+    }
+
+    #[test]
+    fn a_filter_clause_on_an_empty_query_stands_alone() {
+        let mut app = app();
+        four(&mut app);
+        app.view.query.clear();
+        app.run("find.filter", None);
+        type_into_picker(&mut app, "Running");
+        app.handle(Msg::Key(Chord::plain(Key::Enter)));
+        assert_eq!(app.view.query, "ExecutionStatus = 'Running'");
+    }
+
+    #[test]
+    fn an_order_by_clause_is_appended_rather_than_anded() {
+        // `... AND ORDER BY StartTime DESC` is a query the server rejects.
+        let mut app = app();
+        four(&mut app);
+        app.view.query = "ExecutionStatus = 'Running'".into();
+        app.run("find.filter", None);
+        type_into_picker(&mut app, "ORDER BY StartTime DESC");
+        app.handle(Msg::Key(Chord::plain(Key::Enter)));
+        assert_eq!(
+            app.view.query,
+            "ExecutionStatus = 'Running' ORDER BY StartTime DESC"
+        );
+    }
+
+    #[test]
+    fn the_command_picker_runs_what_it_accepts() {
+        let mut app = app();
+        four(&mut app);
+        assert!(!app.show_help);
+        app.run("find.command", None);
+        type_into_picker(&mut app, "app.help");
+        app.handle(Msg::Key(Chord::plain(Key::Enter)));
+        assert!(app.show_help, "accepting app.help should have run it");
+    }
+
+    #[test]
+    fn the_event_picker_needs_a_history() {
+        let mut app = app();
+        four(&mut app);
+        app.run("find.event", None);
+        assert!(app.picker.is_none());
+        let (msg, _) = app.note.clone().expect("should have said why");
+        assert!(msg.contains("no history"), "got: {msg}");
+    }
+
+    #[test]
+    fn the_pane_picker_is_not_offered_for_a_single_pane() {
+        // With one window there is nothing to switch to, and a picker holding only the pane
+        // you are already in is a keystroke that does nothing.
+        let mut app = app();
+        four(&mut app);
+        app.run("find.pane", None);
+        assert!(app.picker.is_none());
+        let (msg, _) = app.note.clone().expect("should have said why");
+        assert!(msg.contains("only this pane"), "got: {msg}");
+    }
+
+    #[test]
+    fn the_pane_picker_lists_both_halves_of_a_split() {
+        let mut app = app();
+        four(&mut app);
+        app.run("window.split-right", None);
+        app.run("find.pane", None);
+        assert_eq!(picker_labels(&app).len(), 2);
+    }
+
+    #[test]
+    fn the_namespace_picker_switches_the_pane_to_the_one_chosen() {
+        let mut app = app();
+        app.handle(Msg::Namespaces(Ok(vec![
+            NamespaceInfo {
+                name: "default".into(),
+                state: "Registered".into(),
+                retention_days: 3,
+                description: String::new(),
+            },
+            NamespaceInfo {
+                name: "payments".into(),
+                state: "Registered".into(),
+                retention_days: 7,
+                description: String::new(),
+            },
+        ])));
+        app.run("find.namespace", None);
+        type_into_picker(&mut app, "pay");
+        app.handle(Msg::Key(Chord::plain(Key::Enter)));
+
+        assert_eq!(app.view.scope, vec!["payments".to_string()]);
+        assert_eq!(app.view.screen, Screen::Workflows);
+    }
+
+    #[test]
+    fn switching_namespace_keeps_the_query() {
+        // "the same question, over there" is the common case; retyping the filter every
+        // time would cost more than the navigation the picker saves.
+        let mut app = app();
+        app.handle(Msg::Namespaces(Ok(vec![NamespaceInfo {
+            name: "payments".into(),
+            state: "Registered".into(),
+            retention_days: 7,
+            description: String::new(),
+        }])));
+        app.view.query = "ExecutionStatus = 'Running'".into();
+        app.run("find.namespace", None);
+        app.handle(Msg::Key(Chord::plain(Key::Enter)));
+        assert_eq!(app.view.query, "ExecutionStatus = 'Running'");
+    }
+
+    #[test]
+    fn the_problem_list_lands_in_the_query_bar_where_it_can_be_edited() {
+        // A preset, not a separate screen: the query stays visible and narrowing it further
+        // is ordinary editing.
+        let mut app = app();
+        four(&mut app);
+        app.run("list.problems", None);
+        assert!(app.view.query.contains("Failed"), "got: {}", app.view.query);
+        assert!(app.view.query.contains("TimedOut"));
+        assert!(app.view.query.contains("Terminated"));
+        assert_eq!(app.view.screen, Screen::Workflows);
+    }
+
+    #[test]
+    fn the_editor_is_refused_away_from_a_history() {
+        let mut app = app();
+        four(&mut app);
+        app.run("payload.edit", None);
+        assert!(app.editing.is_none());
+        let (msg, level) = app.note.clone().expect("should have said why");
+        assert_eq!(level, Note::Warn);
+        assert!(msg.contains("history"), "got: {msg}");
+    }
+
+    #[test]
+    fn the_editor_writes_the_payloads_and_leaves_a_request_behind() {
+        // The reducer's whole job here: choose and write. Spawning belongs to the event
+        // loop, which is why this test never runs an editor.
+        let mut app = app();
+        loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
+        app.run("nav.open", None);
+
+        use tmprl_core::history::{Category as C, GroupRef as G, Role as R};
+        let mut started = hev(1, G::Workflow, R::Opens, C::Workflow).with_subject("Order");
+        started.payloads.push((
+            "input".into(),
+            Payload::new("json/plain", br#"{"amount":100}"#.to_vec()),
+        ));
+        app.handle(Msg::History {
+            generation: app.view.generation,
+            result: Ok((vec![started], Vec::new())),
+        });
+
+        app.run("payload.edit", None);
+        let request = app.take_edit_request().expect("a request should be waiting");
+        let written = std::fs::read_to_string(&request.path).expect("file should exist");
+        assert!(written.contains("amount"), "got: {written}");
+        assert!(
+            request.what.contains("not saved back"),
+            "the copy must say it is a copy: {}",
+            request.what
+        );
+        let _ = std::fs::remove_file(&request.path);
+    }
+
+    #[test]
+    fn taking_the_edit_request_clears_it() {
+        // The loop must not open the same file twice on the next pass round.
+        let mut app = app();
+        app.editing = Some(EditRequest {
+            path: std::path::PathBuf::from("/tmp/x.json"),
+            what: "test".into(),
+        });
+        assert!(app.take_edit_request().is_some());
+        assert!(app.take_edit_request().is_none());
+    }
+
+    // ---- jumplist ----
+
+    #[test]
+    fn opening_a_workflow_and_jumping_back_returns_to_the_list() {
+        let mut app = app();
+        four(&mut app);
+        app.run("nav.open", None);
+        assert_eq!(app.view.screen, Screen::History);
+
+        app.run("nav.jump-back", None);
+        assert_eq!(app.view.screen, Screen::Workflows);
+    }
+
+    #[test]
+    fn jumping_forward_returns_to_the_workflow() {
+        let mut app = app();
+        four(&mut app);
+        app.run("nav.open", None);
+        let opened = app.view.viewing.clone();
+
+        app.run("nav.jump-back", None);
+        assert_eq!(app.view.screen, Screen::Workflows);
+
+        app.run("nav.jump-forward", None);
+        assert_eq!(app.view.screen, Screen::History);
+        assert_eq!(app.view.viewing, opened);
+    }
+
+    #[test]
+    fn jumping_back_with_nowhere_to_go_says_so() {
+        let mut app = app();
+        four(&mut app);
+        app.run("nav.jump-back", None);
+        let (msg, level) = app.note.clone().expect("should have explained itself");
+        assert_eq!(level, Note::Warn);
+        assert!(msg.contains("earlier"), "got: {msg}");
+    }
+
+    #[test]
+    fn ordinary_motion_is_not_a_jump() {
+        // The whole point: a jumplist that recorded every `j` is a scroll history, and
+        // `<C-o>` stops being worth pressing.
+        let mut app = app();
+        four(&mut app);
+        app.run("motion.down", None);
+        app.run("motion.down", None);
+        app.run("nav.jump-back", None);
+        assert!(app.jumps.is_empty(), "j must not have recorded anything");
+    }
+
+    #[test]
+    fn gg_is_a_jump_so_you_can_get_back_from_it() {
+        let mut app = app();
+        four(&mut app);
+        app.run("motion.down", None);
+        app.run("motion.down", None);
+        let before = app.view.cursor;
+        assert_eq!(before, 2);
+
+        app.run("motion.top", None);
+        assert_eq!(app.view.cursor, 0);
+
+        app.run("nav.jump-back", None);
+        assert_eq!(app.view.cursor, before, "back to where gg was pressed from");
+    }
+
+    #[test]
+    fn a_new_jump_discards_the_forward_history() {
+        let mut app = app();
+        four(&mut app);
+        app.run("nav.open", None); // workflows -> history
+        app.run("nav.jump-back", None); // back to workflows
+        assert_eq!(app.view.screen, Screen::Workflows);
+
+        // A fresh jump from here. `<C-i>` must not offer the history any more.
+        app.run("motion.bottom", None);
+        app.run("nav.jump-forward", None);
+        let (msg, _) = app.note.clone().expect("should have refused");
+        assert!(msg.contains("later"), "got: {msg}");
+    }
+
+    #[test]
+    fn a_jump_back_to_a_workflow_list_refetches_rather_than_restoring_a_stale_one() {
+        // The list is re-requested, so coming back shows what is there now. Asserting on
+        // the generation because that is what a fetch bumps.
+        let mut app = app();
+        four(&mut app);
+        app.run("nav.open", None);
+        let before = app.view.generation;
+        app.run("nav.jump-back", None);
+        assert_ne!(app.view.generation, before, "should have issued a fetch");
+    }
+
+    #[test]
+    fn the_problem_list_is_a_jump() {
+        let mut app = app();
+        four(&mut app);
+        let query = app.view.query.clone();
+        app.run("list.problems", None);
+        assert_ne!(app.view.query, query);
+        app.run("nav.jump-back", None);
+        assert_eq!(app.view.query, query, "back to the query it replaced");
     }
 
     #[test]

@@ -52,6 +52,41 @@ impl Tree {
         }
     }
 
+    /// Focus a named window, wherever it sits in the tree. `false` if it is not in this one.
+    ///
+    /// Distinct from [`Tree::focus_direction`], which asks "what is to the left of here"
+    /// and needs a geometry to answer. A picker already knows exactly which window it
+    /// means, so making it aim with direction keys would be the picker's whole point
+    /// thrown away.
+    pub fn focus_view(&mut self, view: ViewId) -> bool {
+        let mut path = Vec::new();
+        if Self::path_to(&self.root, view, &mut path) {
+            self.focus = path;
+            return true;
+        }
+        false
+    }
+
+    /// Depth-first walk for the child indices leading to `view`.
+    ///
+    /// `path` is left holding the route on success. On failure every frame pops what it
+    /// pushed, so a caller's vector is untouched by a search that found nothing.
+    fn path_to(node: &Node, view: ViewId, path: &mut Vec<usize>) -> bool {
+        match node {
+            Node::Leaf(v) => *v == view,
+            Node::Split { children, .. } => {
+                for (i, child) in children.iter().enumerate() {
+                    path.push(i);
+                    if Self::path_to(child, view, path) {
+                        return true;
+                    }
+                    path.pop();
+                }
+                false
+            }
+        }
+    }
+
     /// Every view in the tree, left to right, top to bottom.
     pub fn views(&self) -> Vec<ViewId> {
         let mut out = Vec::new();
@@ -830,5 +865,29 @@ mod tests {
             1,
             "focus is a single window at all times"
         );
+    }
+
+    #[test]
+    fn a_window_can_be_focused_by_name_from_anywhere_in_the_tree() {
+        let mut t = Tree::new(ViewId(1));
+        t.split(Axis::Columns, ViewId(2));
+        t.split(Axis::Rows, ViewId(3));
+        assert_eq!(t.focused(), ViewId(3));
+
+        assert!(t.focus_view(ViewId(1)), "view 1 is in this tree");
+        assert_eq!(t.focused(), ViewId(1));
+        assert!(t.focus_view(ViewId(2)));
+        assert_eq!(t.focused(), ViewId(2));
+    }
+
+    #[test]
+    fn focusing_a_window_that_is_not_here_changes_nothing() {
+        // A pane picker spans every tab; asking the wrong tree must be a clean miss rather
+        // than a focus pointing at a leaf that does not exist.
+        let mut t = Tree::new(ViewId(1));
+        t.split(Axis::Columns, ViewId(2));
+        let before = t.focused();
+        assert!(!t.focus_view(ViewId(99)));
+        assert_eq!(t.focused(), before);
     }
 }

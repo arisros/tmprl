@@ -14,6 +14,7 @@ use tmprl_core::WorkflowStatus;
 use tmprl_core::workflow::humanize_age_ms;
 
 use super::truncate;
+use super::{highlight, match_style};
 use crate::app::App;
 use crate::theme::Theme;
 use crate::view::View;
@@ -127,6 +128,9 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
             ));
             Line::from(spans)
         })
+        // Repaint the search pattern last, over the finished row, so it survives
+        // whatever colouring and truncation the columns above applied.
+        .map(|l| highlight(l, &app.search, match_style()))
         .collect();
 
     frame.render_widget(Paragraph::new(lines), area);
