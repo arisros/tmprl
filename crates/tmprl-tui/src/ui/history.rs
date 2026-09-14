@@ -17,6 +17,7 @@ use tmprl_core::outline::{Outline, Row};
 use tmprl_core::workflow::humanize_age_ms;
 
 use super::truncate;
+use super::{highlight, match_style};
 use crate::app::App;
 use crate::theme::Theme;
 use crate::view::View;
@@ -65,6 +66,9 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
         .into_iter()
         .enumerate()
         .map(|(n, row)| render_row(outline, row, first + n, view, t))
+        // Repaint the search pattern last, over the finished row, so it survives
+        // whatever colouring and truncation the columns above applied.
+        .map(|l| highlight(l, &app.search, match_style()))
         .collect();
 
     frame.render_widget(Paragraph::new(lines), area);
@@ -194,7 +198,7 @@ fn outcome_color(o: Outcome, t: &Theme) -> ratatui::style::Color {
     }
 }
 
-fn category_label(c: Category) -> &'static str {
+pub(crate) fn category_label(c: Category) -> &'static str {
     match c {
         Category::Workflow => "workflow",
         Category::WorkflowTask => "task",
