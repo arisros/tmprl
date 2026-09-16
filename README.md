@@ -1,132 +1,62 @@
-# tmprl
+<h1 align="center">tmprl</h1>
 
-[![CI](https://github.com/arisros/tmprl/actions/workflows/ci.yml/badge.svg)](https://github.com/arisros/tmprl/actions/workflows/ci.yml)
+<p align="center">
+  A keyboard-driven terminal client for <a href="https://temporal.io">Temporal</a>.<br>
+  Browse namespaces, workflows and histories, read encrypted payloads, and act on them,
+  without leaving the terminal.
+</p>
 
-A terminal client for [Temporal](https://temporal.io), aiming at parity with the Temporal
-Web UI, built to be operated from the keyboard rather than a browser.
-
-> ### Status: early, but it runs.
->
-> `tmprl` starts, connects, and gives you a modal, vim-keyed browser for namespaces,
-> **workflows and their histories**, with an editable visibility query, per-status counts,
-> saved views, infinite scroll, a collapsible event outline, `tail -f`-style follow mode,
-> splits and tabs. It can **cancel, terminate, signal, delete, reset and update** workflows,
-> each behind a confirmation that shows the equivalent `temporal` CLI command. If you need a Temporal TUI
-> for real work today, see [Prior art](#prior-art).
+<p align="center">
+  <a href="https://github.com/arisros/tmprl/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/arisros/tmprl/actions/workflows/ci.yml/badge.svg"></a>
+  <img alt="Rust 1.95+" src="https://img.shields.io/badge/rust-1.95%2B-orange">
+  <img alt="License MIT" src="https://img.shields.io/badge/license-MIT-blue">
+</p>
 
 ---
 
-## What works today
+## What this is
 
-- **Connecting** to a Temporal frontend: local, self-hosted, Temporal Cloud via API key, or
-  mTLS, using the same profiles and `TEMPORAL_*` variables as the `temporal` CLI.
-- **A modal interface**: Normal, Insert, Visual and Command modes, `jk` to leave Insert,
-  and counts that compose with motions (`7j`, `5gg`).
-- **A namespace list** with a hybrid relative/absolute gutter, so counts are readable off
-  the screen rather than estimated.
-- **A workflow list**: `Enter` on a namespace. Pages in as you scroll, sorted newest-first,
-  with per-status counts in the header from one `GROUP BY` call. Status is drawn as a glyph
-  as well as a colour, so the column reads on 16 colours and for a colour-blind reader.
-- **An editable visibility query**: always on screen and always the raw string. `i` edits it,
-  `Enter` applies, `Esc` abandons. Saved views write *into* it and leave it editable, there
-  is no filter widget hiding the query from you.
-- **Saved views** in `views.toml`, on `<Space>1`–`<Space>9`, listed by name in the which-key
-  popup.
-- **Multiple namespaces at once**: select them with `V` on the namespace list and press
-  `Enter`. The result is one merged table, newest-first, each row tagged with its namespace.
-- **Remappable keys** through `keys.toml`, resolved against the command registry, so a typo
-  is an error at startup rather than a key that silently does nothing.
-- **Discovery**: a which-key popup on an incomplete prefix, and a scrollable `?` help overlay
- , both generated from the command registry and keymap, so neither can go stale.
-- **A `:` command line** with completions over every registered command.
-- **A workflow history**: `Enter` on a workflow. Events are folded into groups, so an
-  activity that was scheduled, started and completed is one row rather than three, carrying
-  its retry count and failure message. `za` folds a group open, `zR`/`zM` expand and collapse
-  everything, `zp` reveals the workflow-task plumbing that is hidden by default, and `]f`/`[f`
-  jump between failures. Only the visible rows are ever built, so a very long history scrolls
-  by moving an index.
-- **Follow mode** (`F`), tail a running workflow like `tail -f`. New events appear as they
-  happen; it stops by itself when the workflow closes and says so.
-- **Payloads** (`K`), inputs and results, decoded and pretty-printed, in a pane under the
-  history. Encrypted payloads say they need a codec server rather than showing ciphertext;
-  binary ones say what they are rather than corrupting your terminal.
-- **Piping** (`!`), filter those payloads through any command, pre-filled with `jq .`. What
-  goes down the pipe is a JSON object keyed by label, so `jq .result` picks one out.
-- **Codec server**: point `config.toml` at one and encrypted payloads decode in place,
-  lazily and cached, so everything else reads the plaintext without knowing.
-- **Splits and tabs** with vim's bindings, `<Space>sv` / `<Space>sh` to split, `<C-w>hjkl`
-  to move between panes, `<Space>t{o,x,n,p}` for tabs. Each pane keeps its own screen,
-  cursor, query and history.
-- **Cancel, terminate, signal, delete, reset and update** (`<Space>m{c,t,s,d,r,u}`), each behind one
-  confirmation that shows the equivalent `temporal` CLI command, so you read what is about to
-  happen rather than trusting a verb. Every attempt is appended to
-  `~/.local/state/tmprl/audit.jsonl`.
-- **Schedules** (`gs`, and `gw` back to workflows), with create, pause, resume, trigger,
-  delete and backfill behind the same confirmation. Cron specs read as cron, intervals as
-  `every 1h`. A backfill window is typed as `-7d..now` or `2026-09-01..2026-09-07`, with an
-  optional overlap policy after it. Creating one opens a form, since a schedule needs six
-  values and a single line would be unreadable to type.
-- **Batch mutations** over a visual selection: `V` a range, then any `<leader>m` action
-  applies to every selected row. A destructive batch asks for the count to be typed first.
-- **Yank** (`y`, `Y`) to the system clipboard over OSC 52, so it works over SSH.
-- **Yank a payload** (`<Space>ya` all, `<Space>yi` input, `<Space>yr` result). A single
-  payload is yanked unwrapped, ready to paste; several keep their labels, so `input[0]` and
-  `input[1]` stay apart. Encrypted or binary payloads are reported rather than yanked as
-  ciphertext.
+The Temporal Web UI is good, but it is a browser: you cannot pipe a payload through `jq`,
+you cannot yank a workflow id into your editor over SSH, and you cannot keep four
+namespaces open in tmux panes.
 
-Not yet: batch operations, and editing an existing schedule.
+`tmprl` is that client. It reads the same `temporal.toml` profiles the `temporal` CLI
+reads, so if the CLI can reach your cluster, so can this. Everything is a vim binding, and
+every binding is a named command you can rebind or call from `:`.
 
-## What it is meant to become
+> [!NOTE]
+> **Status: early, but genuinely usable.** Workflows, histories, schedules, mutations,
+> search and payloads all work against local, self-hosted and Temporal Cloud clusters.
+> Task queues, workers and nexus are not built yet. If you need a finished Temporal TUI
+> today, see [Prior art](#prior-art).
 
-A modal, keyboard-driven client covering what the web UI covers, workflows, histories,
-schedules, batch operations, task queues, workers, nexus endpoints, with the things a
-browser can't do: following a running workflow like `tail -f`, piping payloads through `jq`,
-yanking to the system clipboard, and diffing two runs side by side.
+Every binding, generated from the command registry so it cannot go stale:
 
-The intended architecture is written down in **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**
-and the interface design in **[docs/INTERFACE.md](docs/INTERFACE.md)**. Both describe code
-that has not been written yet, and say so section by section.
+<p align="center">
+  <img src="docs/img/help.png" alt="The ? help overlay, listing every binding by group" width="720">
+</p>
 
----
-
-## Requirements
-
-| | |
-|---|---|
-| Rust | 1.95+ (edition 2024) |
-| **`protoc`** | **Required.** `temporalio-protos` compiles Temporal's protobufs from source at build time. |
+## Quickstart
 
 ```sh
-# Debian/Ubuntu
-apt-get install -y protobuf-compiler
-# macOS
-brew install protobuf
+# 1. protoc is required: Temporal's protobufs are compiled from source at build time
+brew install protobuf            # or: apt-get install -y protobuf-compiler
+
+# 2. build and install
+cargo install --path crates/tmprl-tui
+
+# 3. a server to talk to
+temporal server start-dev
+
+# 4. go
+tmprl
 ```
 
 Without `protoc` the build fails inside a build script with `Could not find protoc`, which
 is easy to misread as a network problem. It isn't.
 
-## Build
-
-```sh
-cargo build
-```
-
-Debug info is off in the `dev` profile. The dependency tree is 230 crates and the generated
-protos dominate it; with debug info on, `target/` runs to several gigabytes. When you
-actually need a debugger, use `cargo build --profile dbg`.
-
-## Run it
-
-```sh
-# terminal 1
-temporal server start-dev
-
-# terminal 2
-cargo run -p tmprl-tui
-```
-
-You land on the namespace list:
+You land on the namespace list. `Enter` opens one, `Enter` again opens a workflow's
+history, `K` shows its payloads, `?` lists every key, `<Space>q` quits.
 
 ```
  tmprl profile=default  ns=default                                        3 namespaces
@@ -137,49 +67,110 @@ You land on the namespace list:
  NORMAL  ? help   : commands
 ```
 
-`Enter` opens one; `V` then `Enter` opens several as a single merged list:
-
-```
- tmprl profile=default  ns=default +1                         ● 125  ■ 1  126 total
- query  all workflows, i to filter
-   1 ● Running      charge-3            ChargeCard        payments             1m
-   1 ● Running      charge-2            ChargeCard        payments             1m
-   2 ● Running      charge-1            ChargeCard        payments             1m
-   3 ● Running      scroll-068          ScrollWorkflow    default              2m
-   4 ● Running      scroll-099          ScrollWorkflow    default              2m
-
- NORMAL  ? help   : commands
-```
-
-`i` edits the query bar, `Enter` applies it, `-` goes back up a level. `?` lists every
-binding. `<Space>` opens the which-key popup. `<Space>q` or `<C-c>` quits.
-
-There is also a non-interactive example that exercises the RPC layer directly, useful for
-checking connectivity without the interface:
+Point it at something real with a profile name:
 
 ```sh
-cargo run -p tmprl-client --example spike
+tmprl --profile prod          # from temporal.toml
+tmprl --config-path           # prints every file tmprl reads, and whether it exists
 ```
 
-## Test
+## What it does
 
-```sh
-temporal server start-dev &
-cargo test
+### Browsing
+
+| | |
+|---|---|
+| Namespaces | one list, `V` to select several and open them as one merged table |
+| Workflows | pages in as you scroll, newest first, per-status counts from one `GROUP BY` |
+| Query bar | the raw visibility query, always on screen, `i` to edit, never hidden behind a widget |
+| Saved views | `views.toml` on `<Space>1`–`<Space>9`, named in the which-key popup |
+| Find | `/` `n` `N` to search, `<Space>f` pickers for workflows, events, panes and commands |
+| Jumplist | `<C-o>` / `<C-i>`, recording jumps rather than every line moved |
+
+### Reading a history
+
+Events are folded into groups, so an activity that was scheduled, started and completed is
+one row carrying its retry count and failure message, not three rows.
+
+| | |
+|---|---|
+| `za` `zR` `zM` | fold one, expand all, collapse all |
+| `zp` | reveal the workflow-task plumbing, hidden by default |
+| `]f` `[f` | jump between failures, which is usually why you opened it |
+| `F` | follow a running workflow like `tail -f`, stops itself when it closes |
+| `K` | payloads for the row, decoded and pretty-printed |
+| `!` | pipe those payloads through any command, pre-filled with `jq .` |
+
+Only the visible rows are ever built, so a history with hundreds of thousands of events
+scrolls by moving an index.
+
+### Payloads and codecs
+
+Encrypted payloads are decoded in place through your codec server, lazily and cached, so
+everything else reads plaintext without knowing. A codec that refuses says why on the badge
+rather than leaving a lock you cannot explain.
+
+```mermaid
+sequenceDiagram
+    participant U as You
+    participant T as tmprl
+    participant C as Codec server
+    U->>T: K, on an activity row
+    T->>T: which payloads need a codec?
+    T->>C: POST /decode, X-Namespace: <ns>
+    C-->>T: plaintext payloads
+    T->>T: swap into the history, cached by ciphertext
+    T-->>U: readable JSON in the pane
 ```
 
-The integration tests **skip** when no server is reachable, so `cargo test` stays green on a
-machine that has never run Temporal. Set `TMPRL_REQUIRE_SERVER=1` to turn that skip into a
-hard failure, CI does, so that a broken connection layer can't pass as a green build.
+`tmprl` asks a codec about any encoding it cannot read itself, not only Temporal's sample
+`binary/encrypted`, because a codec names its own output and real ones do.
+
+### Acting on workflows
+
+Cancel, terminate, signal, delete, reset and update, on `<Space>m{c,t,s,d,r,u}`. Each sits
+behind one confirmation that **shows the equivalent `temporal` CLI command**, so you read
+what is about to happen rather than trusting a verb.
+
+`V` a range first and the action applies to every selected row, one request each. A
+destructive batch asks for the count to be typed; delete always asks for the word `delete`.
+
+Every attempt, successful or not, is appended to `~/.local/state/tmprl/audit.jsonl` with
+the profile and cluster address, because a namespace name is not unique across
+environments.
+
+Schedules live on `gs` (`gw` goes back), with create, pause, resume, trigger, delete and
+backfill behind the same confirmation.
+
+### Getting things out
+
+| | |
+|---|---|
+| `y` / `Y` | the focused value, or the row as JSON |
+| `<Space>ya` `yi` `yr` | every payload here, just the inputs, just the result |
+| `!jq . > /tmp/x.json` | anything too big for a clipboard |
+
+Yanking uses **OSC 52**, so it reaches the clipboard on the machine you are sitting at even
+through SSH and tmux. A single payload is yanked unwrapped, ready to paste; several keep
+their labels so `input[0]` and `input[1]` stay apart.
+
+### Working across environments
+
+Splits and tabs use vim's bindings: `<Space>sv` / `<Space>sh` to split, `<C-w>hjkl` to
+move, `<Space>t{o,x,n,p}` for tabs. Each pane keeps its own screen, cursor, query and
+history.
+
+Per-profile settings keep production distinguishable from staging, and stop you mutating it
+by accident. See [Several environments](#several-environments).
 
 ## Configuration
 
-`tmprl` has no connection config of its own. It reads the same profiles the `temporal` CLI
-reads, so if the CLI can reach your cluster, so can this:
+`tmprl` has no connection config of its own: it reads the profiles the `temporal` CLI
+reads. `tmprl --config-path` prints which files it found.
 
 ```toml
-# temporal.toml: ~/.config/temporalio on Unix,
-# ~/Library/Application Support/temporalio on macOS. `tmprl --config-path` prints it.
+# temporal.toml — ~/.config/temporalio on Unix,
+# ~/Library/Application Support/temporalio on macOS
 [profile.prod]
 address   = "my-ns.a1b2c.tmprl.cloud:7233"
 namespace = "my-ns.a1b2c"
@@ -190,14 +181,13 @@ client_cert_path = "/etc/temporal/client.pem"
 client_key_path  = "/etc/temporal/client.key"
 ```
 
-Precedence follows the CLI: flags, then `TEMPORAL_*` environment variables, then the TOML file.
+Precedence follows the CLI: flags, then `TEMPORAL_*` environment variables, then the file.
 
 Everything else lives in `$TMPRL_CONFIG_DIR`, else `$XDG_CONFIG_HOME/tmprl`, else
-`~/.config/tmprl`. `tmprl --config-path` prints which of those won, which files are
-present, and where the audit log goes. All of them are optional:
+`~/.config/tmprl`. All three files are optional:
 
 ```toml
-# views.toml, saved queries on <Space>1 … <Space>9
+# views.toml — saved queries on <Space>1 … <Space>9
 [[view]]
 key   = "1"
 name  = "Running now"
@@ -205,23 +195,21 @@ query = "ExecutionStatus = 'Running'"
 ```
 
 ```toml
-# keys.toml, chord → command id, overriding the defaults
+# keys.toml — chord → command id, overriding the defaults
 [normal]
 "ZZ"    = "app.quit"
 "<C-r>" = "app.refresh"
 ```
 
-Command ids are the ones `?` and `:` show. An unknown id, an unparseable chord or a duplicate
-view key is reported in the statusline at startup rather than quietly skipped.
+Command ids are the ones `?` and `:` show. An unknown id, an unparseable chord or a
+duplicate view key is reported at startup rather than quietly skipped.
 
 ### Several environments
 
-`config.toml` can key settings by profile name, so one cluster cannot be mistaken for
-another:
+`config.toml` keys settings by profile name, so one cluster cannot be mistaken for another:
 
 ```toml
-# config.toml
-[codec]                        # used by any profile that names no codec of its own
+[codec]                        # any profile that names no codec of its own
 endpoint = "http://localhost:8081"
 
 [profile.sit]
@@ -236,52 +224,61 @@ endpoint = "https://codec.internal"
 auth     = "Bearer …"
 ```
 
-`accent` is one of red, green, yellow, blue, magenta or cyan, and also renders bold, since
-colour alone does not survive a 16-colour terminal or a colour-blind reader. `readonly`
-refuses mutations at the keystroke and again at the wire. Every mutation is recorded in
-`~/.local/state/tmprl/audit.jsonl` with the profile and the cluster address, because a
-namespace name is not unique across environments.
+`accent` is one of red, green, yellow, blue, magenta or cyan, and renders bold as well as
+coloured, since colour alone does not survive a 16-colour terminal or a colour-blind
+reader. `readonly` refuses mutations at the keystroke and again at the wire.
 
-A codec server can be named per profile, which matters when each environment encrypts with
-its own key. It can be one you run locally or one already deployed; tmprl only needs a URL
-answering Temporal's `POST /decode` contract:
+Omitting a codec for an environment is a legitimate choice: a profile with none renders
+encrypted payloads as a badge saying one is needed, which is what you want for a cluster
+whose keys should not be on your machine.
 
-```toml
-[codec]                                  # any profile that names no codec of its own
-endpoint = "http://localhost:8081"
+## How it works
 
-[profile.sit.codec]                      # a local one, for a cluster whose key you hold
-endpoint = "http://localhost:8084"
+```mermaid
+flowchart TD
+    TUI["tmprl-tui<br/>ratatui rendering, input, config IO"]
+    UI["tmprl-ui<br/>window tree, splits, tabs, focus"]
+    CORE["tmprl-core<br/>modes, keymap, command registry,<br/>history grouping, payloads, search"]
+    CLIENT["tmprl-client<br/>gRPC, TLS, profiles, codec round trip"]
+    SERVER[("Temporal<br/>frontend")]
+    CODEC[("Your codec<br/>server")]
 
-[profile.dev.codec]                      # or one already running somewhere
-endpoint = "https://codec.internal/codec-server"
-auth     = "Bearer …"                    # optional, sent verbatim
+    TUI --> UI
+    TUI --> CORE
+    TUI --> CLIENT
+    CLIENT --> SERVER
+    CLIENT --> CODEC
 ```
 
-Running one locally is often the only option, since a codec server needs the namespace's
-encryption key and is therefore usually deployed per environment or not at all. Anything
-Temporal-compatible works, including the reference `codec-server` from the Go SDK samples:
-
-```sh
-TEMPORAL_DATA_PAYLOAD_ENCRYPTION_KEYS="<namespace>:<key>" HTTP_SERVER_PORT=8084 ./codec-server
-```
-
-Omitting the entry for an environment is a legitimate choice rather than an oversight: a
-profile with no codec renders encrypted payloads as a badge saying one is needed, which is
-what you want for a cluster whose keys should not be on your machine.
-
-## Layout
-
-```
-crates/tmprl-client   all network IO: gRPC, TLS, codec, profiles built,  55 tests
-crates/tmprl-core     domain logic: modes, keymap, histories     built, 175 tests
-crates/tmprl-tui      ratatui rendering and input                built, 156 tests
-crates/tmprl-ui       window tree, splits, tabs, focus           built,  35 tests
-```
+| Crate | Holds | Tests |
+|---|---|---|
+| `tmprl-client` | all network IO: gRPC, TLS, codec, profiles | 59 |
+| `tmprl-core` | domain logic with no terminal and no server | 236 |
+| `tmprl-tui` | ratatui rendering and input | 230 |
+| `tmprl-ui` | window tree, splits, tabs, focus | 37 |
 
 The split exists so the hard logic, reconstructing histories, compiling visibility queries,
-diffing runs, lands in a layer that needs neither a terminal nor a server to test. See
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+diffing runs, lands in a layer that needs neither a terminal nor a server to test. The
+architecture is written down in **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** and the
+interface design in **[docs/INTERFACE.md](docs/INTERFACE.md)**.
+
+## Building and testing
+
+```sh
+cargo build                       # debug info is off; use --profile dbg for a debugger
+temporal server start-dev &
+cargo test
+```
+
+Integration tests **skip** when no server is reachable, so `cargo test` stays green on a
+machine that has never run Temporal. `TMPRL_REQUIRE_SERVER=1` turns that skip into a
+failure, which CI sets, so a broken connection layer cannot pass as a green build.
+
+There is also a non-interactive example for checking connectivity without the interface:
+
+```sh
+cargo run -p tmprl-client --example spike [profile]
+```
 
 ## Roadmap
 
@@ -289,9 +286,9 @@ diffing runs, lands in a layer that needs neither a terminal nor a server to tes
 - [x] **M0b** event loop, command registry, modal keymap, statusline, which-key, yank
 - [x] **M1** workflow list, visibility queries, saved views, multi-namespace, `keys.toml`
 - [x] **M2** history views, follow mode, jq, codec server, splits and tabs
+- [x] **M2b** finding: `/` search, the `<leader>f` pickers, jumplist, `$EDITOR`, problem list
 - [x] **M3** mutations: signal, cancel, terminate, delete, reset, update
 - [x] **M4** schedules: list, create, pause, trigger, delete, backfill
-- [x] **M2b** finding: `/` search, the `<leader>f` pickers, jumplist, `$EDITOR`, problem list
 - [ ] **M5** batch operations: over a selection *(done)*; server-side query batches remain
 - [ ] **M6** task queues, workers, deployments, nexus, archival
 - [ ] **M7** diff, macros, headless `--exec`, themes
@@ -299,18 +296,18 @@ diffing runs, lands in a layer that needs neither a terminal nor a server to tes
 M2's "Finding" section was specified in [docs/INTERFACE.md](docs/INTERFACE.md) but never
 built, so it is broken out as **M2b** rather than quietly folded into the M2 tick above.
 Still open from it: `<leader>P` connection profiles, `<leader>-` object browser, and
-`<leader>cs` / `<leader>cq` workflow queries.
+`<leader>cs` / `<leader>cq` workflow queries. Editing an existing schedule is also not built.
 
 ## Prior art
 
 [`galaxy-io/tempo`](https://github.com/galaxy-io/tempo) is a Go/tview Temporal TUI that
-works today, browsing, history, cancel/terminate/signal, schedules, themes. If you need a
+works today: browsing, history, cancel/terminate/signal, schedules, themes. If you need a
 terminal Temporal client right now, use that one.
 
 `tmprl` differs in intent: full web-UI parity including batch operations, nexus, worker
 deployments, reset and codec servers, and a modal editor model rather than a menu. Whether
-that difference is worth a second implementation is a fair question, and the answer isn't in
-yet.
+that difference is worth a second implementation is a fair question, and the answer isn't
+in yet.
 
 ## Contributing
 
