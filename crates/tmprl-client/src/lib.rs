@@ -7,7 +7,7 @@
 pub mod conn;
 pub mod ops;
 
-pub use conn::{Conn, ConnectError, ProfileRef};
+pub use conn::{Conn, ConnectError, ProfileRef, config_file_in_use, xdg_config_file};
 pub use ops::{
     OpError,
     codec::Codec,
