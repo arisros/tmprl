@@ -146,6 +146,23 @@ impl Mutation {
         }
     }
 
+    /// What a batch of this is a batch *of*, for the heading over a count.
+    pub fn subject_plural(&self) -> &'static str {
+        match self {
+            Mutation::Cancel { .. }
+            | Mutation::Terminate { .. }
+            | Mutation::Signal { .. }
+            | Mutation::Delete { .. }
+            | Mutation::Reset { .. }
+            | Mutation::Update { .. } => "workflows",
+            Mutation::PauseSchedule { .. }
+            | Mutation::TriggerSchedule { .. }
+            | Mutation::DeleteSchedule { .. }
+            | Mutation::BackfillSchedule { .. }
+            | Mutation::CreateSchedule { .. } => "schedules",
+        }
+    }
+
     pub fn namespace(&self) -> &str {
         match self {
             Mutation::Cancel { namespace, .. }
@@ -371,7 +388,9 @@ impl Mutation {
 /// What a confirmation is waiting for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Confirm {
-    pub mutation: Mutation,
+    /// Every mutation this confirmation covers, in the order they will run. One for an
+    /// ordinary action, one per selected row for a batch.
+    pub mutations: Vec<Mutation>,
     /// When set, the reader must type this exactly before the action is allowed. Reserved for
     /// the operations where a single keypress is too cheap for what it does.
     pub typed_word: Option<String>,
@@ -381,14 +400,46 @@ pub struct Confirm {
 
 impl Confirm {
     pub fn new(mutation: Mutation) -> Self {
-        // Deleting destroys the history itself, so it costs a word rather than a keypress.
-        // Everything else is one confirmation, as §9 says.
-        let typed_word = mutation.destroys_history().then(|| "delete".to_string());
+        Self::batch(vec![mutation])
+    }
+
+    /// A confirmation over several rows.
+    ///
+    /// The word owed scales with what is at stake: destroying histories always costs the
+    /// word, and a destructive batch costs the count, because one keypress is too cheap to
+    /// end a dozen workflows at once.
+    pub fn batch(mutations: Vec<Mutation>) -> Self {
+        let typed_word = if mutations.iter().any(Mutation::destroys_history) {
+            Some("delete".to_string())
+        } else if mutations.len() > 1 && mutations.iter().any(Mutation::is_destructive) {
+            Some(mutations.len().to_string())
+        } else {
+            None
+        };
         Self {
-            mutation,
+            mutations,
             typed_word,
             entered: String::new(),
         }
+    }
+
+    /// The mutation that stands for the set: the first, which every other one matches in
+    /// verb and namespace because a batch is one action over many rows.
+    pub fn first(&self) -> &Mutation {
+        &self.mutations[0]
+    }
+
+    pub fn len(&self) -> usize {
+        self.mutations.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.mutations.is_empty()
+    }
+
+    /// Whether this covers more than one row, which is what the heading has to say.
+    pub fn is_batch(&self) -> bool {
+        self.mutations.len() > 1
     }
 
     /// Whether pressing Enter now would go ahead.
@@ -397,6 +448,25 @@ impl Confirm {
             None => true,
             Some(word) => self.entered.trim() == word,
         }
+    }
+
+    /// Why a word is owed at all.
+    ///
+    /// The renderer must not infer this from the word: "delete" is owed because a history is
+    /// about to stop existing, a count is owed because one keypress is too cheap for the
+    /// number of rows, and telling a reader that terminating destroys a history would be a
+    /// lie in the one place that has to be exact.
+    pub fn caution(&self) -> Option<String> {
+        self.typed_word.as_ref()?;
+        Some(if self.first().destroys_history() {
+            "this destroys the history itself.".to_string()
+        } else {
+            format!(
+                "this covers {} {}.",
+                self.len(),
+                self.first().subject_plural()
+            )
+        })
     }
 
     /// What to tell the reader they still owe.
@@ -453,6 +523,38 @@ mod tests {
             run_id: "run-abc".into(),
             reason: reason.into(),
         }
+    }
+
+    #[test]
+    fn the_caution_says_why_the_word_is_owed_rather_than_assuming_delete() {
+        // Telling a reader that terminating destroys a history would be a lie in the one
+        // place that has to be exact.
+        let wf = |id: &str| Mutation::Terminate {
+            namespace: "default".into(),
+            workflow_id: id.into(),
+            run_id: "r".into(),
+            reason: "r".into(),
+        };
+        let batch = Confirm::batch(vec![wf("a"), wf("b"), wf("c")]);
+        assert_eq!(batch.typed_word.as_deref(), Some("3"));
+        assert_eq!(batch.caution().as_deref(), Some("this covers 3 workflows."));
+
+        let del = Confirm::new(Mutation::Delete {
+            namespace: "default".into(),
+            workflow_id: "a".into(),
+            run_id: "r".into(),
+        });
+        assert_eq!(del.typed_word.as_deref(), Some("delete"));
+        assert_eq!(
+            del.caution().as_deref(),
+            Some("this destroys the history itself.")
+        );
+
+        assert_eq!(
+            Confirm::new(wf("a")).caution(),
+            None,
+            "one row owes nothing"
+        );
     }
 
     #[test]
