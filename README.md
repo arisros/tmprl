@@ -30,11 +30,12 @@ every binding is a named command you can rebind or call from `:`.
 > Task queues, workers and nexus are not built yet. If you need a finished Temporal TUI
 > today, see [Prior art](#prior-art).
 
-Every binding, generated from the command registry so it cannot go stale:
-
 <p align="center">
-  <img src="docs/img/help.png" alt="The ? help overlay, listing every binding by group" width="720">
+  <img src="docs/img/history.png" alt="A workflow history with its groups folded, and a decoded payload in the pane below" width="860">
 </p>
+
+<p align="center"><sub>A real history against Temporal Cloud: folded activity groups, and
+an encrypted payload decoded in place. Two customer values are blurred; nothing else is.</sub></p>
 
 ## Quickstart
 
@@ -75,6 +76,13 @@ tmprl --config-path           # prints every file tmprl reads, and whether it ex
 ```
 
 ## What it does
+
+Every binding is a named command, and `?` lists all of them, generated from the command
+registry and the keymap so neither can go stale:
+
+<p align="center">
+  <img src="docs/img/help.png" alt="The ? help overlay, listing every binding by group" width="700">
+</p>
 
 ### Browsing
 
