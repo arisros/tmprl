@@ -29,9 +29,11 @@ pub enum Rendered {
     /// Bytes we will not try to render. Guessing at an encoding produces mojibake, and a
     /// terminal is an unforgiving place to paste control characters into.
     Opaque { bytes: usize, encoding: String },
-    /// Encrypted by a codec server. Renders as a badge until a decode resolves, the value
-    /// is not lost, it is just not readable yet.
-    Encrypted { bytes: usize },
+    /// Not readable without the user's codec server. Renders as a badge until a decode
+    /// resolves, the value is not lost, it is just not readable yet. The encoding is carried
+    /// so the badge can name it: a codec names its output itself, and `binary/aes_comp` is
+    /// as legitimate as `binary/encrypted`.
+    Encrypted { bytes: usize, encoding: String },
 }
 
 impl Payload {
@@ -43,9 +45,34 @@ impl Payload {
         }
     }
 
+    /// Encodings a codec server has no part in: either we can read them, or they are
+    /// Temporal's own raw-bytes encodings, which no codec produced and none will decode.
+    const NOT_CODEC: [&'static str; 6] = [
+        "json/plain",
+        "json/protobuf",
+        "text/plain",
+        "binary/null",
+        // Raw bytes by convention, not ciphertext. Sending these to a codec would earn an
+        // error for a payload that is simply not text.
+        "binary/plain",
+        "binary/protobuf",
+    ];
+
     /// Whether reading this needs a round trip to the user's codec server.
+    ///
+    /// Any encoding outside [`Self::NOT_CODEC`], not just Temporal's sample
+    /// `binary/encrypted`. A codec names its own output and real ones do: LORA's writes
+    /// `binary/aes_comp`, Temporal's own compression sample writes `binary/deflate`.
+    /// Matching one sample's name means never calling the codec for the others, which is
+    /// indistinguishable from a codec server that is not working.
+    ///
+    /// The cost of being wrong is asymmetric. Offering a custom converter's output to a
+    /// codec earns one error; refusing to offer a codec's output leaves the value unread
+    /// with nothing on screen to explain why.
+    ///
+    /// An empty encoding is excluded: that is a malformed payload, not ciphertext.
     pub fn needs_codec(&self) -> bool {
-        self.encoding == "binary/encrypted"
+        !self.encoding.is_empty() && !Self::NOT_CODEC.contains(&self.encoding.as_str())
     }
 
     /// How to show it.
@@ -67,8 +94,9 @@ impl Payload {
                 Ok(text) => Rendered::Text(text.to_string()),
                 Err(_) => self.opaque(),
             },
-            "binary/encrypted" => Rendered::Encrypted {
+            _ if self.needs_codec() => Rendered::Encrypted {
                 bytes: self.data.len(),
+                encoding: self.encoding.clone(),
             },
             _ => self.opaque(),
         }
@@ -89,7 +117,9 @@ impl Payload {
     pub fn summary(&self, width: usize) -> String {
         match self.render() {
             Rendered::Null => "null".into(),
-            Rendered::Encrypted { bytes } => format!("🔒 encrypted, {bytes} bytes"),
+            Rendered::Encrypted { bytes, encoding } => {
+                format!("🔒 {encoding}, {bytes} bytes")
+            }
             Rendered::Opaque { bytes, encoding } => format!("{encoding}, {bytes} bytes"),
             Rendered::Text(t) => {
                 // Collapse to one line first: a pretty-printed value is mostly newlines, and
@@ -161,6 +191,23 @@ pub fn payloads_as_json(payloads: &[(String, Payload)]) -> (Option<String>, Vec<
     (json, skipped)
 }
 
+/// The sole value of a one-key JSON object, re-rendered without the wrapper.
+///
+/// `payloads_as_json` always builds an object; for a single payload the key is noise the
+/// reader has to strip before pasting. A string is handed back raw rather than re-quoted,
+/// since pasting `"abc"` where `abc` was meant is the same mistake one level down.
+pub fn unwrap_single(json: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(json).ok()?;
+    let obj = value.as_object()?;
+    if obj.len() != 1 {
+        return None;
+    }
+    match obj.values().next()? {
+        serde_json::Value::String(s) => Some(s.clone()),
+        other => serde_json::to_string_pretty(other).ok(),
+    }
+}
+
 /// Pretty-print JSON, or hand back the input unchanged when it is not JSON.
 ///
 /// Payloads claim `json/plain` and are usually right, but a workflow can put anything in one.
@@ -222,7 +269,13 @@ mod tests {
     fn encrypted_payloads_announce_themselves_rather_than_showing_ciphertext() {
         let p = Payload::new("binary/encrypted", vec![0u8; 64]);
         assert!(p.needs_codec());
-        assert_eq!(p.render(), Rendered::Encrypted { bytes: 64 });
+        assert_eq!(
+            p.render(),
+            Rendered::Encrypted {
+                bytes: 64,
+                encoding: "binary/encrypted".into()
+            }
+        );
         assert!(p.summary(40).contains("encrypted"));
         assert_eq!(p.pipeable(), None, "ciphertext is not worth piping to jq");
     }
@@ -230,13 +283,22 @@ mod tests {
     #[test]
     fn unknown_and_binary_encodings_stay_opaque() {
         // Optimistically decoding arbitrary bytes as UTF-8 is how a terminal ends up full of
-        // control characters.
-        for enc in ["binary/plain", "binary/deflate", "application/x-thrift", ""] {
+        // control characters. `binary/plain` is raw bytes by convention and `""` is
+        // malformed; neither is a codec's output, so neither becomes a decode request.
+        for enc in ["binary/plain", "binary/protobuf", ""] {
             let p = Payload::new(enc, vec![0xff, 0xfe, 0x00, 0x01]);
             match p.render() {
                 Rendered::Opaque { bytes, .. } => assert_eq!(bytes, 4),
                 other => panic!("{enc} should be opaque, got {other:?}"),
             }
+            assert_eq!(p.pipeable(), None);
+            assert!(!p.needs_codec(), "{enc} must not be sent to a codec");
+        }
+        // An encoding we do not recognise may well be a codec's; offering it is the only way
+        // to find out, and costs one error if it is not.
+        for enc in ["binary/deflate", "application/x-thrift"] {
+            let p = Payload::new(enc, vec![0xff, 0xfe]);
+            assert!(p.needs_codec(), "{enc} should be offered to a codec");
             assert_eq!(p.pipeable(), None);
         }
         assert!(
@@ -349,5 +411,76 @@ mod tests {
             Some(&b"hello"[..])
         );
         assert_eq!(Payload::new("binary/null", vec![]).pipeable(), None);
+    }
+
+    #[test]
+    fn a_single_payload_is_unwrapped_for_pasting() {
+        // `<leader>yr` on an ordinary activity should give the result itself.
+        let (json, _) = payloads_as_json(&[(
+            "result".into(),
+            Payload::new("json/plain", br#"{"total":42}"#.to_vec()),
+        )]);
+        let out = unwrap_single(&json.unwrap()).unwrap();
+        assert!(out.contains(r#""total": 42"#), "{out}");
+        assert!(
+            !out.contains("result"),
+            "the wrapper key should be gone: {out}"
+        );
+    }
+
+    #[test]
+    fn a_single_string_payload_is_not_requoted() {
+        let (json, _) = payloads_as_json(&[(
+            "result".into(),
+            Payload::new("text/plain", b"already text".to_vec()),
+        )]);
+        assert_eq!(unwrap_single(&json.unwrap()).unwrap(), "already text");
+    }
+
+    #[test]
+    fn several_payloads_keep_their_keys() {
+        // Two arguments are only distinguishable by label, so the object stays.
+        let (json, _) = payloads_as_json(&[
+            ("input[0]".into(), Payload::new("json/plain", b"1".to_vec())),
+            ("input[1]".into(), Payload::new("json/plain", b"2".to_vec())),
+        ]);
+        assert_eq!(unwrap_single(&json.unwrap()), None, "must not unwrap");
+    }
+
+    #[test]
+    fn a_codec_may_name_its_own_encoding() {
+        // LORA's data converter writes `binary/aes_comp`. Matching only Temporal's sample
+        // name meant never calling the codec for these, which is indistinguishable from a
+        // codec server that is not working.
+        let p = Payload::new("binary/aes_comp", vec![0; 10232]);
+        assert!(
+            p.needs_codec(),
+            "a custom codec encoding still needs a codec"
+        );
+        assert_eq!(
+            p.render(),
+            Rendered::Encrypted {
+                bytes: 10232,
+                encoding: "binary/aes_comp".into()
+            },
+            "and the badge names the encoding rather than guessing at `encrypted`"
+        );
+    }
+
+    #[test]
+    fn readable_encodings_never_ask_for_a_codec() {
+        for e in ["json/plain", "json/protobuf", "text/plain", "binary/null"] {
+            assert!(
+                !Payload::new(e, b"{}".to_vec()).needs_codec(),
+                "{e} is readable as it stands"
+            );
+        }
+    }
+
+    #[test]
+    fn a_malformed_payload_is_not_sent_to_a_codec() {
+        // No encoding at all is a broken payload, not ciphertext; a codec has nothing to do
+        // with it and the round trip would only fail slowly.
+        assert!(!Payload::new("", vec![1, 2, 3]).needs_codec());
     }
 }

@@ -24,7 +24,7 @@ pub mod search;
 pub mod timerange;
 pub mod workflow;
 
-pub use command::{Action, Command, Registry};
+pub use command::{Action, Command, PayloadPart, Registry};
 pub use config::{CodecConfig, Config, ConfigError, SavedView};
 pub use fuzzy::Match;
 pub use history::{Category, Group, GroupRef, NormalizedEvent, Outcome, Role};

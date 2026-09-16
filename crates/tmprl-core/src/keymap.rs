@@ -263,6 +263,12 @@ pub fn default_keymap() -> Keymap {
         bind(mode, "<C-y>", "history.detail-up");
         // vim's filter operator. Here it filters the focused payloads rather than lines.
         bind(mode, "!", "payload.pipe");
+        // Payload yanks live under a `<leader>y` prefix rather than on `y` itself: an exact
+        // match wins over a prefix in `resolve`, so binding `<leader>y` as well would make
+        // these three unreachable. The prefix also puts them in the which-key popup.
+        bind(mode, "<leader>ya", "yank.payload");
+        bind(mode, "<leader>yi", "yank.payload-input");
+        bind(mode, "<leader>yr", "yank.payload-result");
 
         // Windows and tabs, with vim's bindings. `<C-w>` prefixes focus movement, never
         // bare `<C-h/j/k/l>`, which tmux's vim-tmux-navigator swallows before any

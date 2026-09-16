@@ -69,6 +69,10 @@ Web UI, built to be operated from the keyboard rather than a browser.
 - **Batch mutations** over a visual selection: `V` a range, then any `<leader>m` action
   applies to every selected row. A destructive batch asks for the count to be typed first.
 - **Yank** (`y`, `Y`) to the system clipboard over OSC 52, so it works over SSH.
+- **Yank a payload** (`<Space>ya` all, `<Space>yi` input, `<Space>yr` result). A single
+  payload is yanked unwrapped, ready to paste; several keep their labels, so `input[0]` and
+  `input[1]` stay apart. Encrypted or binary payloads are reported rather than yanked as
+  ciphertext.
 
 Not yet: batch operations, and editing an existing schedule.
 
@@ -174,7 +178,8 @@ hard failure, CI does, so that a broken connection layer can't pass as a green b
 reads, so if the CLI can reach your cluster, so can this:
 
 ```toml
-# ~/.config/temporalio/temporal.toml
+# temporal.toml: ~/.config/temporalio on Unix,
+# ~/Library/Application Support/temporalio on macOS. `tmprl --config-path` prints it.
 [profile.prod]
 address   = "my-ns.a1b2c.tmprl.cloud:7233"
 namespace = "my-ns.a1b2c"
@@ -188,7 +193,8 @@ client_key_path  = "/etc/temporal/client.key"
 Precedence follows the CLI: flags, then `TEMPORAL_*` environment variables, then the TOML file.
 
 Everything else lives in `$TMPRL_CONFIG_DIR`, else `$XDG_CONFIG_HOME/tmprl`, else
-`~/.config/tmprl`. Both files are optional:
+`~/.config/tmprl`. `tmprl --config-path` prints which of those won, which files are
+present, and where the audit log goes. All of them are optional:
 
 ```toml
 # views.toml, saved queries on <Space>1 … <Space>9
@@ -207,6 +213,62 @@ query = "ExecutionStatus = 'Running'"
 
 Command ids are the ones `?` and `:` show. An unknown id, an unparseable chord or a duplicate
 view key is reported in the statusline at startup rather than quietly skipped.
+
+### Several environments
+
+`config.toml` can key settings by profile name, so one cluster cannot be mistaken for
+another:
+
+```toml
+# config.toml
+[codec]                        # used by any profile that names no codec of its own
+endpoint = "http://localhost:8081"
+
+[profile.sit]
+accent = "green"
+
+[profile.prod]
+accent   = "red"               # paints the profile name in the statusline
+readonly = true                # refuses every mutation, shown as prod [ro]
+
+[profile.prod.codec]           # overrides the codec above, for prod only
+endpoint = "https://codec.internal"
+auth     = "Bearer …"
+```
+
+`accent` is one of red, green, yellow, blue, magenta or cyan, and also renders bold, since
+colour alone does not survive a 16-colour terminal or a colour-blind reader. `readonly`
+refuses mutations at the keystroke and again at the wire. Every mutation is recorded in
+`~/.local/state/tmprl/audit.jsonl` with the profile and the cluster address, because a
+namespace name is not unique across environments.
+
+A codec server can be named per profile, which matters when each environment encrypts with
+its own key. It can be one you run locally or one already deployed; tmprl only needs a URL
+answering Temporal's `POST /decode` contract:
+
+```toml
+[codec]                                  # any profile that names no codec of its own
+endpoint = "http://localhost:8081"
+
+[profile.sit.codec]                      # a local one, for a cluster whose key you hold
+endpoint = "http://localhost:8084"
+
+[profile.dev.codec]                      # or one already running somewhere
+endpoint = "https://codec.internal/codec-server"
+auth     = "Bearer …"                    # optional, sent verbatim
+```
+
+Running one locally is often the only option, since a codec server needs the namespace's
+encryption key and is therefore usually deployed per environment or not at all. Anything
+Temporal-compatible works, including the reference `codec-server` from the Go SDK samples:
+
+```sh
+TEMPORAL_DATA_PAYLOAD_ENCRYPTION_KEYS="<namespace>:<key>" HTTP_SERVER_PORT=8084 ./codec-server
+```
+
+Omitting the entry for an environment is a legitimate choice rather than an oversight: a
+profile with no codec renders encrypted payloads as a badge saying one is needed, which is
+what you want for a cluster whose keys should not be on your machine.
 
 ## Layout
 

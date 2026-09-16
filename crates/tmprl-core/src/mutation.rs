@@ -365,10 +365,12 @@ impl Mutation {
     ///
     /// The CLI equivalent is recorded alongside the fields, so the log answers "what was
     /// actually done" without the reader having to reconstruct it from parts.
-    pub fn audit_line(&self, at_epoch_millis: i64, outcome: &str) -> String {
+    pub fn audit_line(&self, at_epoch_millis: i64, target: Target<'_>, outcome: &str) -> String {
         let mut out = String::from("{");
         out.push_str(&format!(r#""at":{at_epoch_millis},"#));
         out.push_str(&format!(r#""action":{},"#, json_string(self.verb())));
+        out.push_str(&format!(r#""profile":{},"#, json_string(target.profile)));
+        out.push_str(&format!(r#""address":{},"#, json_string(target.address)));
         out.push_str(&format!(
             r#""namespace":{},"#,
             json_string(self.namespace())
@@ -383,6 +385,16 @@ impl Mutation {
         out.push('}');
         out
     }
+}
+
+/// Which cluster a mutation was sent to.
+///
+/// Namespace names repeat across environments, so a namespace alone cannot answer "was
+/// this SIT or production". Profile and address together can.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Target<'a> {
+    pub profile: &'a str,
+    pub address: &'a str,
 }
 
 /// What a confirmation is waiting for.
@@ -840,9 +852,17 @@ mod tests {
         assert!(confirm.prompt().contains("⏎ to confirm"));
     }
 
+    /// The cluster the test mutations are sent to.
+    fn sit() -> Target<'static> {
+        Target {
+            profile: "sit",
+            address: "http://temporal-sit.internal:7233",
+        }
+    }
+
     #[test]
     fn an_audit_line_records_what_was_done_and_how_it_ended() {
-        let line = terminate("stuck").audit_line(1_700_000_000_000, "ok");
+        let line = terminate("stuck").audit_line(1_700_000_000_000, sit(), "ok");
         assert!(line.contains(r#""action":"Terminate""#), "{line}");
         assert!(line.contains(r#""workflowId":"order-1""#), "{line}");
         assert!(line.contains(r#""outcome":"ok""#), "{line}");
@@ -861,7 +881,7 @@ mod tests {
             run_id: "r".into(),
             reason: "x".into(),
         };
-        let line = m.audit_line(0, "failed");
+        let line = m.audit_line(0, sit(), "failed");
         assert!(
             !line.contains('\n'),
             "a JSONL line cannot contain a newline"
@@ -872,7 +892,29 @@ mod tests {
     #[test]
     fn a_failed_mutation_is_still_recorded() {
         // The log is what was attempted, not only what succeeded.
-        let line = terminate("x").audit_line(1, "failed: permission denied");
+        let line = terminate("x").audit_line(1, sit(), "failed: permission denied");
         assert!(line.contains("permission denied"), "{line}");
+    }
+
+    #[test]
+    fn an_audit_line_records_which_cluster_was_hit() {
+        // Two environments sharing a namespace name produce lines that differ only here,
+        // which is the whole reason the target is recorded.
+        let line = terminate("stuck").audit_line(1, sit(), "ok");
+        assert!(line.contains(r#""profile":"sit""#), "{line}");
+        assert!(
+            line.contains(r#""address":"http://temporal-sit.internal:7233""#),
+            "{line}"
+        );
+
+        let prod = Target {
+            profile: "prod",
+            address: "http://temporal.internal:7233",
+        };
+        let other = terminate("stuck").audit_line(1, prod, "ok");
+        assert_ne!(
+            line, other,
+            "the same namespace on two clusters must differ"
+        );
     }
 }
