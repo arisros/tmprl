@@ -214,7 +214,7 @@ impl Prompt {
 }
 
 /// Where an encrypted payload has got to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DecodeState {
     /// No codec server is configured, so it cannot be read at all.
     NoCodec,
@@ -222,6 +222,10 @@ pub enum DecodeState {
     InFlight,
     /// A codec is configured but nothing has been asked yet.
     Idle,
+    /// The codec server was asked and refused. Kept per payload rather than shown as a
+    /// passing note: a note is gone by the next keystroke, and the badge left behind is
+    /// identical to one that was never asked about, so the reader is told nothing.
+    Failed(String),
 }
 
 /// What Insert mode is editing.
@@ -311,6 +315,8 @@ pub struct App {
     decoded: HashMap<u64, Payload>,
     /// Requests in flight, so a cursor resting on a row does not ask repeatedly.
     decoding: HashSet<u64>,
+    /// Why a decode failed, by payload. Cleared by `R`, which is the retry.
+    decode_failed: HashMap<u64, String>,
     codec: Option<Arc<Codec>>,
     pub views: Vec<SavedView>,
 
@@ -405,6 +411,7 @@ impl App {
             keymap: default_keymap(),
             decoded: HashMap::new(),
             decoding: HashSet::new(),
+            decode_failed: HashMap::new(),
             codec: None,
             views: Vec::new(),
             which_key: Vec::new(),
@@ -578,9 +585,12 @@ impl App {
                 self.apply_decoded();
             }
             Msg::Decoded(Err(e)) => {
-                // Clearing the in-flight set is what lets a retry happen at all; leaving it
-                // populated would make one failure permanent for the session.
-                self.decoding.clear();
+                // Record the reason against the payloads that were out, so the badge can say
+                // why instead of looking exactly like one nothing was ever asked about. The
+                // in-flight set is still emptied, which is what lets a retry happen at all.
+                for key in std::mem::take(&mut self.decoding) {
+                    self.decode_failed.insert(key, e.clone());
+                }
                 self.note = Some((e, Note::Error));
             }
             Msg::Namespaces(Ok(list)) => {
@@ -1800,6 +1810,9 @@ impl App {
     }
 
     fn refresh(&mut self) {
+        // `R` is the retry: a codec that was down, or a key that was wrong, is usually
+        // fixed outside tmprl, and nothing else would clear the recorded failures.
+        self.decode_failed.clear();
         match self.view.screen {
             Screen::Namespaces => self.load_namespaces(),
             Screen::Workflows => self.load_workflows(false),
@@ -2821,10 +2834,13 @@ impl App {
     /// "Needs a codec server" is only true when none is configured; once one is, the honest
     /// answer is that a request is out.
     pub fn decode_state(&self, p: &Payload) -> DecodeState {
+        let key = Self::payload_key(p);
         if self.codec.is_none() {
             DecodeState::NoCodec
-        } else if self.decoding.contains(&Self::payload_key(p)) {
+        } else if self.decoding.contains(&key) {
             DecodeState::InFlight
+        } else if let Some(why) = self.decode_failed.get(&key) {
+            DecodeState::Failed(why.clone())
         } else {
             DecodeState::Idle
         }
@@ -5108,6 +5124,25 @@ mod tests {
         assert_eq!(kind, Note::Error);
         assert!(msg.contains("502"), "the server's own words: {msg}");
         assert!(app.decoding.is_empty(), "a retry must be possible");
+    }
+
+    #[test]
+    fn a_failed_decode_is_remembered_rather_than_flashed() {
+        // The note is gone by the next keystroke, and the badge it leaves behind is
+        // identical to a payload nothing was ever asked about, so the reader is told nothing.
+        let mut app = viewing_payloads();
+        let p = Payload::new("binary/aes_comp", vec![1, 2, 3]);
+        app.codec = Some(Arc::new(Codec::new("http://127.0.0.1:1", None)));
+        app.decoding.insert(App::payload_key(&p));
+        app.handle(Msg::Decoded(Err("connection refused".into())));
+
+        match app.decode_state(&p) {
+            DecodeState::Failed(why) => assert!(why.contains("connection refused"), "{why}"),
+            other => panic!("expected a recorded failure, got {other:?}"),
+        }
+        // `R` is the retry: a codec fixed outside tmprl needs some way back.
+        app.run("app.refresh", None);
+        assert_eq!(app.decode_state(&p), DecodeState::Idle);
     }
 
     #[test]

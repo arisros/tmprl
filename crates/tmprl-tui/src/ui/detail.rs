@@ -188,6 +188,11 @@ fn payload_lines<'a>(e: &'a NormalizedEvent, app: &App, t: &Theme) -> Vec<Line<'
                         format!("    🔒 {encoding}, {bytes} bytes"),
                         Style::new().fg(t.warn),
                     ),
+
+                    DecodeState::Failed(why) => (
+                        format!("    🔒 {encoding}, {bytes} bytes, codec: {why} (R to retry)"),
+                        Style::new().fg(t.err),
+                    ),
                 };
                 lines.push(Line::from(Span::styled(what, style)));
             }
