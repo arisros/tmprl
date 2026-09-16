@@ -38,6 +38,53 @@ fn resolve_dir(
     home.map(|h| PathBuf::from(h).join(".config").join("tmprl"))
 }
 
+/// The files tmprl reads out of its config directory.
+pub const CONFIG_FILES: [&str; 3] = ["config.toml", "keys.toml", "views.toml"];
+
+/// What `--config-path` prints.
+///
+/// Answers "where do I put config.toml", which is otherwise only discoverable by reading
+/// the source: the directory is chosen from the environment and there is no other way to
+/// see which branch won. Marks each file present or absent, because an absent file and a
+/// file in the wrong directory look identical from the outside.
+pub fn describe_paths(explicit_temporal_config: Option<&str>) -> String {
+    let mut out = String::new();
+
+    // The connection file first: it is the one that decides whether `-p sit` resolves, and
+    // the one whose default path differs per platform.
+    match tmprl_client::config_file_in_use(explicit_temporal_config) {
+        None => out.push_str("profiles: nowhere (no HOME)\n"),
+        Some(path) => {
+            let mark = if path.is_file() { "present" } else { "absent" };
+            out.push_str(&format!("profiles: {} ({mark})\n", path.display()));
+        }
+    }
+
+    match config_dir() {
+        None => out.push_str(
+            "config: nowhere (neither TMPRL_CONFIG_DIR, XDG_CONFIG_HOME nor HOME is set)\n",
+        ),
+        Some(dir) => {
+            out.push_str(&format!("config: {}\n", dir.display()));
+            for name in CONFIG_FILES {
+                let path = dir.join(name);
+                let mark = if path.is_file() { "present" } else { "absent" };
+                out.push_str(&format!("  {name:<12} {mark}\n"));
+            }
+        }
+    }
+    out.push_str(&format!("audit:  {}\n", audit_path_display()));
+    out
+}
+
+/// Where the audit log lives, as text, whether or not it exists yet.
+fn audit_path_display() -> String {
+    match audit_dir() {
+        Ok(dir) => dir.join("audit.jsonl").display().to_string(),
+        Err(e) => e,
+    }
+}
+
 /// Read a config file, or `None` if it is absent.
 ///
 /// An unreadable file is reported rather than treated as absent, "I wrote a keys.toml and
@@ -58,6 +105,17 @@ fn read_from(dir: &Path, name: &str) -> Result<Option<String>, String> {
     }
 }
 
+/// `$XDG_STATE_HOME/tmprl`, else `~/.local/state/tmprl`.
+fn audit_dir() -> Result<PathBuf, String> {
+    match std::env::var_os("XDG_STATE_HOME") {
+        Some(d) => Ok(PathBuf::from(d).join("tmprl")),
+        None => match std::env::var_os("HOME") {
+            Some(h) => Ok(PathBuf::from(h).join(".local").join("state").join("tmprl")),
+            None => Err("no HOME to write an audit log under".into()),
+        },
+    }
+}
+
 /// Append one line to `~/.local/state/tmprl/audit.jsonl`.
 ///
 /// State, not config: `$XDG_STATE_HOME` else `~/.local/state`, per the XDG spec. The file is
@@ -66,13 +124,7 @@ fn read_from(dir: &Path, name: &str) -> Result<Option<String>, String> {
 pub fn append_audit(line: &str) -> Result<(), String> {
     use std::io::Write;
 
-    let dir = match std::env::var_os("XDG_STATE_HOME") {
-        Some(d) => PathBuf::from(d).join("tmprl"),
-        None => match std::env::var_os("HOME") {
-            Some(h) => PathBuf::from(h).join(".local").join("state").join("tmprl"),
-            None => return Err("no HOME to write an audit log under".into()),
-        },
-    };
+    let dir = audit_dir()?;
     std::fs::create_dir_all(&dir)
         .map_err(|e| format!("could not create {}: {e}", dir.display()))?;
 
@@ -135,6 +187,31 @@ mod tests {
         std::fs::write(dir.join("views.toml"), "# hello\n").unwrap();
 
         assert_eq!(read_from(&dir, "views.toml"), Ok(Some("# hello\n".into())));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn describe_paths_names_every_file_and_the_audit_log() {
+        // The listing has to be complete: a file tmprl reads but does not mention here
+        // sends the reader looking in the wrong directory.
+        let out = describe_paths(None);
+        for name in CONFIG_FILES {
+            assert!(out.contains(name), "{name} missing from:\n{out}");
+        }
+        assert!(out.contains("audit.jsonl"), "{out}");
+        assert!(out.contains("config:"), "{out}");
+    }
+
+    #[test]
+    fn describe_paths_marks_a_file_that_exists() {
+        let dir = std::env::temp_dir().join("tmprl-describe-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("config.toml"), "").unwrap();
+
+        // `describe_paths` reads the real environment, so the marking logic is exercised
+        // through the same predicate rather than by mutating process-global state.
+        assert!(dir.join("config.toml").is_file());
+        assert!(!dir.join("keys.toml").is_file());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

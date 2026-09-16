@@ -32,8 +32,9 @@ async fn main() -> anyhow::Result<()> {
 
     let conn = Conn::connect(&profile).await?;
     println!(
-        "connected  profile={}  namespace={}",
+        "connected  profile={}  address={}  namespace={}",
         conn.profile(),
+        conn.address(),
         conn.namespace()
     );
 

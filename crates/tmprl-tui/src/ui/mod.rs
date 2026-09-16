@@ -968,6 +968,26 @@ mod tests {
     }
 
     #[test]
+    fn a_readonly_profile_says_so_in_the_header() {
+        // Colour alone is not the signal: this has to read on a 16-colour terminal and for
+        // a colour-blind reader, so the marker is text.
+        let mut app = app_with_rows();
+        app.apply_config(None, None, Some("[profile.prod]\nreadonly = true"));
+        let out = draw(&mut app, 90, 12);
+        assert!(
+            out.contains("prod [ro]"),
+            "read-only marker missing:\n{out}"
+        );
+    }
+
+    #[test]
+    fn a_writable_profile_carries_no_marker() {
+        let mut app = app_with_rows();
+        let out = draw(&mut app, 90, 12);
+        assert!(!out.contains("[ro]"), "unexpected marker:\n{out}");
+    }
+
+    #[test]
     fn statusline_shows_the_mode() {
         let mut app = app_with_rows();
         assert!(draw(&mut app, 90, 12).contains("NORMAL"));

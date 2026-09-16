@@ -8,6 +8,17 @@
 //! `tmprl-tui`, which keeps this crate free of any application or terminal types, and
 //! makes the match on `Action` exhaustive, so a new command cannot be silently unhandled.
 
+/// Which payloads a yank takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PayloadPart {
+    /// Everything the row carries.
+    All,
+    /// Arguments only: `input`, or `input[0]`, `input[1]` … when there are several.
+    Input,
+    /// The return value only.
+    Result,
+}
+
 /// What a command does. `tmprl-tui` matches on this exhaustively.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Action {
@@ -58,6 +69,10 @@ pub enum Action {
     // Data
     YankField,
     YankRecord,
+    /// Yank the payloads under the cursor; the variant picks the subset.
+    YankPayloadAll,
+    YankPayloadInput,
+    YankPayloadResult,
     /// Fetch the next page of the workflow list. Driven by scrolling rather than by a key,
     /// but it is a command so that `:` and macros reach it like anything else.
     LoadMore,
@@ -176,6 +191,9 @@ impl Registry {
 
             "yank.field",         "Yank",        "Yank the focused value"    => YankField;
             "yank.record",        "Yank",        "Yank the row as JSON"      => YankRecord;
+            "yank.payload",       "Yank",        "Yank every payload here"   => YankPayloadAll;
+            "yank.payload-input", "Yank",        "Yank the input payloads"   => YankPayloadInput;
+            "yank.payload-result","Yank",        "Yank the result payload"   => YankPayloadResult;
 
             "list.more",          "List",        "Load the next page"        => LoadMore;
 
