@@ -169,21 +169,29 @@ fn payload_lines<'a>(e: &'a NormalizedEvent, app: &App, t: &Theme) -> Vec<Line<'
                 format!("    {encoding}, {bytes} bytes, not shown"),
                 Style::new().fg(t.faint),
             ))),
-            Rendered::Encrypted { bytes } => {
+            // The encoding is named rather than called "encrypted": a codec chooses its own
+            // encoding, so seeing the actual one is what tells you whether the codec server
+            // you are running is the right one for this payload.
+            Rendered::Encrypted { bytes, encoding } => {
                 let (what, style) = match app.decode_state(p) {
                     DecodeState::NoCodec => (
                         format!(
-                            "    🔒 encrypted, {bytes} bytes, set [codec] endpoint in config.toml"
+                            "    🔒 {encoding}, {bytes} bytes, set a codec endpoint in config.toml"
                         ),
                         Style::new().fg(t.warn),
                     ),
                     DecodeState::InFlight => (
-                        format!("    🔒 encrypted, {bytes} bytes, decoding…"),
+                        format!("    🔒 {encoding}, {bytes} bytes, decoding…"),
                         Style::new().fg(t.dim),
                     ),
                     DecodeState::Idle => (
-                        format!("    🔒 encrypted, {bytes} bytes"),
+                        format!("    🔒 {encoding}, {bytes} bytes"),
                         Style::new().fg(t.warn),
+                    ),
+
+                    DecodeState::Failed(why) => (
+                        format!("    🔒 {encoding}, {bytes} bytes, codec: {why} (R to retry)"),
+                        Style::new().fg(t.err),
                     ),
                 };
                 lines.push(Line::from(Span::styled(what, style)));

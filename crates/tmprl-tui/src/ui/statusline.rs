@@ -21,8 +21,12 @@ pub fn render_header(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
     };
     let right_width: usize = right.iter().map(|s| s.content.chars().count()).sum();
 
-    // Everything on the left except the scope: " tmprl profile=<name>  ns=".
-    let fixed = " tmprl profile=  ns=".len() + app.profile().chars().count();
+    // A read-only profile says so in words as well as colour: the accent is the fast
+    // signal, but it has to survive a 16-colour terminal and a colour-blind reader.
+    let ro = if app.readonly() { " [ro]" } else { "" };
+
+    // Everything on the left except the scope: " tmprl profile=<name>[ro]  ns=".
+    let fixed = " tmprl profile=  ns=".len() + app.profile().chars().count() + ro.chars().count();
     let budget = (area.width as usize)
         .saturating_sub(right_width + fixed + 3)
         .max(8);
@@ -35,7 +39,8 @@ pub fn render_header(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
             Style::new().fg(t.accent).add_modifier(Modifier::BOLD),
         ),
         Span::styled("profile=", Style::new().fg(t.faint)),
-        Span::styled(app.profile().to_string(), Style::new().fg(t.fg)),
+        Span::styled(app.profile().to_string(), profile_style(app, t)),
+        Span::styled(ro, profile_style(app, t)),
         Span::styled("  ns=", Style::new().fg(t.faint)),
         Span::styled(scope, Style::new().fg(t.fg)),
     ]);
@@ -49,6 +54,17 @@ pub fn render_header(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
             height: 1,
         };
         frame.render_widget(Paragraph::new(Line::from(right)), r);
+    }
+}
+
+/// How the profile name is painted. An accent makes it bold as well as coloured, so the
+/// environment is legible where colour is not.
+fn profile_style(app: &App, t: &Theme) -> Style {
+    match app.accent() {
+        None => Style::new().fg(t.fg),
+        Some(a) => Style::new()
+            .fg(Theme::accent_color(a))
+            .add_modifier(Modifier::BOLD),
     }
 }
 

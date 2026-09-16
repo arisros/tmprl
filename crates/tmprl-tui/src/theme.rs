@@ -5,6 +5,7 @@
 
 use ratatui::style::Color;
 use tmprl_core::Mode;
+use tmprl_core::config::Accent;
 
 pub struct Theme {
     pub fg: Color,
@@ -33,6 +34,22 @@ impl Default for Theme {
 }
 
 impl Theme {
+    /// The colour a profile's `accent` names.
+    ///
+    /// The basic ANSI colours rather than the palette's RGB: this has to survive a
+    /// 16-colour terminal, since the whole point is that production cannot be mistaken
+    /// for SIT.
+    pub fn accent_color(accent: Accent) -> Color {
+        match accent {
+            Accent::Red => Color::Red,
+            Accent::Green => Color::Green,
+            Accent::Yellow => Color::Yellow,
+            Accent::Blue => Color::Blue,
+            Accent::Magenta => Color::Magenta,
+            Accent::Cyan => Color::Cyan,
+        }
+    }
+
     /// Mode indicator colour, matching the lualine convention of a distinct hue per mode.
     pub fn mode_color(&self, mode: Mode) -> Color {
         match mode {
