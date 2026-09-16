@@ -19,8 +19,8 @@ use tmprl_core::picker::{self, Picker, Target};
 use tmprl_core::search::{self, Search};
 use tmprl_core::timerange::parse_backfill;
 use tmprl_core::{
-    Action, Chord, Keymap, Loadable, Mode, Pending, PendingEntry, Registry, Resolution, SavedView,
-    StatusCounts, WorkflowList, WorkflowRow, WorkflowStatus, default_keymap,
+    Action, Chord, Keymap, Loadable, Mode, PayloadPart, Pending, PendingEntry, Registry,
+    Resolution, SavedView, StatusCounts, WorkflowList, WorkflowRow, WorkflowStatus, default_keymap,
 };
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -352,6 +352,11 @@ pub struct App {
     pub dirty: bool,
 
     profile: String,
+    address: String,
+    /// Colour for the profile name, from `config.toml`. `None` renders as it always did.
+    accent: Option<tmprl_core::config::Accent>,
+    /// Refuse every mutation on this profile.
+    readonly: bool,
     namespace: String,
     conn: Option<Arc<Conn>>,
     tx: UnboundedSender<Msg>,
@@ -359,8 +364,12 @@ pub struct App {
 
 impl App {
     pub fn new(conn: Conn, tx: UnboundedSender<Msg>) -> Self {
-        let (profile, namespace) = (conn.profile().to_string(), conn.namespace().to_string());
-        Self::build(Some(Arc::new(conn)), profile, namespace, tx)
+        let (profile, address, namespace) = (
+            conn.profile().to_string(),
+            conn.address().to_string(),
+            conn.namespace().to_string(),
+        );
+        Self::build(Some(Arc::new(conn)), profile, address, namespace, tx)
     }
 
     /// An app with no connection, for tests. Every command except the ones that fetch
@@ -368,12 +377,19 @@ impl App {
     /// server.
     #[cfg(test)]
     pub fn detached(profile: &str, namespace: &str, tx: UnboundedSender<Msg>) -> Self {
-        Self::build(None, profile.to_string(), namespace.to_string(), tx)
+        Self::build(
+            None,
+            profile.to_string(),
+            "http://detached".to_string(),
+            namespace.to_string(),
+            tx,
+        )
     }
 
     fn build(
         conn: Option<Arc<Conn>>,
         profile: String,
+        address: String,
         namespace: String,
         tx: UnboundedSender<Msg>,
     ) -> Self {
@@ -408,6 +424,9 @@ impl App {
             should_quit: false,
             dirty: true,
             profile,
+            address,
+            accent: None,
+            readonly: false,
             namespace,
             conn,
             tx,
@@ -420,7 +439,12 @@ impl App {
         if let Some(src) = config {
             match tmprl_core::config::parse_config(src) {
                 Ok(cfg) => {
-                    self.codec = cfg.codec.map(|c| Arc::new(Codec::new(c.endpoint, c.auth)));
+                    let resolved = cfg.resolve(&self.profile);
+                    self.codec = resolved
+                        .codec
+                        .map(|c| Arc::new(Codec::new(c.endpoint, c.auth)));
+                    self.accent = resolved.accent;
+                    self.readonly = resolved.readonly;
                 }
                 Err(e) => self.note = Some((e.to_string(), Note::Error)),
             }
@@ -564,8 +588,30 @@ impl App {
                 self.clamp_cursor();
             }
             Msg::Namespaces(Err(e)) => {
-                self.note = Some((e.clone(), Note::Error));
-                self.view.namespaces = Loadable::Failed(e);
+                // A Temporal Cloud API key is scoped to one namespace, and listing every
+                // namespace on the account is an admin operation it is correctly refused.
+                // Failing here would strand the reader on the opening screen with a key that
+                // can do everything they actually came for, so fall back to the namespace
+                // the profile already names.
+                if is_permission_denied(&e) {
+                    self.view.namespaces = Loadable::loaded(vec![NamespaceInfo {
+                        name: self.namespace.clone(),
+                        state: "Registered".into(),
+                        retention_days: 0,
+                        description: "from the profile; this key cannot list namespaces".into(),
+                    }]);
+                    self.clamp_cursor();
+                    self.note = Some((
+                        format!(
+                            "this key cannot list namespaces, showing {} from the profile",
+                            self.namespace
+                        ),
+                        Note::Info,
+                    ));
+                } else {
+                    self.note = Some((e.clone(), Note::Error));
+                    self.view.namespaces = Loadable::Failed(e);
+                }
             }
             Msg::Workflows {
                 generation,
@@ -818,6 +864,9 @@ impl App {
 
             Action::YankField => self.yank(self.field_under_cursor()),
             Action::YankRecord => self.yank(self.records_selected()),
+            Action::YankPayloadAll => self.yank_payload(PayloadPart::All),
+            Action::YankPayloadInput => self.yank_payload(PayloadPart::Input),
+            Action::YankPayloadResult => self.yank_payload(PayloadPart::Result),
 
             Action::LoadMore => self.load_more(),
             Action::SelectView(key) => self.select_view(key),
@@ -1998,6 +2047,63 @@ impl App {
             .collect()
     }
 
+    /// Yank the payloads under the cursor, or the subset `part` names.
+    ///
+    /// A single match is yanked unwrapped: `<leader>yr` on an ordinary activity should give
+    /// the result itself, ready to paste, not `{"result": …}`. Several are yanked as the
+    /// keyed object, because then the labels are what tells `input[0]` from `input[1]`.
+    fn yank_payload(&mut self, part: PayloadPart) {
+        if self.view.screen != Screen::History {
+            self.note = Some(("payloads are on a workflow history".into(), Note::Warn));
+            return;
+        }
+        let picked: Vec<_> = self
+            .payloads_under_cursor()
+            .into_iter()
+            .filter(|(label, _)| match part {
+                PayloadPart::All => true,
+                // `input`, and `input[0]`, `input[1]` … when the activity took several.
+                PayloadPart::Input => label == "input" || label.starts_with("input["),
+                PayloadPart::Result => label == "result" || label.starts_with("result["),
+            })
+            .collect();
+
+        if picked.is_empty() {
+            self.note = Some((
+                match part {
+                    PayloadPart::All => "nothing to yank here".into(),
+                    PayloadPart::Input => "no input on this row".to_string(),
+                    PayloadPart::Result => "no result on this row".to_string(),
+                },
+                Note::Warn,
+            ));
+            return;
+        }
+
+        let (json, skipped) = tmprl_core::payload::payloads_as_json(&picked);
+        let Some(json) = json else {
+            // Every match was encrypted or binary. Yanking ciphertext would look like it
+            // worked, which is worse than saying why it did not.
+            self.note = Some((
+                format!("cannot yank: {} is not decoded text", skipped.join(", ")),
+                Note::Warn,
+            ));
+            return;
+        };
+
+        let text = if picked.len() == 1 {
+            tmprl_core::payload::unwrap_single(&json).unwrap_or(json)
+        } else {
+            json
+        };
+        self.yank(text);
+        if !skipped.is_empty()
+            && let Some((note, _)) = self.note.as_mut()
+        {
+            note.push_str(&format!(" ({} skipped)", skipped.join(", ")));
+        }
+    }
+
     fn yank(&mut self, text: String) {
         if text.is_empty() {
             self.note = Some(("nothing to yank".into(), Note::Warn));
@@ -2316,6 +2422,9 @@ impl App {
 
     /// Open the confirmation for a mutation. Nothing happens to the cluster here.
     fn confirm_mutation(&mut self, kind: MutationKind) {
+        if self.refuses_mutation() {
+            return;
+        }
         // Schedule operations act on a schedule id, not an execution.
         if matches!(
             kind,
@@ -2627,6 +2736,9 @@ impl App {
     /// matter. Each result comes back as its own `Mutated`, so a failure halfway through is
     /// reported for the row it happened on rather than sinking the whole set.
     fn run_mutations(&mut self, mutations: Vec<Mutation>) {
+        if self.refuses_mutation() {
+            return;
+        }
         let Some(conn) = self.conn.clone() else {
             return;
         };
@@ -2655,12 +2767,37 @@ impl App {
         });
     }
 
+    pub fn accent(&self) -> Option<tmprl_core::config::Accent> {
+        self.accent
+    }
+
+    pub fn readonly(&self) -> bool {
+        self.readonly
+    }
+
+    /// Refuse a mutation on a read-only profile, and say which profile refused it.
+    ///
+    /// Checked at both ends: here, so a refusal costs one keystroke rather than a typed
+    /// signal payload, and again in `run_mutation`, which is the only path to the wire.
+    fn refuses_mutation(&mut self) -> bool {
+        if self.readonly {
+            self.note = Some((format!("profile {} is read-only", self.profile), Note::Warn));
+            return true;
+        }
+        false
+    }
+
     /// Record what was attempted, whether or not it worked.
     ///
     /// Appended, never rewritten, and failures go in too: the log is what was *attempted*,
     /// which is the question being asked when someone reads it.
     fn audit(&mut self, mutation: &Mutation, outcome: &str) {
-        if let Err(e) = crate::config::append_audit(&mutation.audit_line(now_ms(), outcome)) {
+        let target = tmprl_core::mutation::Target {
+            profile: &self.profile,
+            address: &self.address,
+        };
+        if let Err(e) = crate::config::append_audit(&mutation.audit_line(now_ms(), target, outcome))
+        {
             // A failed audit write must not be silent: the log is the record that an
             // irreversible thing happened.
             self.note = Some((format!("audit log: {e}"), Note::Error));
@@ -3161,6 +3298,19 @@ async fn pipe_through(command: &str, input: Vec<u8>) -> Result<String, String> {
             stderr
         })
     }
+}
+
+/// Whether a failure is the server refusing the operation rather than the call going wrong.
+///
+/// Matched on the message because the error has already been flattened to a `String` by the
+/// time it crosses the task boundary. Both spellings appear: gRPC's status name, and the
+/// sentence Temporal Cloud returns.
+fn is_permission_denied(e: &str) -> bool {
+    let e = e.to_ascii_lowercase();
+    e.contains("permissiondenied")
+        || e.contains("permission denied")
+        || e.contains("does not have permission")
+        || e.contains("request unauthorized")
 }
 
 /// Minimal JSON string escaping, enough for the identifiers and enum names yanked today.
@@ -4697,6 +4847,50 @@ mod tests {
         assert!(app.view.history_resume.is_empty());
     }
 
+    #[test]
+    fn yanking_the_result_unwraps_it() {
+        let mut app = viewing_payloads();
+        app.run("motion.down", None); // the Charge group
+        app.run("yank.payload-result", None);
+        let (note, level) = app.note.clone().expect("a yank should report");
+        assert!(note.contains("yanked"), "{note}");
+        assert!(matches!(level, Note::Info));
+    }
+
+    #[test]
+    fn yanking_the_input_skips_the_result() {
+        let mut app = viewing_payloads();
+        app.run("motion.down", None); // the Charge group
+        let all = app.payloads_under_cursor();
+        assert!(
+            all.iter().any(|(l, _)| l == "input") && all.iter().any(|(l, _)| l == "result"),
+            "fixture should carry both"
+        );
+        // The filter is what separates them; the clipboard itself is not reachable in a test.
+        app.run("yank.payload-input", None);
+        assert!(app.note.as_ref().unwrap().0.contains("yanked"));
+    }
+
+    #[test]
+    fn yanking_a_payload_off_a_history_is_refused() {
+        let mut app = app();
+        app.run("yank.payload", None);
+        let (note, level) = app.note.clone().expect("a refusal should be reported");
+        assert!(note.contains("workflow history"), "{note}");
+        assert!(matches!(level, Note::Warn));
+    }
+
+    #[test]
+    fn yanking_an_absent_part_says_so() {
+        let mut app = viewing_payloads();
+        // Row 0 is the opening group, which carries no payloads at all.
+        app.run("motion.top", None);
+        app.run("yank.payload-result", None);
+        let (note, level) = app.note.clone().unwrap();
+        assert!(note.contains("no result"), "got {note}");
+        assert_eq!(level, Note::Warn);
+    }
+
     /// A history whose activity carries a JSON input and result.
     fn viewing_payloads() -> App {
         use tmprl_core::history::{Category as C, GroupRef as G, Outcome as O, Role as R};
@@ -5108,6 +5302,95 @@ mod tests {
         assert_eq!(c.first().verb(), "Terminate");
         assert_eq!(c.first().workflow_id(), "order-r1");
         assert_eq!(c.first().namespace(), "default");
+    }
+
+    #[test]
+    fn a_key_that_cannot_list_namespaces_still_lands_somewhere_usable() {
+        // Temporal Cloud: the key is scoped to one namespace, so ListNamespaces is refused
+        // while everything inside that namespace works. Stranding the reader on the opening
+        // screen would make tmprl unusable against Cloud for no good reason.
+        let mut app = App::detached("sit", "lora-sit.ixing", unbounded_channel().0);
+        app.handle(Msg::Namespaces(Err(
+            "code: 'The caller does not have permission to execute the specified operation', \
+             message: \"Request unauthorized.\""
+                .into(),
+        )));
+
+        let rows = app.namespace_rows();
+        assert_eq!(rows.len(), 1, "the profile's own namespace is the fallback");
+        assert_eq!(rows[0].name, "lora-sit.ixing");
+        let (note, level) = app.note.clone().expect("the reader must be told why");
+        assert!(note.contains("cannot list namespaces"), "{note}");
+        assert!(note.contains("lora-sit.ixing"), "{note}");
+        assert_eq!(
+            level,
+            Note::Info,
+            "this is not an error, it is a scoped key"
+        );
+    }
+
+    #[test]
+    fn a_real_namespace_failure_is_still_an_error() {
+        // Only permission is special-cased; a transport failure must not be dressed up as a
+        // one-row list, which would look like a cluster with one namespace.
+        let mut app = App::detached("sit", "lora-sit.ixing", unbounded_channel().0);
+        app.handle(Msg::Namespaces(Err("transport error".into())));
+
+        assert!(app.namespace_rows().is_empty());
+        assert_eq!(app.note.clone().unwrap().1, Note::Error);
+    }
+
+    #[test]
+    fn a_readonly_profile_refuses_before_a_confirmation_opens() {
+        // The refusal costs one keystroke: a signal payload typed in full and then rejected
+        // teaches the reader nothing useful.
+        let mut app = on_a_workflow();
+        app.apply_config(None, None, Some("[profile.prod]\nreadonly = true"));
+        assert!(
+            app.readonly(),
+            "config.toml should have marked prod read-only"
+        );
+
+        app.run("workflow.terminate", None);
+        assert!(app.confirm.is_none(), "no confirmation may open");
+        let (text, level) = app.note.clone().expect("a refusal should be reported");
+        assert!(
+            text.contains("prod"),
+            "the refusal names the profile: {text}"
+        );
+        assert!(text.contains("read-only"), "{text}");
+        assert!(matches!(level, Note::Warn));
+    }
+
+    #[test]
+    fn a_readonly_profile_refuses_at_the_wire_too() {
+        // The guard that matters: whatever route a mutation took to get here, this is the
+        // only path to the cluster.
+        let mut app = on_a_workflow();
+        app.apply_config(None, None, Some("[profile.prod]\nreadonly = true"));
+
+        // Batch and single share this path, so guarding it covers both.
+        app.run_mutations(vec![Mutation::Terminate {
+            namespace: "default".into(),
+            workflow_id: "order-r1".into(),
+            run_id: "r1".into(),
+            reason: "x".into(),
+        }]);
+        let (text, _) = app.note.clone().expect("a refusal should be reported");
+        assert!(text.contains("read-only"), "{text}");
+    }
+
+    #[test]
+    fn a_profile_without_a_readonly_flag_still_mutates() {
+        let mut app = on_a_workflow();
+        app.apply_config(None, None, Some("[profile.sit]\nreadonly = true"));
+        assert!(
+            !app.readonly(),
+            "another profile's flag must not apply here"
+        );
+
+        app.run("workflow.terminate", None);
+        assert!(app.confirm.is_some(), "a confirmation should still open");
     }
 
     #[test]

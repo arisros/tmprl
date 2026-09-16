@@ -37,6 +37,12 @@ pub enum ConfigError {
     BadViewKey { name: String, key: String },
     #[error("views.toml: two views claim key `{0}`")]
     DuplicateViewKey(char),
+    #[error("config.toml: `{path}` is `{value}`, which is not a colour ({expected})")]
+    BadAccent {
+        path: String,
+        value: String,
+        expected: &'static str,
+    },
 }
 
 /// A saved visibility query, reachable from a key.
@@ -127,10 +133,84 @@ pub struct CodecConfig {
     pub auth: Option<String>,
 }
 
+/// A colour name for a profile's accent.
+///
+/// Named rather than a hex triple: this has to read on a 16-colour terminal, and the point
+/// is that production is unmistakable, not that it matches anyone's palette.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Accent {
+    Red,
+    Green,
+    Yellow,
+    Blue,
+    Magenta,
+    Cyan,
+}
+
+impl Accent {
+    pub const NAMES: &'static str = "red, green, yellow, blue, magenta or cyan";
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "red" => Self::Red,
+            "green" => Self::Green,
+            "yellow" => Self::Yellow,
+            "blue" => Self::Blue,
+            "magenta" => Self::Magenta,
+            "cyan" => Self::Cyan,
+            _ => return None,
+        })
+    }
+}
+
+/// Per-profile settings, keyed by the profile name in `temporal.toml`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProfileConfig {
+    /// Colour for the profile name in the statusline.
+    pub accent: Option<Accent>,
+    /// Refuse every mutation on this profile.
+    pub readonly: bool,
+    /// Overrides the top-level codec for this profile.
+    pub codec: Option<CodecConfig>,
+}
+
+/// What applies to the profile actually connected, after falling back to the globals.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Resolved {
+    pub accent: Option<Accent>,
+    pub readonly: bool,
+    pub codec: Option<CodecConfig>,
+}
+
 /// `config.toml`. Everything in it is optional.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Config {
+    /// The codec used by any profile that does not name its own.
     pub codec: Option<CodecConfig>,
+    pub profiles: Vec<(String, ProfileConfig)>,
+}
+
+impl Config {
+    /// Settings for one profile. A profile with no section is not an error: it simply gets
+    /// the globals, which is what every single-cluster user has today.
+    pub fn resolve(&self, profile: &str) -> Resolved {
+        let found = self.profiles.iter().find(|(name, _)| name == profile);
+        match found {
+            None => Resolved {
+                accent: None,
+                readonly: false,
+                codec: self.codec.clone(),
+            },
+            Some((_, p)) => Resolved {
+                accent: p.accent,
+                readonly: p.readonly,
+                // A profile that names no codec uses the global one; pointing production at
+                // the codec you set up for SIT is exactly the mistake worth preventing, but
+                // a single-cluster config must keep working unchanged.
+                codec: p.codec.clone().or_else(|| self.codec.clone()),
+            },
+        }
+    }
 }
 
 /// Parse `config.toml`:
@@ -139,6 +219,13 @@ pub struct Config {
 /// [codec]
 /// endpoint = "http://localhost:8081"
 /// auth     = "Bearer …"          # optional
+///
+/// [profile.prod]                 # keyed by the profile in temporal.toml
+/// accent   = "red"
+/// readonly = true
+///
+/// [profile.prod.codec]           # overrides the codec above, for this profile only
+/// endpoint = "https://codec.internal"
 /// ```
 pub fn parse_config(src: &str) -> Result<Config, ConfigError> {
     const FILE: &str = "config.toml";
@@ -147,21 +234,89 @@ pub fn parse_config(src: &str) -> Result<Config, ConfigError> {
         message: e.message().to_string(),
     })?;
 
-    let Some(raw) = table.get("codec") else {
-        return Ok(Config::default());
+    let codec = match table.get("codec") {
+        None => None,
+        Some(raw) => Some(parse_codec(raw, "codec")?),
     };
-    let codec = raw.as_table().ok_or(ConfigError::Type {
+
+    let profiles = match table.get("profile") {
+        None => Vec::new(),
+        Some(raw) => {
+            let table = raw.as_table().ok_or(ConfigError::Type {
+                file: FILE,
+                path: "profile".into(),
+                expected: "a table",
+            })?;
+            let mut out = Vec::with_capacity(table.len());
+            for (name, raw) in table {
+                out.push((name.clone(), parse_profile(raw, name)?));
+            }
+            out
+        }
+    };
+
+    Ok(Config { codec, profiles })
+}
+
+fn parse_profile(raw: &toml::Value, name: &str) -> Result<ProfileConfig, ConfigError> {
+    const FILE: &str = "config.toml";
+    let table = raw.as_table().ok_or_else(|| ConfigError::Type {
         file: FILE,
-        path: "codec".into(),
+        path: format!("profile.{name}"),
+        expected: "a table",
+    })?;
+
+    let accent = match table.get("accent") {
+        None => None,
+        Some(v) => {
+            let text = v.as_str().ok_or_else(|| ConfigError::Type {
+                file: FILE,
+                path: format!("profile.{name}.accent"),
+                expected: "a string",
+            })?;
+            Some(Accent::parse(text).ok_or_else(|| ConfigError::BadAccent {
+                path: format!("profile.{name}.accent"),
+                value: text.to_string(),
+                expected: Accent::NAMES,
+            })?)
+        }
+    };
+
+    let readonly = match table.get("readonly") {
+        None => false,
+        Some(v) => v.as_bool().ok_or_else(|| ConfigError::Type {
+            file: FILE,
+            path: format!("profile.{name}.readonly"),
+            expected: "true or false",
+        })?,
+    };
+
+    let codec = match table.get("codec") {
+        None => None,
+        Some(raw) => Some(parse_codec(raw, &format!("profile.{name}.codec"))?),
+    };
+
+    Ok(ProfileConfig {
+        accent,
+        readonly,
+        codec,
+    })
+}
+
+fn parse_codec(raw: &toml::Value, path: &str) -> Result<CodecConfig, ConfigError> {
+    const FILE: &str = "config.toml";
+    let codec = raw.as_table().ok_or_else(|| ConfigError::Type {
+        file: FILE,
+        path: path.to_string(),
         expected: "a table",
     })?;
 
     let endpoint = codec
         .get("endpoint")
         .and_then(|v| v.as_str())
-        .ok_or(ConfigError::Type {
+        .ok_or_else(|| ConfigError::Type {
             file: FILE,
-            path: "codec.endpoint".into(),
+            path: format!("{path}.endpoint"),
             expected: "a string",
         })?
         .trim_end_matches('/')
@@ -169,7 +324,7 @@ pub fn parse_config(src: &str) -> Result<Config, ConfigError> {
     if endpoint.is_empty() {
         return Err(ConfigError::Type {
             file: FILE,
-            path: "codec.endpoint".into(),
+            path: format!("{path}.endpoint"),
             expected: "a non-empty URL",
         });
     }
@@ -178,18 +333,16 @@ pub fn parse_config(src: &str) -> Result<Config, ConfigError> {
         None => None,
         Some(v) => Some(
             v.as_str()
-                .ok_or(ConfigError::Type {
+                .ok_or_else(|| ConfigError::Type {
                     file: FILE,
-                    path: "codec.auth".into(),
+                    path: format!("{path}.auth"),
                     expected: "a string",
                 })?
                 .to_string(),
         ),
     };
 
-    Ok(Config {
-        codec: Some(CodecConfig { endpoint, auth }),
-    })
+    Ok(CodecConfig { endpoint, auth })
 }
 
 /// Apply `keys.toml` on top of a keymap:
@@ -559,5 +712,75 @@ mod tests {
         let before = keymap.bindings().len();
         apply_keys("", &registry, &mut keymap).unwrap();
         assert_eq!(keymap.bindings().len(), before);
+    }
+
+    #[test]
+    fn a_config_with_no_profile_section_gives_every_profile_the_globals() {
+        // The single-cluster config that exists today must keep working untouched.
+        let cfg = parse_config("[codec]\nendpoint = \"http://localhost:8081\"").unwrap();
+        let r = cfg.resolve("anything");
+        assert_eq!(r.codec.unwrap().endpoint, "http://localhost:8081");
+        assert!(!r.readonly);
+        assert_eq!(r.accent, None);
+    }
+
+    #[test]
+    fn a_profile_codec_overrides_the_global_one() {
+        let cfg = parse_config(
+            r#"
+[codec]
+endpoint = "http://localhost:8081"
+
+[profile.prod.codec]
+endpoint = "https://codec.internal"
+"#,
+        )
+        .unwrap();
+        assert_eq!(
+            cfg.resolve("prod").codec.unwrap().endpoint,
+            "https://codec.internal"
+        );
+        // A profile that names no codec still falls back, rather than losing decoding.
+        assert_eq!(
+            cfg.resolve("sit").codec.unwrap().endpoint,
+            "http://localhost:8081"
+        );
+    }
+
+    #[test]
+    fn a_profile_carries_its_accent_and_readonly_flag() {
+        let cfg = parse_config(
+            r#"
+[profile.prod]
+accent   = "red"
+readonly = true
+
+[profile.sit]
+accent = "green"
+"#,
+        )
+        .unwrap();
+        let prod = cfg.resolve("prod");
+        assert_eq!(prod.accent, Some(Accent::Red));
+        assert!(prod.readonly);
+
+        let sit = cfg.resolve("sit");
+        assert_eq!(sit.accent, Some(Accent::Green));
+        assert!(!sit.readonly, "readonly must not leak between profiles");
+    }
+
+    #[test]
+    fn an_unknown_accent_is_reported_rather_than_ignored() {
+        // Silently dropping it would leave production painted like everything else, which
+        // is the exact failure the accent exists to prevent.
+        let err = parse_config("[profile.prod]\naccent = \"crimson\"").unwrap_err();
+        assert!(matches!(err, ConfigError::BadAccent { .. }), "{err:?}");
+        assert!(err.to_string().contains("crimson"), "{err}");
+    }
+
+    #[test]
+    fn readonly_must_be_a_boolean() {
+        let err = parse_config("[profile.prod]\nreadonly = \"yes\"").unwrap_err();
+        assert!(matches!(err, ConfigError::Type { .. }), "{err:?}");
     }
 }
