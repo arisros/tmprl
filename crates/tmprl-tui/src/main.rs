@@ -19,13 +19,16 @@ USAGE:
     tmprl [OPTIONS]
 
 OPTIONS:
-    -p, --profile <NAME>   Profile from ~/.config/temporalio/temporal.toml
-        --config <PATH>    Override the config file path
-    -h, --help             Print this message
-    -V, --version          Print version
+    -p, --profile <NAME>        Profile from ~/.config/temporalio/temporal.toml
+        --temporal-config <P>   Override that file's path (alias: --config)
+        --config-path           Print where tmprl reads its own config, and exit
+    -h, --help                  Print this message
+    -V, --version               Print version
 
 Connection settings come from the same files and TEMPORAL_* variables the
-`temporal` CLI uses. Press ? inside the application for keybindings.
+`temporal` CLI uses. tmprl's own config (config.toml, keys.toml, views.toml)
+is a different directory; --config-path prints it. Press ? inside the
+application for keybindings.
 ";
 
 fn parse_args() -> Result<ProfileRef, String> {
@@ -44,8 +47,15 @@ fn parse_args() -> Result<ProfileRef, String> {
             "-p" | "--profile" => {
                 profile.name = Some(args.next().ok_or("--profile needs a value")?);
             }
-            "--config" => {
-                profile.config_file = Some(args.next().ok_or("--config needs a value")?);
+            // `--config` predates tmprl having a config of its own and names the
+            // *Temporal* profile file. Kept as an alias so existing wrappers keep working.
+            "--temporal-config" | "--config" => {
+                profile.config_file = Some(args.next().ok_or("--temporal-config needs a value")?);
+            }
+            "--config-path" => {
+                // Parsed in order, so a --temporal-config before it is reflected.
+                print!("{}", config::describe_paths(profile.config_file.as_deref()));
+                std::process::exit(0);
             }
             other => return Err(format!("unknown argument `{other}`\n\n{USAGE}")),
         }
