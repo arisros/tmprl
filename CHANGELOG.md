@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.1-rc.2 — 2026-09-17
 
 - `[layout] payload = "right"` in `config.toml` opens the `K` payload pane beside the
   history list instead of under it. Terminals narrower than 100 columns still stack it.

@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1-rc.2"
 edition = "2024"
 rust-version = "1.95"
 license = "MIT"
@@ -15,9 +15,9 @@ categories = ["command-line-utilities"]
 [workspace.dependencies]
 # The workspace's own crates. The version is what crates.io resolves them by once
 # published; the path is what a local build uses. Bump both with workspace.package.
-tmprl-core = { path = "crates/tmprl-core", version = "0.1.0" }
-tmprl-client = { path = "crates/tmprl-client", version = "0.1.0" }
-tmprl-ui = { path = "crates/tmprl-ui", version = "0.1.0" }
+tmprl-core = { path = "crates/tmprl-core", version = "0.1.1-rc.2" }
+tmprl-client = { path = "crates/tmprl-client", version = "0.1.1-rc.2" }
+tmprl-ui = { path = "crates/tmprl-ui", version = "0.1.1-rc.2" }
 temporalio-client = "=0.7.0"
 temporalio-common = "=0.7.0"
 # Timestamps on the generated protos are `prost_wkt_types::Timestamp`, NOT
