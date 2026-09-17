@@ -96,6 +96,9 @@ api_key   = "…"
 
 ```toml
 # ~/.config/tmprl/config.toml
+[layout]
+payload = "right"         # K opens beside the list; "bottom" is the default
+
 [profile.sit]
 accent = "green"
 

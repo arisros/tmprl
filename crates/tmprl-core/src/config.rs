@@ -182,12 +182,36 @@ pub struct Resolved {
     pub codec: Option<CodecConfig>,
 }
 
+/// Where the payload pane (`K`) opens, relative to the history list.
+///
+/// Both keep the list on screen, so `j` / `k` still move the row the pane is showing. There
+/// is no popup on purpose: it would cover the rows you are stepping through.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PayloadPane {
+    #[default]
+    Bottom,
+    Right,
+}
+
+impl PayloadPane {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "bottom" => Some(Self::Bottom),
+            "right" => Some(Self::Right),
+            _ => None,
+        }
+    }
+}
+
 /// `config.toml`. Everything in it is optional.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Config {
     /// The codec used by any profile that does not name its own.
     pub codec: Option<CodecConfig>,
     pub profiles: Vec<(String, ProfileConfig)>,
+    /// `[layout] payload`. Global rather than per profile: it is about your terminal, not
+    /// the cluster.
+    pub payload_pane: PayloadPane,
 }
 
 impl Config {
@@ -216,6 +240,9 @@ impl Config {
 /// Parse `config.toml`:
 ///
 /// ```toml
+/// [layout]
+/// payload = "right"              # or "bottom", the default
+///
 /// [codec]
 /// endpoint = "http://localhost:8081"
 /// auth     = "Bearer …"          # optional
@@ -255,7 +282,36 @@ pub fn parse_config(src: &str) -> Result<Config, ConfigError> {
         }
     };
 
-    Ok(Config { codec, profiles })
+    let payload_pane = match table.get("layout") {
+        None => PayloadPane::default(),
+        Some(raw) => parse_layout(raw)?,
+    };
+
+    Ok(Config {
+        codec,
+        profiles,
+        payload_pane,
+    })
+}
+
+fn parse_layout(raw: &toml::Value) -> Result<PayloadPane, ConfigError> {
+    const FILE: &str = "config.toml";
+    let table = raw.as_table().ok_or(ConfigError::Type {
+        file: FILE,
+        path: "layout".into(),
+        expected: "a table",
+    })?;
+    match table.get("payload") {
+        None => Ok(PayloadPane::default()),
+        Some(v) => v
+            .as_str()
+            .and_then(PayloadPane::parse)
+            .ok_or(ConfigError::Type {
+                file: FILE,
+                path: "layout.payload".into(),
+                expected: "\"bottom\" or \"right\"",
+            }),
+    }
 }
 
 fn parse_profile(raw: &toml::Value, name: &str) -> Result<ProfileConfig, ConfigError> {
@@ -782,5 +838,33 @@ accent = "green"
     fn readonly_must_be_a_boolean() {
         let err = parse_config("[profile.prod]\nreadonly = \"yes\"").unwrap_err();
         assert!(matches!(err, ConfigError::Type { .. }), "{err:?}");
+    }
+
+    #[test]
+    fn the_payload_pane_defaults_to_bottom() {
+        assert_eq!(parse_config("").unwrap().payload_pane, PayloadPane::Bottom);
+        assert_eq!(
+            parse_config("[layout]\n").unwrap().payload_pane,
+            PayloadPane::Bottom
+        );
+    }
+
+    #[test]
+    fn the_payload_pane_can_open_on_the_right() {
+        let cfg = parse_config("[layout]\npayload = \"right\"").unwrap();
+        assert_eq!(cfg.payload_pane, PayloadPane::Right);
+    }
+
+    #[test]
+    fn an_unknown_payload_position_is_reported() {
+        // "popup" is the one people will try; it is refused rather than quietly ignored.
+        for src in [
+            "[layout]\npayload = \"popup\"",
+            "[layout]\npayload = 1",
+            "layout = 1",
+        ] {
+            let err = parse_config(src).unwrap_err();
+            assert!(matches!(err, ConfigError::Type { .. }), "{src}: {err:?}");
+        }
     }
 }

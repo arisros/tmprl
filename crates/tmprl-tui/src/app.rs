@@ -363,6 +363,8 @@ pub struct App {
     accent: Option<tmprl_core::config::Accent>,
     /// Refuse every mutation on this profile.
     readonly: bool,
+    /// Where `K` opens, from `config.toml`'s `[layout]`.
+    payload_pane: tmprl_core::config::PayloadPane,
     namespace: String,
     conn: Option<Arc<Conn>>,
     tx: UnboundedSender<Msg>,
@@ -434,6 +436,7 @@ impl App {
             address,
             accent: None,
             readonly: false,
+            payload_pane: Default::default(),
             namespace,
             conn,
             tx,
@@ -452,6 +455,7 @@ impl App {
                         .map(|c| Arc::new(Codec::new(c.endpoint, c.auth)));
                     self.accent = resolved.accent;
                     self.readonly = resolved.readonly;
+                    self.payload_pane = cfg.payload_pane;
                 }
                 Err(e) => self.note = Some((e.to_string(), Note::Error)),
             }
@@ -2786,6 +2790,10 @@ impl App {
 
     pub fn readonly(&self) -> bool {
         self.readonly
+    }
+
+    pub fn payload_pane(&self) -> tmprl_core::config::PayloadPane {
+        self.payload_pane
     }
 
     /// Refuse a mutation on a read-only profile, and say which profile refused it.

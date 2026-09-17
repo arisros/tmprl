@@ -26,6 +26,8 @@ use ratatui::layout::{Constraint, Layout};
 use ratatui::style::Style;
 use ratatui::widgets::{Block, Borders};
 
+use tmprl_core::config::PayloadPane;
+
 use crate::app::{App, PromptKind, Screen};
 use crate::theme::Theme;
 use crate::view::View;
@@ -46,7 +48,12 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     // The focused pane's measurements are written back before anything is borrowed
     // immutably: a half page is half of *this* pane, not half the terminal.
     if let Some(pane) = panes.iter().find(|p| p.focused) {
-        let inner = pane_body(from_ui(pane.rect), app.view.screen, app.view.show_detail);
+        let inner = pane_body(
+            from_ui(pane.rect),
+            app.view.screen,
+            app.view.show_detail,
+            app.payload_pane(),
+        );
         app.view.page = inner.list.height.saturating_sub(1) as usize;
     }
 
@@ -121,7 +128,16 @@ struct PaneAreas {
     detail: Option<ratatui::layout::Rect>,
 }
 
-fn pane_body(area: ratatui::layout::Rect, screen: Screen, show_detail: bool) -> PaneAreas {
+/// Below this width a side-by-side payload pane leaves neither half readable, so `right`
+/// falls back to stacking.
+const MIN_SIDE_BY_SIDE_WIDTH: u16 = 100;
+
+fn pane_body(
+    area: ratatui::layout::Rect,
+    screen: Screen,
+    show_detail: bool,
+    payload: PayloadPane,
+) -> PaneAreas {
     // The query bar is part of the workflow screen's chrome, not an overlay: it is always
     // on screen so the query is never something you have to go and open.
     let query_height = match screen {
@@ -135,7 +151,11 @@ fn pane_body(area: ratatui::layout::Rect, screen: Screen, show_detail: bool) -> 
         // Roughly half each: enough list to keep your place, enough pane to read a payload
         // without scrolling for every value.
         let [list, detail] =
-            Layout::vertical([Constraint::Min(3), Constraint::Percentage(50)]).areas(rest);
+            if payload == PayloadPane::Right && rest.width >= MIN_SIDE_BY_SIDE_WIDTH {
+                Layout::horizontal([Constraint::Min(40), Constraint::Percentage(50)]).areas(rest)
+            } else {
+                Layout::vertical([Constraint::Min(3), Constraint::Percentage(50)]).areas(rest)
+            };
         PaneAreas {
             query,
             list,
@@ -175,7 +195,7 @@ fn render_pane(
         return None;
     }
 
-    let areas = pane_body(area, view.screen, view.show_detail);
+    let areas = pane_body(area, view.screen, view.show_detail, app.payload_pane());
     match view.screen {
         Screen::Namespaces => namespaces::render(frame, areas.list, view, app, theme),
         Screen::Workflows => {
@@ -185,7 +205,17 @@ fn render_pane(
         Screen::Schedules => schedules::render(frame, areas.list, view, app, theme),
         Screen::History => {
             history::render(frame, areas.list, view, app, theme);
-            if let Some(pane) = areas.detail {
+            if let Some(mut pane) = areas.detail {
+                // Beside the list, the pane's own top rule does not separate it from the
+                // rows to its left, so it gets a vertical one as well.
+                if pane.x > areas.list.x {
+                    let rule = Block::default()
+                        .borders(Borders::LEFT)
+                        .border_style(Style::new().fg(theme.faint));
+                    let inner = rule.inner(pane);
+                    frame.render_widget(rule, pane);
+                    pane = inner;
+                }
                 return Some(detail::render(frame, pane, view, app, theme));
             }
         }
@@ -565,6 +595,52 @@ mod tests {
         let out = draw(&mut app, 110, 20);
         assert!(out.contains("encrypted"), "should be labelled:\n{out}");
         assert!(out.contains("codec"), "should say what is needed:\n{out}");
+    }
+
+    /// Row and column of the first line mentioning `needle`.
+    fn position(out: &str, needle: &str) -> (usize, usize) {
+        out.lines()
+            .enumerate()
+            .find_map(|(row, line)| line.find(needle).map(|b| (row, line[..b].chars().count())))
+            .unwrap_or_else(|| panic!("`{needle}` not drawn:\n{out}"))
+    }
+
+    #[test]
+    fn the_payload_pane_opens_below_the_list_by_default() {
+        let mut app = app_with_payloads();
+        app.run("history.detail", None);
+        let out = draw(&mut app, 120, 20);
+        let (row, _) = position(&out, "payloads");
+        assert!(row >= 6, "the pane should sit under the list:\n{out}");
+    }
+
+    #[test]
+    fn layout_payload_right_opens_the_pane_beside_the_list() {
+        let mut app = app_with_payloads();
+        app.apply_config(None, None, Some("[layout]\npayload = \"right\""));
+        app.run("history.detail", None);
+        let out = draw(&mut app, 120, 20);
+        let (row, col) = position(&out, "payloads");
+        assert!(row <= 2, "the pane should start at the top:\n{out}");
+        assert!(col >= 40, "the pane should be on the right:\n{out}");
+
+        // The list keeps its full height, and the cursor still drives the pane.
+        app.run("motion.down", None);
+        let out = draw(&mut app, 120, 20);
+        assert!(
+            out.contains("charged"),
+            "pane should follow the cursor:\n{out}"
+        );
+    }
+
+    #[test]
+    fn layout_payload_right_stacks_when_the_terminal_is_narrow() {
+        let mut app = app_with_payloads();
+        app.apply_config(None, None, Some("[layout]\npayload = \"right\""));
+        app.run("history.detail", None);
+        let out = draw(&mut app, 80, 20);
+        let (row, _) = position(&out, "payloads");
+        assert!(row >= 6, "too narrow to split sideways:\n{out}");
     }
 
     #[test]

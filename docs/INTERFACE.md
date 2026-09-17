@@ -349,7 +349,7 @@ reader.
 
 | File | Holds |
 |---|---|
-| `~/.config/tmprl/config.toml` | codec server endpoint, **live**; refresh intervals and defaults *planned* |
+| `~/.config/tmprl/config.toml` | codec server endpoint and payload pane position, **live**; refresh intervals and defaults *planned* |
 | `~/.config/tmprl/keys.toml` | key chord → command id, **live** |
 | `~/.config/tmprl/theme.toml` | colours, *planned* |
 | `~/.config/tmprl/views.toml` | saved visibility queries, **live** |
@@ -367,6 +367,16 @@ auth     = "Bearer …"   # optional; sent verbatim as Authorization
 Encrypted payloads are decoded lazily, only what the pane is showing, never a whole history,
 and cached, so scrolling back over a row costs nothing. Without an endpoint the badge says
 where to set one.
+
+`K` opens the payload pane under the list. To have it beside the list instead:
+
+```toml
+[layout]
+payload = "right"       # "bottom" is the default
+```
+
+Either way the list stays on screen and `j` / `k` move the row the pane shows. Below 100
+columns `right` stacks anyway, since neither half would be readable.
 A `views.toml` looks like:
 
 ```toml
