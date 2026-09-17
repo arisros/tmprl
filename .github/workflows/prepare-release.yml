@@ -1,0 +1,64 @@
+name: Prepare release
+
+# Step one of a release, from the Actions tab: bump the version, write the changelog
+# section, open a PR. Merging that PR is what makes the version real; step two is the
+# Release workflow, which takes the tag.
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Which part of the version to bump
+        required: true
+        default: patch
+        type: choice
+        options: [patch, minor, major]
+      channel:
+        description: A release candidate, or the real thing
+        required: true
+        default: release
+        type: choice
+        options: [release, rc]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Tags decide the next rc number, and the changelog reads the log since the last one.
+          fetch-depth: 0
+
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - id: bump
+        run: echo "version=$(scripts/prepare-release.sh '${{ inputs.bump }}' '${{ inputs.channel }}')" >> "$GITHUB_OUTPUT"
+
+      - name: Open the release PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "release/v$VERSION"
+          git commit -am "chore(release): v$VERSION"
+          git push -u origin "release/v$VERSION"
+
+          # The section this bump just wrote: from its heading to the one before it.
+          {
+            echo "Prepared by the Prepare release workflow."
+            echo
+            echo "After merging, run **Actions -> Release -> Run workflow** with the tag \`v$VERSION\`."
+            echo
+            awk '/^## /{n++} n==1' CHANGELOG.md
+          } > /tmp/pr-body.md
+
+          gh pr create --base main --title "chore(release): v$VERSION" --body-file /tmp/pr-body.md
