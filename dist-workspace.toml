@@ -19,6 +19,8 @@ targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-da
 install-path = "CARGO_HOME"
 # Whether to install an updater program
 install-updater = false
+# Releases start from the Actions tab (Release -> Run workflow -> tag), not a tag push.
+dispatch-releases = true
 # Formula name, so it installs as `brew install arisros/tap/tmprl`
 formula = "tmprl"
 
