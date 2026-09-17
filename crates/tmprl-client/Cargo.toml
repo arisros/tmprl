@@ -4,10 +4,14 @@ description = "Temporal gRPC access layer for tmprl"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
 repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
-tmprl-core = { path = "../tmprl-core" }
+tmprl-core.workspace = true
 temporalio-client.workspace = true
 temporalio-common.workspace = true
 prost-wkt-types.workspace = true

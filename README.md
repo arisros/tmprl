@@ -15,8 +15,12 @@
 ## Quickstart
 
 ```sh
-brew install protobuf                      # required: protos build from source
-cargo install --path crates/tmprl-tui
+brew install arisros/tap/tmprl
+# or, on Linux and macOS
+curl -LsSf https://github.com/arisros/tmprl/releases/latest/download/tmprl-installer.sh | sh
+# or from crates.io; protoc is required, the protos build from source
+cargo install tmprl
+
 temporal server start-dev &
 tmprl
 ```
@@ -134,7 +138,7 @@ cargo test                       # integration tests skip with no server
 TMPRL_REQUIRE_SERVER=1 cargo test  # what CI runs
 ```
 
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/INTERFACE.md](docs/INTERFACE.md)
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/INTERFACE.md](docs/INTERFACE.md) · [docs/RELEASING.md](docs/RELEASING.md) · [CHANGELOG.md](CHANGELOG.md)
 
 ## Roadmap
 
