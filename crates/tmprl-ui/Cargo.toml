@@ -4,7 +4,11 @@ description = "The window tree for tmprl: splits, tabs and focus, as rectangles"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
 repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 # No dependencies, deliberately. This crate is a tree and some arithmetic; keeping ratatui
 # out of it is what lets the layout rules be tested without a terminal.

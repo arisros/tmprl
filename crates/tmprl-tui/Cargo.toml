@@ -1,10 +1,16 @@
 [package]
-name = "tmprl-tui"
-description = "Terminal interface for tmprl"
+# Published as `tmprl` so `cargo install tmprl` works; the directory keeps its old name.
+name = "tmprl"
+description = "A keyboard-driven terminal client for Temporal"
+readme = "../../README.md"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
 repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [[bin]]
 name = "tmprl"
@@ -13,9 +19,9 @@ path = "src/main.rs"
 [dependencies]
 # Unique names for the scratch directory `<leader>e` writes payloads into.
 uuid.workspace = true
-tmprl-core = { path = "../tmprl-core" }
-tmprl-client = { path = "../tmprl-client" }
-tmprl-ui = { path = "../tmprl-ui" }
+tmprl-core.workspace = true
+tmprl-client.workspace = true
+tmprl-ui.workspace = true
 ratatui.workspace = true
 crossterm.workspace = true
 tokio.workspace = true

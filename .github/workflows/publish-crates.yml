@@ -1,0 +1,30 @@
+name: Publish crates
+
+# Called by release.yml (cargo-dist `publish-jobs`) once the GitHub Release exists.
+on:
+  workflow_call:
+    inputs:
+      plan:
+        required: true
+        type: string
+
+jobs:
+  publish:
+    name: cargo publish
+    runs-on: ubuntu-latest
+    # Prereleases (v0.2.0-rc.1) stay on GitHub; only real versions reach crates.io.
+    if: ${{ !fromJson(inputs.plan).announcement_is_prerelease }}
+    steps:
+      - uses: actions/checkout@v5
+
+      # Verifying a package builds it, and temporalio-protos needs protoc to build.
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # --workspace publishes in dependency order: core and ui, then client, then tmprl.
+      - run: cargo publish --workspace --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

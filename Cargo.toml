@@ -5,10 +5,19 @@ members = ["crates/*"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.95"
 license = "MIT"
-repository = "https://github.com/arisjirat/tmprl"
+repository = "https://github.com/arisros/tmprl"
+homepage = "https://github.com/arisros/tmprl"
+keywords = ["temporal", "tui", "terminal", "workflow"]
+categories = ["command-line-utilities"]
 
 [workspace.dependencies]
+# The workspace's own crates. The version is what crates.io resolves them by once
+# published; the path is what a local build uses. Bump both with workspace.package.
+tmprl-core = { path = "crates/tmprl-core", version = "0.1.0" }
+tmprl-client = { path = "crates/tmprl-client", version = "0.1.0" }
+tmprl-ui = { path = "crates/tmprl-ui", version = "0.1.0" }
 temporalio-client = "=0.7.0"
 temporalio-common = "=0.7.0"
 # Timestamps on the generated protos are `prost_wkt_types::Timestamp`, NOT
@@ -52,3 +61,8 @@ incremental = true
 [profile.dbg]
 inherits = "dev"
 debug = true
+
+# The profile release binaries are built with (dist build, release.yml).
+[profile.dist]
+inherits = "release"
+lto = "thin"
