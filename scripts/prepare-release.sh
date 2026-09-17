@@ -31,8 +31,11 @@ case "$bump" in
 esac
 
 if [ "$channel" = "rc" ]; then
-  # Count existing candidates for this version so a second rc does not collide.
-  n=$(git tag -l "v$next-rc.*" | wc -l)
+  # Count candidates that already exist as a tag *or* as a prepared branch: a candidate
+  # whose PR has not been merged yet has no tag, and reusing its number collides with it.
+  n=$( { git tag -l "v$next-rc.*"
+         git ls-remote --heads origin "release/v$next-rc.*" 2>/dev/null | sed 's|.*/||'
+       } | sort -u | wc -l)
   next="$next-rc.$((n + 1))"
 fi
 

@@ -48,9 +48,15 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git switch -c "release/v$VERSION"
+          branch="release/v$VERSION"
+          git switch -c "$branch"
           git commit -am "chore(release): v$VERSION"
-          git push -u origin "release/v$VERSION"
+          # Re-running this job after it failed later on must replace its own half-finished
+          # branch rather than be rejected as a non-fast-forward. The fetch is what makes
+          # --force-with-lease meaningful: without a remote-tracking ref it has no lease to
+          # check, and would refuse on stale info.
+          git fetch origin "$branch" || true
+          git push --force-with-lease -u origin "$branch"
 
           # The section this bump just wrote: from its heading to the one before it.
           {
@@ -61,4 +67,9 @@ jobs:
             awk '/^## /{n++} n==1' CHANGELOG.md
           } > /tmp/pr-body.md
 
-          gh pr create --base main --title "chore(release): v$VERSION" --body-file /tmp/pr-body.md
+          # A re-run finds the PR the earlier attempt opened; creating a second one fails.
+          if [ -n "$(gh pr list --head "$branch" --state open --json number --jq '.[].number')" ]; then
+            gh pr edit "$branch" --body-file /tmp/pr-body.md
+          else
+            gh pr create --base main --title "chore(release): v$VERSION" --body-file /tmp/pr-body.md
+          fi
