@@ -159,7 +159,7 @@ impl Registry {
             "app.command-line",   "Application", "Open the command line"     => OpenCommandLine;
             "app.cancel",         "Application", "Cancel pending input"      => Cancel;
             "app.refresh",        "Application", "Reload from the server"    => Refresh;
-            "app.times",          "Application", "Clock times or ages" => ToggleTimes;
+            "app.times",          "Application", "Clock times or ages"       => ToggleTimes;
 
             "motion.down",        "Motion",      "Move down"                 => MoveDown;
             "motion.up",          "Motion",      "Move up"                   => MoveUp;
