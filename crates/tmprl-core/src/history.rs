@@ -104,6 +104,72 @@ pub enum GroupRef {
     Opened(i64),
 }
 
+/// Why something failed, kept whole.
+///
+/// The server sends a chain, not a sentence: an activity failure wrapping the application
+/// failure the worker raised, wrapping whatever that one was raised from. Each link carries
+/// its own message, its own type and its own stack trace, and the one you need is rarely
+/// the outermost, which is usually a variation on "activity task failed".
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Failure {
+    pub message: String,
+    /// `type` on an application failure, the class the worker raised: `PaymentDeclined`.
+    pub kind: Option<String>,
+    /// Which SDK produced it, `JavaSDK`. Worth showing: it says whose stack trace this is.
+    pub source: Option<String>,
+    pub stack_trace: Option<String>,
+    /// Set on an application failure the worker marked as not worth retrying.
+    pub non_retryable: bool,
+    /// What this one was raised from.
+    pub cause: Option<Box<Failure>>,
+}
+
+impl Failure {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            ..Self::default()
+        }
+    }
+
+    /// One line for a list column: the type is worth the width when there is one, because
+    /// `PaymentDeclined` is searchable and "card declined" is prose.
+    pub fn headline(&self) -> String {
+        match (&self.kind, self.message.is_empty()) {
+            (Some(k), false) => format!("{k}: {}", self.message),
+            (Some(k), true) => k.clone(),
+            (None, _) => self.message.clone(),
+        }
+    }
+
+    /// This failure and everything it was raised from, outermost first.
+    pub fn chain(&self) -> impl Iterator<Item = &Failure> {
+        std::iter::successors(Some(self), |f| f.cause.as_deref())
+    }
+
+    /// The innermost link: what actually went wrong, once the wrappers are peeled off.
+    pub fn root(&self) -> &Failure {
+        self.chain().last().unwrap_or(self)
+    }
+
+    /// How many links the chain has. `1` when there is nothing underneath.
+    pub fn depth(&self) -> usize {
+        self.chain().count()
+    }
+}
+
+impl From<&str> for Failure {
+    fn from(s: &str) -> Self {
+        Self::new(s)
+    }
+}
+
+impl From<String> for Failure {
+    fn from(s: String) -> Self {
+        Self::new(s)
+    }
+}
+
 /// One protobuf history event, flattened.
 ///
 /// Deliberately not a 60-variant mirror of the protobuf `oneof`. Everything downstream
@@ -127,8 +193,8 @@ pub struct NormalizedEvent {
     /// Attempt number, where the protocol reports one. A retry does *not* produce a second
     /// scheduling event, the count lives here.
     pub attempt: Option<i32>,
-    /// Failure message, when the event carries one.
-    pub failure: Option<String>,
+    /// Why it failed, when the event carries a failure.
+    pub failure: Option<Failure>,
     /// Detail rows for the expanded view, in protocol order.
     pub fields: Vec<(&'static str, String)>,
     /// Payloads this event carries, labelled, `input`, `result`, `details[1]`. Labels are
@@ -192,7 +258,7 @@ pub struct Group {
     pub outcome: Outcome,
     /// Highest attempt seen. 1 unless something was retried.
     pub attempts: i32,
-    pub failure: Option<String>,
+    pub failure: Option<Failure>,
 }
 
 impl Group {
@@ -609,7 +675,10 @@ mod tests {
             first,
             last,
         ]);
-        assert_eq!(groups[0].failure.as_deref(), Some("final"));
+        assert_eq!(
+            groups[0].failure.as_ref().map(|f| f.message.as_str()),
+            Some("final")
+        );
     }
 
     #[test]
@@ -832,5 +901,49 @@ mod tests {
     fn an_empty_history_groups_to_nothing() {
         assert!(group_events(&[]).is_empty());
         assert!(failures(&[]).is_empty());
+    }
+    #[test]
+    fn a_headline_names_the_class_when_the_worker_gave_one() {
+        let bare = Failure::new("card declined");
+        assert_eq!(bare.headline(), "card declined");
+
+        let typed = Failure {
+            kind: Some("PaymentDeclined".into()),
+            ..Failure::new("card declined")
+        };
+        assert_eq!(typed.headline(), "PaymentDeclined: card declined");
+
+        // A type with no message still reads as something rather than as blank.
+        let no_message = Failure {
+            kind: Some("PaymentDeclined".into()),
+            ..Failure::default()
+        };
+        assert_eq!(no_message.headline(), "PaymentDeclined");
+    }
+
+    #[test]
+    fn the_root_of_a_chain_is_what_actually_went_wrong() {
+        let f = Failure {
+            cause: Some(Box::new(Failure {
+                cause: Some(Box::new(Failure::new("Read timed out"))),
+                ..Failure::new("card declined")
+            })),
+            ..Failure::new("activity task failed")
+        };
+
+        assert_eq!(f.depth(), 3);
+        assert_eq!(f.root().message, "Read timed out");
+        assert_eq!(
+            f.chain().map(|l| l.message.as_str()).collect::<Vec<_>>(),
+            ["activity task failed", "card declined", "Read timed out"],
+            "the chain reads outermost first, the way it is rendered"
+        );
+    }
+
+    #[test]
+    fn a_failure_with_nothing_under_it_is_its_own_root() {
+        let f = Failure::new("plain");
+        assert_eq!(f.depth(), 1);
+        assert_eq!(f.root().message, "plain");
     }
 }

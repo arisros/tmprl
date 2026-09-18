@@ -228,6 +228,14 @@ The command runs through a shell, so `!jq .result | head -20` works. Its output 
 payload pane; a failure shows the command's own stderr, since when a `jq` expression is wrong
 jq's message is the entire diagnosis.
 
+A failure is a chain, not a sentence. The server wraps what the worker raised: an activity
+failure over the application failure over whatever that one came from, and the outermost
+message is usually the least specific of the three, a variation on "activity task failed". A
+row has space for one line of it, so the row shows the type and message of the outermost link
+and `K` shows the rest: every `caused by` down to the root, the SDK that raised it, whether it
+was marked non-retryable, and the stack traces, which sit after the payloads because a
+fifty-line Java trace would otherwise push the input out of sight.
+
 `F` tails a running workflow, the way `tail -f` does. The statusline carries a **FOLLOW**
 badge while it is on, because a view that rewrites itself under you needs to say so, a
 screen that changes on its own otherwise reads as a glitch. Following stops on `F`, on leaving
@@ -248,7 +256,7 @@ closed is refused with a message instead of polling for events that can never ar
 | `<leader>cs` | call stack (`__stack_trace` query) | M2 |
 | `<leader>cq` | send a query to the workflow | M2 |
 | `!` | pipe the focused payloads through a command | **live** |
-| `K` | show the payloads under the cursor | **live** |
+| `K` | show the payloads and the full failure under the cursor | **live** |
 | `<C-e>` / `<C-y>` | scroll the payload pane | **live** |
 | `<leader>e` | open the payloads in `$EDITOR`, read-only | **live** |
 

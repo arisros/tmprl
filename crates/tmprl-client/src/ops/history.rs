@@ -24,12 +24,14 @@ use temporalio_client::tonic::Request;
 use temporalio_common::protos::temporal::api::{
     common::v1::{Payload as ProtoPayload, Payloads, WorkflowExecution},
     enums::v1::HistoryEventFilterType,
-    failure::v1::Failure,
+    failure::v1::{Failure, failure::FailureInfo},
     history::v1::{HistoryEvent, history_event::Attributes},
     update::v1::outcome::Value as OutcomeValue,
     workflowservice::v1::GetWorkflowExecutionHistoryRequest,
 };
-use tmprl_core::history::{Category, GroupRef, NormalizedEvent, Outcome, Role};
+use tmprl_core::history::{
+    Category, Failure as CoreFailure, GroupRef, NormalizedEvent, Outcome, Role,
+};
 use tmprl_core::payload::Payload;
 
 use super::OpError;
@@ -158,9 +160,33 @@ struct Mapped {
     outcome: Outcome,
     subject: String,
     attempt: Option<i32>,
-    failure: Option<String>,
+    failure: Option<CoreFailure>,
     fields: Vec<(&'static str, String)>,
     payloads: Vec<(String, Payload)>,
+}
+
+/// Keep the whole failure, not its outermost sentence.
+///
+/// A worker that raises `PaymentDeclined("card declined")` inside an activity produces an
+/// activity failure wrapping an application failure: three fields of the chain say what
+/// went wrong, and `message` alone is usually the one that does not.
+fn normalize_failure(f: Failure) -> CoreFailure {
+    let application = match &f.failure_info {
+        Some(FailureInfo::ApplicationFailureInfo(a)) => Some(a),
+        _ => None,
+    };
+    CoreFailure {
+        message: f.message,
+        kind: application
+            .map(|a| a.r#type.clone())
+            .filter(|t| !t.is_empty()),
+        source: Some(f.source).filter(|s| !s.is_empty()),
+        stack_trace: Some(f.stack_trace).filter(|s| !s.is_empty()),
+        non_retryable: application.is_some_and(|a| a.non_retryable),
+        // Recursion is bounded by the message the server sent, which it built from a
+        // bounded chain; a cycle is not representable in the protobuf.
+        cause: f.cause.map(|c| Box::new(normalize_failure(*c))),
+    }
 }
 
 /// Start an arm. `group` is the group this event joins; `role` is what it does to it.
@@ -188,7 +214,7 @@ impl Mapped {
         self
     }
     fn failed(mut self, f: Option<Failure>) -> Self {
-        self.failure = f.map(|f| f.message);
+        self.failure = f.map(normalize_failure);
         self
     }
     fn attempt(mut self, n: i32) -> Self {
@@ -711,6 +737,7 @@ mod tests {
     use temporalio_common::protos::temporal::api::{
         common::v1::ActivityType,
         enums::v1::EventType,
+        failure::v1::ApplicationFailureInfo,
         history::v1::{
             ActivityTaskFailedEventAttributes, ActivityTaskScheduledEventAttributes,
             ActivityTaskStartedEventAttributes, MarkerRecordedEventAttributes,
@@ -791,7 +818,10 @@ mod tests {
             Some(3),
             "retries do not re-schedule; the count is here"
         );
-        assert_eq!(n.failure.as_deref(), Some("card declined"));
+        assert_eq!(
+            n.failure.as_ref().map(|f| f.message.as_str()),
+            Some("card declined")
+        );
     }
 
     #[test]
@@ -814,7 +844,100 @@ mod tests {
         assert_eq!(n.role, Role::Closes);
         assert_eq!(n.outcome, Outcome::Failed);
         assert!(n.outcome.is_failure());
-        assert_eq!(n.failure.as_deref(), Some("out of retries"));
+        assert_eq!(
+            n.failure.as_ref().map(|f| f.message.as_str()),
+            Some("out of retries")
+        );
+    }
+
+    #[test]
+    fn a_failure_keeps_its_type_stack_trace_and_every_cause_under_it() {
+        // What a worker actually sends: an activity failure wrapping the application
+        // failure it raised, wrapping the exception that one came from. Keeping only the
+        // outermost message keeps the one sentence that says nothing.
+        let root = Failure {
+            message: "Read timed out".into(),
+            source: "JavaSDK".into(),
+            stack_trace: "at java.net.SocketInputStream.read(SocketInputStream.java:171)".into(),
+            ..Default::default()
+        };
+        let middle = Failure {
+            message: "card declined".into(),
+            stack_trace: "at com.bfi.lora.Charge.run(Charge.java:42)".into(),
+            failure_info: Some(FailureInfo::ApplicationFailureInfo(
+                ApplicationFailureInfo {
+                    r#type: "PaymentDeclined".into(),
+                    non_retryable: true,
+                    ..Default::default()
+                },
+            )),
+            cause: Some(Box::new(root)),
+            ..Default::default()
+        };
+        let n = normalize(event(
+            7,
+            EventType::ActivityTaskFailed,
+            Attributes::ActivityTaskFailedEventAttributes(ActivityTaskFailedEventAttributes {
+                scheduled_event_id: 5,
+                started_event_id: 6,
+                failure: Some(Failure {
+                    message: "activity task failed".into(),
+                    cause: Some(Box::new(middle)),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+        ));
+
+        let f = n.failure.expect("the event carries a failure");
+        assert_eq!(f.depth(), 3, "the whole chain must survive the mapping");
+        assert_eq!(f.message, "activity task failed");
+
+        let app = f.cause.as_deref().expect("the application failure");
+        assert_eq!(app.kind.as_deref(), Some("PaymentDeclined"));
+        assert!(app.non_retryable, "non-retryable is why it never came back");
+        assert_eq!(app.headline(), "PaymentDeclined: card declined");
+        assert!(
+            app.stack_trace
+                .as_deref()
+                .unwrap()
+                .contains("Charge.java:42")
+        );
+
+        let root = f.root();
+        assert_eq!(root.message, "Read timed out");
+        assert_eq!(root.source.as_deref(), Some("JavaSDK"));
+        assert!(
+            root.stack_trace.is_some(),
+            "the root trace is the one wanted"
+        );
+    }
+
+    #[test]
+    fn an_absent_field_on_a_failure_stays_absent_rather_than_becoming_empty_text() {
+        // Empty protobuf strings are the wire's "unset". Carrying them through as
+        // `Some("")` would print a blank source line under every failure on screen.
+        let n = normalize(event(
+            7,
+            EventType::ActivityTaskFailed,
+            Attributes::ActivityTaskFailedEventAttributes(ActivityTaskFailedEventAttributes {
+                scheduled_event_id: 5,
+                started_event_id: 6,
+                failure: Some(Failure {
+                    message: "plain".into(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+        ));
+
+        let f = n.failure.unwrap();
+        assert_eq!(f.depth(), 1);
+        assert_eq!(f.kind, None);
+        assert_eq!(f.source, None);
+        assert_eq!(f.stack_trace, None);
+        assert!(!f.non_retryable);
+        assert_eq!(f.headline(), "plain");
     }
 
     #[test]
@@ -1081,7 +1204,10 @@ mod tests {
         ));
 
         assert_eq!(n.outcome, Outcome::Failed);
-        assert_eq!(n.failure.as_deref(), Some("not allowed in this state"));
+        assert_eq!(
+            n.failure.as_ref().map(|f| f.message.as_str()),
+            Some("not allowed in this state")
+        );
         assert!(n.payloads.is_empty());
     }
 

@@ -364,6 +364,11 @@ mod tests {
     /// A history screen with a workflow, a hidden workflow task, and two activities, the
     /// second of which failed after a retry.
     fn app_with_history() -> App {
+        app_with_failure(tmprl_core::history::Failure::new("card declined"))
+    }
+
+    /// The same history, with the failure the last activity closed with given by the caller.
+    fn app_with_failure(failure: tmprl_core::history::Failure) -> App {
         use tmprl_core::history::{
             Category as C, GroupRef as G, NormalizedEvent, Outcome as O, Role as R,
         };
@@ -374,7 +379,7 @@ mod tests {
         let mut started = e(5, G::Opened(4), R::Continues, C::Activity);
         started.attempt = Some(3);
         let mut failed = e(8, G::Opened(7), R::Closes, C::Activity).with_outcome(O::Failed);
-        failed.failure = Some("card declined".into());
+        failed.failure = Some(failure);
 
         let events = vec![
             e(1, G::Workflow, R::Opens, C::Workflow).with_subject("OrderWorkflow"),
@@ -420,6 +425,44 @@ mod tests {
             "the retry count must be visible:\n{out}"
         );
         assert!(out.contains("card declined"), "failure missing:\n{out}");
+    }
+
+    #[test]
+    fn k_shows_the_whole_failure_chain_the_row_had_no_room_for() {
+        use tmprl_core::history::Failure;
+
+        // What a worker sends: a wrapper whose message says nothing, over the failure that
+        // names the class, over the exception it came from.
+        let failure = Failure {
+            message: "activity task failed".into(),
+            cause: Some(Box::new(Failure {
+                message: "card declined".into(),
+                kind: Some("PaymentDeclined".into()),
+                source: Some("JavaSDK".into()),
+                non_retryable: true,
+                stack_trace: Some("at com.bfi.lora.Charge.run(Charge.java:42)".into()),
+                cause: Some(Box::new(Failure::new("Read timed out"))),
+            })),
+            ..Failure::default()
+        };
+        let mut app = app_with_failure(failure);
+
+        app.run("motion.bottom", None);
+        app.run("history.detail", None);
+        let out = draw(&mut app, 110, 24);
+
+        assert!(out.contains("PaymentDeclined"), "type missing:\n{out}");
+        assert!(out.contains("caused by"), "the chain is the point:\n{out}");
+        assert!(out.contains("Read timed out"), "root cause missing:\n{out}");
+        assert!(
+            out.contains("not retryable"),
+            "retryability missing:\n{out}"
+        );
+        assert!(out.contains("JavaSDK"), "source missing:\n{out}");
+        assert!(
+            out.contains("Charge.java:42"),
+            "stack trace missing:\n{out}"
+        );
     }
 
     #[test]
