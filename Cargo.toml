@@ -44,6 +44,10 @@ serde_json = "1"
 # because temporalio-client already brings rustls in, so this shares its stack.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "json"] }
 base64 = "0.22"
+# Wall-clock rendering. Temporal reports every timestamp as UTC epoch millis, and a
+# timezone is not something std can convert to: jiff carries the tz database and reads the
+# system zone, which is what turns "5m ago" into a time an operator can quote.
+jiff = "0.2"
 # Request ids. Reset requires one (the server rejects the call without it), and giving every
 # mutation a fresh one makes a retried request idempotent rather than doubled.
 uuid = { version = "1", features = ["v4"] }

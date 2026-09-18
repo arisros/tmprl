@@ -65,7 +65,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
         .slice(first, height)
         .into_iter()
         .enumerate()
-        .map(|(n, row)| render_row(outline, row, first + n, view, t))
+        .map(|(n, row)| render_row(outline, row, first + n, view, app, t))
         // Repaint the search pattern last, over the finished row, so it survives
         // whatever colouring and truncation the columns above applied.
         .map(|l| highlight(l, &app.search, match_style()))
@@ -79,6 +79,7 @@ fn render_row<'a>(
     row: Row,
     index: usize,
     view: &View,
+    app: &App,
     t: &Theme,
 ) -> Line<'a> {
     let focused = index == view.cursor;
@@ -128,10 +129,14 @@ fn render_row<'a>(
                 ));
             }
             spans.push(Span::styled(
-                match g.duration_ms() {
-                    Some(d) => format!("{:>6}", humanize_age_ms(d)),
-                    None if g.is_open() => format!("{:>6}", "…"),
-                    None => format!("{:>6}", ""),
+                if app.times.is_absolute() {
+                    app.clock.stamp(g.started_at)
+                } else {
+                    match g.duration_ms() {
+                        Some(d) => format!("{:>6}", humanize_age_ms(d)),
+                        None if g.is_open() => format!("{:>6}", "…"),
+                        None => format!("{:>6}", ""),
+                    }
                 },
                 Style::new().fg(t.faint),
             ));
@@ -152,8 +157,14 @@ fn render_row<'a>(
                 gutter,
                 // Indented under the group it belongs to.
                 Span::styled(format!("    {:>5}  ", e.id), Style::new().fg(t.faint)),
-                Span::styled(format!("{:<38}", truncate(e.name, 37)), base),
             ];
+            if app.times.is_absolute() {
+                spans.push(Span::styled(
+                    format!("{}  ", app.clock.stamp(e.time)),
+                    Style::new().fg(t.faint),
+                ));
+            }
+            spans.push(Span::styled(format!("{:<38}", truncate(e.name, 37)), base));
             let detail = e
                 .fields
                 .iter()

@@ -4,6 +4,7 @@
 //! it is the layer where the difficult logic lives, so it is the layer that must be
 //! trivially testable. If something here needs a runtime, it is in the wrong crate.
 
+pub mod clock;
 pub mod command;
 pub mod config;
 pub mod form;
@@ -24,6 +25,7 @@ pub mod search;
 pub mod timerange;
 pub mod workflow;
 
+pub use clock::{Clock, TimeFormat};
 pub use command::{Action, Command, PayloadPart, Registry};
 pub use config::{CodecConfig, Config, ConfigError, SavedView};
 pub use fuzzy::Match;

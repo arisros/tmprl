@@ -11,6 +11,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use tmprl_core::WorkflowStatus;
+use tmprl_core::clock::STAMP_WIDTH;
 use tmprl_core::workflow::humanize_age_ms;
 
 use super::truncate;
@@ -25,6 +26,9 @@ const GUTTER: usize = 5;
 const STATUS: usize = 15;
 const TYPE: usize = 22;
 const AGE: usize = 5;
+/// Absolute mode spends the width on a start and a close column: when you have asked for
+/// clock times, "when did it finish" is the other half of the question.
+const STAMPS: usize = STAMP_WIDTH * 2 + 2;
 const NAMESPACE: usize = 16;
 
 pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) {
@@ -53,7 +57,8 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
     }
 
     let show_ns = view.is_fanned_out();
-    let fixed = GUTTER + STATUS + TYPE + AGE + if show_ns { NAMESPACE } else { 0 };
+    let times = if app.times.is_absolute() { STAMPS } else { AGE };
+    let fixed = GUTTER + STATUS + TYPE + times + if show_ns { NAMESPACE } else { 0 };
     // Never let the id column collapse to nothing on a narrow pane.
     let id_width = (area.width as usize).saturating_sub(fixed).max(8);
 
@@ -117,15 +122,26 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
                     Style::new().fg(t.accent),
                 ));
             }
-            spans.push(Span::styled(
-                match w.start_time {
-                    Some(started) => {
-                        format!("{:>width$}", humanize_age_ms(now - started), width = AGE)
-                    }
-                    None => format!("{:>AGE$}", ","),
-                },
-                Style::new().fg(t.faint),
-            ));
+            if app.times.is_absolute() {
+                spans.push(Span::styled(
+                    format!(
+                        "{}  {}",
+                        app.clock.stamp(w.start_time),
+                        app.clock.stamp(w.close_time)
+                    ),
+                    Style::new().fg(t.faint),
+                ));
+            } else {
+                spans.push(Span::styled(
+                    match w.start_time {
+                        Some(started) => {
+                            format!("{:>width$}", humanize_age_ms(now - started), width = AGE)
+                        }
+                        None => format!("{:>AGE$}", ","),
+                    },
+                    Style::new().fg(t.faint),
+                ));
+            }
             Line::from(spans)
         })
         // Repaint the search pattern last, over the finished row, so it survives

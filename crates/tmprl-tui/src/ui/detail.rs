@@ -81,7 +81,7 @@ fn group_lines<'a>(outline: &'a Outline, group: usize, app: &App, t: &Theme) -> 
     let Some(g) = outline.group(group) else {
         return Vec::new();
     };
-    let mut lines = vec![Line::from(vec![
+    let mut title = vec![
         Span::styled(
             format!("  {} ", g.subject),
             Style::new().fg(t.fg).add_modifier(Modifier::BOLD),
@@ -90,7 +90,20 @@ fn group_lines<'a>(outline: &'a Outline, group: usize, app: &App, t: &Theme) -> 
             format!("{}  {} event(s)", g.outcome.label(), g.events.len()),
             Style::new().fg(t.dim),
         ),
-    ])];
+    ];
+    // On the title line rather than its own: this pane's height is the payloads' budget,
+    // and a line spent here is a line of JSON that scrolls out of sight.
+    if g.started_at.is_some() {
+        let ended = match g.ended_at {
+            Some(e) => format!(" → {}", app.clock.stamp(Some(e))),
+            None => String::new(),
+        };
+        title.push(Span::styled(
+            format!("  {}{ended}", app.clock.stamp(g.started_at)),
+            Style::new().fg(t.faint),
+        ));
+    }
+    let mut lines = vec![Line::from(title)];
     if let Some(f) = &g.failure {
         lines.push(Line::from(Span::styled(
             format!("  {f}"),
@@ -127,6 +140,12 @@ fn event_lines<'a>(e: &'a NormalizedEvent, app: &App, t: &Theme) -> Vec<Line<'a>
         ),
         Span::styled(format!("event {}", e.id), Style::new().fg(t.dim)),
     ])];
+    if e.time.is_some() {
+        lines.push(Line::from(Span::styled(
+            format!("    at {}", app.clock.full(e.time)),
+            Style::new().fg(t.faint),
+        )));
+    }
     for (k, v) in &e.fields {
         lines.push(Line::from(vec![
             Span::styled(format!("    {k} = "), Style::new().fg(t.faint)),

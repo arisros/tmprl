@@ -37,6 +37,8 @@ pub enum ConfigError {
     BadViewKey { name: String, key: String },
     #[error("views.toml: two views claim key `{0}`")]
     DuplicateViewKey(char),
+    #[error("config.toml: `timezone` is `{value}`, which is not a zone: {message}")]
+    BadTimezone { value: String, message: String },
     #[error("config.toml: `{path}` is `{value}`, which is not a colour ({expected})")]
     BadAccent {
         path: String,
@@ -208,6 +210,8 @@ impl PayloadPane {
 pub struct Config {
     /// The codec used by any profile that does not name its own.
     pub codec: Option<CodecConfig>,
+    /// IANA zone wall-clock times are rendered in. Absent means the machine's own zone.
+    pub timezone: Option<String>,
     pub profiles: Vec<(String, ProfileConfig)>,
     /// `[layout] payload`. Global rather than per profile: it is about your terminal, not
     /// the cluster.
@@ -240,6 +244,8 @@ impl Config {
 /// Parse `config.toml`:
 ///
 /// ```toml
+/// timezone = "Asia/Jakarta"      # optional, default: the machine's zone
+///
 /// [layout]
 /// payload = "right"              # or "bottom", the default
 ///
@@ -266,6 +272,24 @@ pub fn parse_config(src: &str) -> Result<Config, ConfigError> {
         Some(raw) => Some(parse_codec(raw, "codec")?),
     };
 
+    // Validated here rather than at first render: a zone typo that only surfaces as wrong
+    // times on screen is one nobody attributes to the config.
+    let timezone = match table.get("timezone") {
+        None => None,
+        Some(v) => {
+            let name = v.as_str().ok_or(ConfigError::Type {
+                file: FILE,
+                path: "timezone".into(),
+                expected: "a string",
+            })?;
+            crate::clock::Clock::named(name).map_err(|message| ConfigError::BadTimezone {
+                value: name.to_string(),
+                message,
+            })?;
+            Some(name.to_string())
+        }
+    };
+
     let profiles = match table.get("profile") {
         None => Vec::new(),
         Some(raw) => {
@@ -289,6 +313,7 @@ pub fn parse_config(src: &str) -> Result<Config, ConfigError> {
 
     Ok(Config {
         codec,
+        timezone,
         profiles,
         payload_pane,
     })
@@ -866,5 +891,22 @@ accent = "green"
             let err = parse_config(src).unwrap_err();
             assert!(matches!(err, ConfigError::Type { .. }), "{src}: {err:?}");
         }
+    }
+
+    #[test]
+    fn a_zone_name_survives_the_round_trip_into_the_config() {
+        let c = parse_config("timezone = \"Asia/Jakarta\"\n").unwrap();
+        assert_eq!(c.timezone.as_deref(), Some("Asia/Jakarta"));
+        assert_eq!(parse_config("").unwrap().timezone, None);
+    }
+
+    #[test]
+    fn a_zone_that_does_not_exist_is_rejected_at_parse_time() {
+        let err = parse_config("timezone = \"Asia/Jakata\"\n").unwrap_err();
+        assert!(
+            matches!(err, ConfigError::BadTimezone { ref value, .. } if value == "Asia/Jakata"),
+            "{err}"
+        );
+        assert!(err.to_string().contains("Asia/Jakata"), "{err}");
     }
 }

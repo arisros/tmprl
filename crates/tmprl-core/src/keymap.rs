@@ -239,6 +239,11 @@ pub fn default_keymap() -> Keymap {
     bind(Mode::Normal, "<Tab>", "nav.jump-forward");
     // `g` is vim's goto prefix, so `gs` and `gw` switch between the two lists a namespace
     // holds.
+    // `<leader>T` for time. Not a vim binding, there is nothing in vim it resembles; it
+    // sits on the leader because it changes what the whole screen shows rather than where
+    // the cursor is.
+    bind(Mode::Normal, "<leader>T", "app.times");
+
     bind(Mode::Normal, "gs", "nav.schedules");
     bind(Mode::Normal, "gw", "nav.workflows");
 

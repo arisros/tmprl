@@ -261,6 +261,7 @@ closed is refused with a message instead of polling for events that can never ar
 | `?` | help overlay, scrollable with `j` / `k` | **live** |
 | `<Esc>` | cancel pending input / close overlay | **live** |
 | `R` | reload from the server | **live** |
+| `<leader>T` | times as a clock reading or as an age | **live** |
 | `<leader>q` / `<C-c>` | quit | **live** |
 | `<C-q>` | send selection to the quickfix list | M5 |
 | `<leader>mc` | cancel this workflow, or the selection | **live** |
@@ -349,7 +350,7 @@ reader.
 
 | File | Holds |
 |---|---|
-| `~/.config/tmprl/config.toml` | codec server endpoint and payload pane position, **live**; refresh intervals and defaults *planned* |
+| `~/.config/tmprl/config.toml` | codec server endpoint and payload pane position and display timezone, **live**; refresh intervals and defaults *planned* |
 | `~/.config/tmprl/keys.toml` | key chord → command id, **live** |
 | `~/.config/tmprl/theme.toml` | colours, *planned* |
 | `~/.config/tmprl/views.toml` | saved visibility queries, **live** |
@@ -359,10 +360,20 @@ The directory is `$TMPRL_CONFIG_DIR`, else `$XDG_CONFIG_HOME/tmprl`, else `~/.co
 A `config.toml` points at a codec server, if the cluster uses one:
 
 ```toml
+timezone = "Asia/Jakarta"   # optional; default: the machine's own zone
+
 [codec]
 endpoint = "http://localhost:8081"
 auth     = "Bearer …"   # optional; sent verbatim as Authorization
 ```
+
+Every time the server reports is UTC epoch millis, and every time on screen is that value
+rendered in this zone. Lists carry an age by default, `5m`; `<leader>T` swaps every list on
+screen to a clock reading, `09-17 14:03`, which is the form you quote in a ticket or line up
+against a service log. The workflow list spends the extra width on two columns then, start
+and close, because "when did it finish" is the other half of the question. A zone the tz
+database does not know is refused when `config.toml` is read, rather than quietly becoming
+UTC and misdating every row by hours.
 
 Encrypted payloads are decoded lazily, only what the pane is showing, never a whole history,
 and cached, so scrolling back over a row costs nothing. Without an endpoint the badge says

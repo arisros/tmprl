@@ -15,6 +15,7 @@ use crate::theme::Theme;
 /// Width of the key column. One wider than the longest string it will render, so a long
 /// binding list can never touch the title beside it.
 const KEYS: usize = 22;
+const TITLE: usize = 26;
 
 pub fn render(frame: &mut Frame, app: &mut App, t: &Theme) {
     // Wide enough that command ids are not truncated, the ids are the part a reader
@@ -55,7 +56,12 @@ pub fn render(frame: &mut Frame, app: &mut App, t: &Theme) {
                     format!("  {:<KEYS$}", super::truncate(&rendered, KEYS - 1)),
                     Style::new().fg(t.warn),
                 ),
-                Span::styled(format!("{:<26}", cmd.title), Style::new().fg(t.fg)),
+                // Truncated for the same reason as the keys beside it: the id column is
+                // what `:` and keys.toml consume, so it is the one that must stay readable.
+                Span::styled(
+                    format!("{:<TITLE$}", super::truncate(cmd.title, TITLE - 1)),
+                    Style::new().fg(t.fg),
+                ),
                 Span::styled(cmd.id.to_string(), Style::new().fg(t.faint)),
             ]));
         }
