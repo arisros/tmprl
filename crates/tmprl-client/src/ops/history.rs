@@ -863,7 +863,7 @@ mod tests {
         };
         let middle = Failure {
             message: "card declined".into(),
-            stack_trace: "at com.bfi.lora.Charge.run(Charge.java:42)".into(),
+            stack_trace: "at com.example.shop.Charge.run(Charge.java:42)".into(),
             failure_info: Some(FailureInfo::ApplicationFailureInfo(
                 ApplicationFailureInfo {
                     r#type: "PaymentDeclined".into(),

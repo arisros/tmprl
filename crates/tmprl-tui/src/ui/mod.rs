@@ -440,7 +440,7 @@ mod tests {
                 kind: Some("PaymentDeclined".into()),
                 source: Some("JavaSDK".into()),
                 non_retryable: true,
-                stack_trace: Some("at com.bfi.lora.Charge.run(Charge.java:42)".into()),
+                stack_trace: Some("at com.example.shop.Charge.run(Charge.java:42)".into()),
                 cause: Some(Box::new(Failure::new("Read timed out"))),
             })),
             ..Failure::default()

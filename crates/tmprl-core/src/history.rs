@@ -902,6 +902,7 @@ mod tests {
         assert!(group_events(&[]).is_empty());
         assert!(failures(&[]).is_empty());
     }
+
     #[test]
     fn a_headline_names_the_class_when_the_worker_gave_one() {
         let bare = Failure::new("card declined");
