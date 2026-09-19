@@ -2863,7 +2863,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tmprl"
-version = "0.1.1-rc.2"
+version = "0.1.1-rc.3"
 dependencies = [
  "anyhow",
  "crossterm",
@@ -2879,7 +2879,7 @@ dependencies = [
 
 [[package]]
 name = "tmprl-client"
-version = "0.1.1-rc.2"
+version = "0.1.1-rc.3"
 dependencies = [
  "anyhow",
  "base64",
@@ -2898,7 +2898,7 @@ dependencies = [
 
 [[package]]
 name = "tmprl-core"
-version = "0.1.1-rc.2"
+version = "0.1.1-rc.3"
 dependencies = [
  "jiff",
  "serde_json",
@@ -2908,7 +2908,7 @@ dependencies = [
 
 [[package]]
 name = "tmprl-ui"
-version = "0.1.1-rc.2"
+version = "0.1.1-rc.3"
 
 [[package]]
 name = "tokio"
