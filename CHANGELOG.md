@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.1-rc.2 — 2026-09-19
+
+- docs: add a code map, fix what had drifted, one clock helper
+- fix: yank through tmux load-buffer inside tmux
+- feat: draw the history as the web UI's timeline, behind <leader>G
+- feat: lay a history out on a time axis, idle stretches folded
+- fix: keep the g bindings beside their comment, align the registry row
+- feat: keep the whole failure, and show it under K
+- feat: show clock times, in a zone you pick, behind <leader>T
+
 ## 0.1.1-rc.2 — 2026-09-17
 
 - `[layout] payload = "right"` in `config.toml` opens the `K` payload pane beside the
