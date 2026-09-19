@@ -242,7 +242,7 @@ impl View {
                         let mut s = format!("{} {}", category_label(g.category), g.subject);
                         if let Some(f) = &g.failure {
                             s.push(' ');
-                            s.push_str(f);
+                            s.push_str(&f.headline());
                         }
                         s
                     }
@@ -256,7 +256,7 @@ impl View {
                         }
                         if let Some(f) = &e.failure {
                             s.push(' ');
-                            s.push_str(f);
+                            s.push_str(&f.headline());
                         }
                         s
                     }

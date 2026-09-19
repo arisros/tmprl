@@ -13,7 +13,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
-use tmprl_core::history::NormalizedEvent;
+use tmprl_core::history::{Failure, NormalizedEvent};
 use tmprl_core::outline::{Outline, Row};
 use tmprl_core::payload::Rendered;
 
@@ -105,10 +105,7 @@ fn group_lines<'a>(outline: &'a Outline, group: usize, app: &App, t: &Theme) -> 
     }
     let mut lines = vec![Line::from(title)];
     if let Some(f) = &g.failure {
-        lines.push(Line::from(Span::styled(
-            format!("  {f}"),
-            Style::new().fg(t.err),
-        )));
+        lines.extend(failure_lines(f, "  ", t));
     }
 
     let before = lines.len();
@@ -128,6 +125,65 @@ fn group_lines<'a>(outline: &'a Outline, group: usize, app: &App, t: &Theme) -> 
             "  no payloads on this group",
             Style::new().fg(t.faint),
         )));
+    }
+    if let Some(f) = &g.failure {
+        lines.extend(stack_lines(f, "  ", t));
+    }
+    lines
+}
+
+/// The failure chain: every link's message, then what it was raised from.
+///
+/// The outermost link is usually the least specific thing anyone could say about the
+/// failure, "activity task failed", so the chain is the point: the link that names the
+/// class and the sentence a human wrote is normally two down from it.
+fn failure_lines<'a>(f: &'a Failure, indent: &str, t: &Theme) -> Vec<Line<'a>> {
+    let mut lines = Vec::new();
+    for (depth, link) in f.chain().enumerate() {
+        let prefix = if depth == 0 { "" } else { "caused by " };
+        lines.push(Line::from(Span::styled(
+            format!("{indent}{prefix}{}", link.headline()),
+            Style::new().fg(t.err),
+        )));
+
+        let mut tags = Vec::new();
+        if let Some(s) = &link.source {
+            tags.push(s.clone());
+        }
+        if link.non_retryable {
+            // The reason a failed activity never came back, and not otherwise on screen.
+            tags.push("not retryable".to_string());
+        }
+        if !tags.is_empty() {
+            lines.push(Line::from(Span::styled(
+                format!("{indent}  {}", tags.join(" · ")),
+                Style::new().fg(t.faint),
+            )));
+        }
+    }
+    lines
+}
+
+/// Stack traces, last in the pane and after the payloads.
+///
+/// A Java trace is fifty lines that push the input out of sight, and the input is what you
+/// read first. Everything is still here, one `<C-e>` away, rather than truncated.
+fn stack_lines<'a>(f: &'a Failure, indent: &str, t: &Theme) -> Vec<Line<'a>> {
+    let mut lines = Vec::new();
+    for link in f.chain() {
+        let Some(trace) = &link.stack_trace else {
+            continue;
+        };
+        lines.push(Line::from(Span::styled(
+            format!("{indent}stack trace  {}", link.headline()),
+            Style::new().fg(t.warn).add_modifier(Modifier::BOLD),
+        )));
+        for l in trace.lines() {
+            lines.push(Line::from(Span::styled(
+                format!("{indent}  {l}"),
+                Style::new().fg(t.dim),
+            )));
+        }
     }
     lines
 }
@@ -153,12 +209,12 @@ fn event_lines<'a>(e: &'a NormalizedEvent, app: &App, t: &Theme) -> Vec<Line<'a>
         ]));
     }
     if let Some(f) = &e.failure {
-        lines.push(Line::from(Span::styled(
-            format!("    {f}"),
-            Style::new().fg(t.err),
-        )));
+        lines.extend(failure_lines(f, "    ", t));
     }
     lines.extend(payload_lines(e, app, t));
+    if let Some(f) = &e.failure {
+        lines.extend(stack_lines(f, "    ", t));
+    }
     lines
 }
 

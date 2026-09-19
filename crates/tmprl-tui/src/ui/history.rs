@@ -142,7 +142,7 @@ fn render_row<'a>(
             ));
             if let Some(f) = &g.failure {
                 spans.push(Span::styled(
-                    format!("  {}", truncate(f, 48)),
+                    format!("  {}", truncate(&f.headline(), 48)),
                     Style::new().fg(t.err),
                 ));
             }
@@ -176,7 +176,7 @@ fn render_row<'a>(
             }
             if let Some(f) = &e.failure {
                 spans.push(Span::styled(
-                    format!("  {}", truncate(f, 40)),
+                    format!("  {}", truncate(&f.headline(), 40)),
                     Style::new().fg(t.err),
                 ));
             }

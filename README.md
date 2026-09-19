@@ -41,7 +41,7 @@ tmprl --config-path      # every file tmprl reads, and whether it exists
 | `V` | select rows | `<C-o>` `<C-i>` | jumplist |
 | `za` `zR` `zM` | fold / expand / collapse | `zp` | show workflow tasks |
 | `]f` `[f` | next / previous failure | `F` | follow, like `tail -f` |
-| `K` | payloads under the cursor | `!` | pipe them through `jq` |
+| `K` | payloads and the full failure | `!` | pipe them through `jq` |
 | `y` `Y` | yank value / row | `<Space>y{a,i,r}` | yank payloads |
 | `<Space>m…` | cancel, terminate, signal, delete, reset, update | `gs` `gw` | schedules / workflows |
 | `<Space>s…` `<C-w>hjkl` | splits | `<Space>t…` | tabs |
