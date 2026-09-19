@@ -125,7 +125,8 @@ Every file opens with a `//!` line saying what it is; this is those lines, gathe
 API (`workflow`, `history`, `schedule`, `namespace`, `mutate`, `codec`). `ops/history.rs` is
 where protobuf events become `tmprl-core` events.
 
-**`tmprl-ui`**, the window tree: `tree.rs` (one tab's splits), `tabs.rs`.
+**`tmprl-ui`**, the window tree: `tree.rs` (one tab's splits), `tabs.rs`. Despite the name it
+draws nothing; it is rectangles and focus, and `tmprl-tui` draws into them.
 
 **`tmprl-tui`**, the application (the package is named `tmprl`, it is the binary):
 
@@ -136,9 +137,11 @@ where protobuf events become `tmprl-core` events.
 | `app/*.rs` | what the commands do, one file per concern; `app/mod.rs` lists them |
 | `view.rs` | what one pane owns: its screen, cursor, loaded data |
 | `ui/*.rs` | drawing, one file per screen or overlay; pure functions of `&App` |
+| `app/tests/`, `ui/tests/` | behaviour and rendering tests, one file per concern, shared fixtures in `mod.rs` |
 | `config.rs`, `keys.rs`, `theme.rs`, `clipboard.rs` | files on disk, key conversion, colours, yank |
 
-To follow one behaviour end to end: find its id in `command.rs`, its `Action` arm in
+`scripts/check-docs.sh`, run by CI, fails when a file has no `//!` header or is missing from
+this map. To follow one behaviour end to end: find its id in `command.rs`, its `Action` arm in
 `App::run`, the method it calls in `app/`, and the `ui/` file that draws the result.
 
 ---
