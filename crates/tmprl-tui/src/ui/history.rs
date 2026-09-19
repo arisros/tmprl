@@ -53,6 +53,10 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
         return;
     }
 
+    if view.timeline {
+        return super::timeline::render(frame, area, outline, view, app, t);
+    }
+
     let height = area.height as usize;
     let first = app
         .view

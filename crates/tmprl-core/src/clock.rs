@@ -105,6 +105,15 @@ impl Clock {
         }
     }
 
+    /// Time of day, `14:03:22`, for an axis whose ticks are all within a day or so of
+    /// each other.
+    pub fn time_of_day(&self, ms: i64) -> String {
+        match self.zoned(Some(ms)) {
+            None => NO_TIME.to_string(),
+            Some(z) => z.strftime("%H:%M:%S").to_string(),
+        }
+    }
+
     /// Full form for a header or a detail pane: `2026-09-17 14:03:22.431 +07:00`.
     ///
     /// Seconds and millis are here rather than in the column because this is the form that

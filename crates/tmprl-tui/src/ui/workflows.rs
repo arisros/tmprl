@@ -164,7 +164,7 @@ fn status_color(s: WorkflowStatus, t: &Theme) -> ratatui::style::Color {
     }
 }
 
-fn now_millis() -> i64 {
+pub(super) fn now_millis() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

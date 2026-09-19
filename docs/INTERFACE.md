@@ -213,6 +213,23 @@ The fold bindings are vim's `z` family deliberately, so the which-key popup on `
 way vim's does. `zp` is not a vim binding, but it sits in the same namespace as the folds it
 resembles. `]f` / `[f` follow vim-unimpaired's bracket-motion convention.
 
+`<leader>G` draws the same history as a timeline, modelled on the one in Temporal's web UI
+so the two read alike. Each group is its events as dots on one shared axis, joined by a line
+coloured by how the group ended, in the web UI's own colours: green completed, red failed or
+terminated, orange timed out, amber canceled, blue for the running workflow. An activity's
+queued stretch, scheduled to started, is the faded first part of its line; a retried activity
+that got there fades from red to green and carries `↻ 3 •` before its name; anything still
+running trails a dashed line to the edge. The axis counts from the start of the run, `1m 30s`,
+or reads as clock times under `<leader>T`.
+
+An idle stretch, where nothing but the workflow itself was open, is folded to a `≀` mark once
+it is a tenth of the time drawn to scale, the web UI's rule, because one two-hour timer drawn
+to scale turns every activity around it into a dot. `zg` unfolds them. The rows are the
+outline's rows, so `za`, `]f`, `K`, search and the cursor all work unchanged, and a split can
+show the list beside the timeline of the same run. The two activity and workflow colours the
+web UI uses, `#8b008b` and `#0014a8`, are lifted to shade 7 of the same hue: as a one-cell line
+on a dark terminal the originals all but disappear.
+
 `!` filters what the cursor is on through an external command, the way vim's `!` filters
 lines. The prompt opens pre-filled with `jq .`, because that is what it is for and an empty
 prompt means retyping the same three characters every time.
@@ -251,6 +268,8 @@ closed is refused with a message instead of polling for events that can never ar
 | `za` | fold a history group open or shut | **live** |
 | `zR` / `zM` | expand / collapse every group | **live** |
 | `zp` | show or hide the workflow-task plumbing | **live** |
+| `<leader>G` | the history as a timeline, like the web UI's | **live** |
+| `zg` | fold or unfold the timeline's idle stretches | **live** |
 | `]f` / `[f` | jump to the next / previous failure | **live** |
 | `F` | follow, tail a running workflow | **live** |
 | `<leader>cs` | call stack (`__stack_trace` query) | M2 |

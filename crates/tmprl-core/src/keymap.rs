@@ -246,6 +246,9 @@ pub fn default_keymap() -> Keymap {
     // sits on the leader because it changes what the whole screen shows rather than where
     // the cursor is.
     bind(Mode::Normal, "<leader>T", "app.times");
+    // `<leader>G` for the Gantt-style timeline, beside `<leader>T` because both change how
+    // time is drawn rather than what is loaded.
+    bind(Mode::Normal, "<leader>G", "history.timeline");
 
     // Folds use vim's `z` family, so the which-key popup on `z` reads like vim's does.
     // `zp` is not a vim binding, but it sits in the same namespace as the folds it
@@ -255,6 +258,8 @@ pub fn default_keymap() -> Keymap {
         bind(mode, "zR", "history.expand-all");
         bind(mode, "zM", "history.collapse-all");
         bind(mode, "zp", "history.plumbing");
+        // `zg` folds time rather than rows: the idle gaps on the timeline's axis.
+        bind(mode, "zg", "history.gaps");
         // vim-unimpaired's bracket motions: `]f` / `[f` for the next and previous failure.
         bind(mode, "]f", "history.next-failure");
         bind(mode, "[f", "history.prev-failure");
