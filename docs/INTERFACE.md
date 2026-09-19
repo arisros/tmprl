@@ -67,14 +67,14 @@ either fail outright or copy into a clipboard on the *server*, which helps nobod
 
 [OSC 52](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html#h4-Operating-System-Commands)
 transmits the copied text back over the terminal connection to the machine the human is
-actually sitting at. tmprl emits OSC 52 and falls back to a local clipboard only when it can
-determine there is a usable one.
+actually sitting at. tmprl emits OSC 52 and never falls back to a local clipboard tool.
 
-For this to work through tmux, tmux needs `set -g set-clipboard on`. Many terminfo entries
-also lack the `Ms` capability, without which tmux refuses to emit OSC 52 at all:
+Inside tmux, tmprl hands the text to `tmux load-buffer -w` instead. tmux ignores OSC 52 from
+applications unless `set-clipboard` is `on`, and the default is `external`; `-w` makes tmux
+emit the sequence to the client terminal itself, so no tmux option is needed. tmux still
+needs the `Ms` capability for the client terminal, which many terminfo entries lack:
 
 ```tmux
-set -g set-clipboard on
 set -ga terminal-overrides ',*:Ms=\E]52;%p1%s;%p2%s\7'
 ```
 
