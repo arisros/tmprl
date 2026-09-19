@@ -1,24 +1,16 @@
 # Changelog
 
-## 0.1.1-rc.2 — 2026-09-19
+## Unreleased
 
-- docs: add a code map, fix what had drifted, one clock helper
-- fix: yank through tmux load-buffer inside tmux
-- feat: draw the history as the web UI's timeline, behind <leader>G
-- feat: lay a history out on a time axis, idle stretches folded
-- fix: keep the g bindings beside their comment, align the registry row
-- feat: keep the whole failure, and show it under K
-- feat: show clock times, in a zone you pick, behind <leader>T
-
-## 0.1.1-rc.2 — 2026-09-19
-
-- docs: add a code map, fix what had drifted, one clock helper
-- fix: yank through tmux load-buffer inside tmux
-- feat: draw the history as the web UI's timeline, behind <leader>G
-- feat: lay a history out on a time axis, idle stretches folded
-- fix: keep the g bindings beside their comment, align the registry row
-- feat: keep the whole failure, and show it under K
-- feat: show clock times, in a zone you pick, behind <leader>T
+- **Timeline**: `<Space>G` draws a history the way Temporal's web UI does, each group's
+  events as dots on one time axis, coloured by how it ended. Idle stretches fold to `≀`;
+  `zg` unfolds them.
+- **Clock times**: `<Space>T` swaps ages for clock readings in every list, in the zone set by
+  `timezone` in `config.toml` (default: the machine's). Closed workflows gain a close time.
+- **Failures**: `K` on a failure shows the whole chain, every `caused by` down to the root,
+  its type, the SDK that raised it, whether it was retryable, and the stack traces.
+- **Yank** inside tmux goes through `tmux load-buffer -w`, so it reaches the clipboard
+  without extra tmux settings.
 
 ## 0.1.1-rc.2 — 2026-09-17
 
