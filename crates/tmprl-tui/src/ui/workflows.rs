@@ -16,7 +16,7 @@ use tmprl_core::workflow::humanize_age_ms;
 
 use super::truncate;
 use super::{highlight, match_style};
-use crate::app::App;
+use crate::app::{App, now_ms};
 use crate::theme::Theme;
 use crate::view::View;
 
@@ -62,7 +62,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
     // Never let the id column collapse to nothing on a narrow pane.
     let id_width = (area.width as usize).saturating_sub(fixed).max(8);
 
-    let now = now_millis();
+    let now = now_ms();
     let height = area.height as usize;
     let first = app
         .view
@@ -162,12 +162,4 @@ fn status_color(s: WorkflowStatus, t: &Theme) -> ratatui::style::Color {
         WorkflowStatus::ContinuedAsNew | WorkflowStatus::Paused => t.dim,
         WorkflowStatus::Unspecified => t.faint,
     }
-}
-
-pub(super) fn now_millis() -> i64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
 }

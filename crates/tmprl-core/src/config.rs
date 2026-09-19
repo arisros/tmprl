@@ -1,4 +1,4 @@
-//! `keys.toml` and `views.toml`.
+//! `config.toml`, `keys.toml` and `views.toml`.
 //!
 //! Parsing lives here, in the crate with no IO, so a malformed config is a unit test rather
 //! than something you discover by launching the application. `tmprl-tui` reads the bytes off

@@ -19,9 +19,9 @@ use tmprl_core::outline::{Outline, Row};
 use tmprl_core::timeline::{Scale, Timeline, format_offset};
 
 use super::history::category_label;
-use super::workflows::now_millis;
 use super::{highlight, match_style};
-use crate::app::App;
+use crate::app::{App, now_ms};
+
 use crate::theme::Theme;
 use crate::view::View;
 
@@ -76,7 +76,7 @@ pub fn render(frame: &mut Frame, area: Rect, outline: &Outline, view: &View, app
     if area.height < 2 || width < 8 {
         return message(frame, "too narrow for the timeline");
     }
-    let Some(mut timeline) = Timeline::new(outline.groups(), now_millis()) else {
+    let Some(mut timeline) = Timeline::new(outline.groups(), now_ms()) else {
         return message(frame, "no event times to lay out");
     };
     if view.timeline_gaps_open {
