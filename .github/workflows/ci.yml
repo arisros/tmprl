@@ -29,6 +29,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - run: cargo fmt --all -- --check
+      # Every file has a //! header and is named in the code maps that list it.
+      - run: scripts/check-docs.sh
       - run: cargo clippy --all-targets --all-features
       - run: cargo build --all-targets
 
