@@ -31,12 +31,23 @@ case "$bump" in
 esac
 
 if [ "$channel" = "rc" ]; then
-  # Count candidates that already exist as a tag *or* as a prepared branch: a candidate
-  # whose PR has not been merged yet has no tag, and reusing its number collides with it.
+  # One past the highest candidate that exists as a tag *or* as a prepared branch: a
+  # candidate whose PR has not been merged yet has no tag, and reusing its number collides
+  # with it. The highest, not a count: numbers are skipped when a candidate is abandoned
+  # (there is a v0.1.1-rc.2 and no rc.1), and counting then hands out a number in use.
   n=$( { git tag -l "v$next-rc.*"
+         git ls-remote --tags origin "v$next-rc.*" 2>/dev/null | sed 's|.*/||; s/\^{}$//'
          git ls-remote --heads origin "release/v$next-rc.*" 2>/dev/null | sed 's|.*/||'
-       } | sort -u | wc -l)
-  next="$next-rc.$((n + 1))"
+       } | sed -n 's/.*-rc\.\([0-9]*\)$/\1/p' | sort -n | tail -1)
+  next="$next-rc.$((${n:-0} + 1))"
+fi
+
+# A version that is already tagged has already been released; preparing it again writes
+# a second changelog section for it and a PR whose tag the Release button then refuses.
+if git tag -l "v$next" | grep -q . \
+  || git ls-remote --tags origin "v$next" 2>/dev/null | grep -q .; then
+  echo "v$next is already tagged; pick another bump" >&2
+  exit 1
 fi
 
 echo "$current -> $next" >&2
