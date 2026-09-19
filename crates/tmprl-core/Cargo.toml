@@ -1,6 +1,6 @@
 [package]
 name = "tmprl-core"
-description = "Pure domain logic for tmprl: modes, keymap, command registry"
+description = "Pure domain logic for tmprl: history, timeline, queries, keymap and the command registry"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

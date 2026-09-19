@@ -10,7 +10,7 @@ use tmprl_core::schedule::time_until;
 
 use super::truncate;
 use super::{highlight, match_style};
-use crate::app::App;
+use crate::app::{App, now_ms};
 use crate::theme::Theme;
 use crate::view::View;
 
@@ -41,7 +41,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
         return;
     }
 
-    let now = now_millis();
+    let now = now_ms();
     let height = area.height as usize;
     let first = view
         .cursor
@@ -117,12 +117,4 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
         .collect();
 
     frame.render_widget(Paragraph::new(lines), area);
-}
-
-fn now_millis() -> i64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
 }

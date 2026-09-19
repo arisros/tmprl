@@ -12,7 +12,8 @@
 
 This document explains how `tmprl` is meant to be put together and, more importantly, *why*.
 If you are here to change something, read the [Design rules](#10-design-rules) first,
-most of the structure exists to protect those four rules.
+most of the structure exists to protect those four rules. To find where something lives,
+the [code map](#where-things-live) lists every file.
 
 ---
 
@@ -61,10 +62,10 @@ project testable:
 
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
-| `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 46 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 138 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 132 |
-| `tmprl-ui` | built | Plain unit tests over the layout tree | 35 |
+| `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 61 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 265 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 246 |
+| `tmprl-ui` | built | Plain unit tests over the layout tree | 37 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
 arrangement working as intended.
@@ -99,6 +100,47 @@ bare `dyn Error`, which is not `Sync`. That makes it unusable across `anyhow` an
 boundaries. `ConnectError` flattens it to a string so that everything above this crate gets a
 `Send + Sync` error.
 
+### Where things live
+
+Every file opens with a `//!` line saying what it is; this is those lines, gathered.
+
+**`tmprl-core`**, pure logic, no IO:
+
+| File | |
+|---|---|
+| `history.rs` | the event log folded into groups: an activity is one row, not three |
+| `outline.rs` | the collapsible, virtualised view over those groups |
+| `timeline.rs` | the time axis behind the timeline view, idle gaps folded |
+| `workflow.rs` | the workflow list: rows, paging, ordering, counts |
+| `query.rs`, `search.rs` | visibility query strings; `/` over what is on screen |
+| `schedule.rs`, `timerange.rs` | schedules, and the time window a backfill runs over |
+| `mutation.rs` | the actions that change a cluster, and their confirmations |
+| `payload.rs` | payloads: bytes plus the metadata saying how to read them |
+| `command.rs` | **the command registry: every action tmprl can take, by id** |
+| `key.rs`, `keymap.rs`, `mode.rs` | keys, the default bindings, modes |
+| `picker.rs`, `fuzzy.rs`, `form.rs`, `jumplist.rs` | the pickers, their matching, multi-field input, `<C-o>` |
+| `config.rs`, `clock.rs`, `loadable.rs` | config parsing, wall-clock rendering, four-state remote data |
+
+**`tmprl-client`**, all network IO: `conn.rs` connects; `ops/` has one file per area of the
+API (`workflow`, `history`, `schedule`, `namespace`, `mutate`, `codec`). `ops/history.rs` is
+where protobuf events become `tmprl-core` events.
+
+**`tmprl-ui`**, the window tree: `tree.rs` (one tab's splits), `tabs.rs`.
+
+**`tmprl-tui`**, the application (the package is named `tmprl`, it is the binary):
+
+| Path | |
+|---|---|
+| `main.rs`, `event.rs` | startup, and the event loop that feeds `App::handle` |
+| `app/mod.rs` | **the state, `App::handle` (every message) and `App::run` (every command)** |
+| `app/*.rs` | what the commands do, one file per concern; `app/mod.rs` lists them |
+| `view.rs` | what one pane owns: its screen, cursor, loaded data |
+| `ui/*.rs` | drawing, one file per screen or overlay; pure functions of `&App` |
+| `config.rs`, `keys.rs`, `theme.rs`, `clipboard.rs` | files on disk, key conversion, colours, yank |
+
+To follow one behaviour end to end: find its id in `command.rs`, its `Action` arm in
+`App::run`, the method it calls in `app/`, and the `ui/` file that draws the result.
+
 ---
 
 ## 3. Control flow · BUILT
@@ -112,7 +154,7 @@ pushed to the edges.
       ├─ backend mpsc::Receiver ─┼──►  tokio::select!
       │                          │           │
       └─ tick interval ──────────┘           ▼
-                                     reduce(&mut App, Msg)
+                                     App::handle(Msg)
                                        │             │
                           spawn(task) ─┘             └─► dirty? → render(&App)
                                │
@@ -123,7 +165,7 @@ pushed to the edges.
 
 ### The rule that everything else follows from
 
-> **`reduce` is synchronous and never awaits.**
+> **`App::handle` is synchronous and never awaits.**
 
 A keystroke is handled by mutating state and, if data is needed, *spawning* a task. The task
 sends its result back as another message. Nothing in the input path can block on the network,
@@ -584,7 +626,7 @@ should be a question with an answer on screen.
 
 Four rules, in priority order. Most of the structure above exists to enforce them.
 
-1. **Nothing blocks the input path.** `reduce` is sync. If you need data, spawn and let the
+1. **Nothing blocks the input path.** `App::handle` is sync. If you need data, spawn and let the
    result arrive as a message. If you find yourself wanting `.await` in a reducer, the state
    machine is missing a state.
 2. **Domain logic stays out of the render path.** If it can be computed without knowing the

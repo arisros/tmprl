@@ -4,8 +4,8 @@
 //! spawns a task, which reports back as another [`Msg`]. Nothing on the keystroke path can
 //! block on the network. See `docs/ARCHITECTURE.md`.
 //!
-//! This file holds the state, [`App::handle`] (replies from the server) and [`App::run`]
-//! (every command, dispatched). What each command does lives beside the others of its kind:
+//! This file holds the state, [`App::handle`] (every message: keys, server replies, ticks)
+//! and [`App::run`] (every command, dispatched). What each command does lives beside the others of its kind:
 //!
 //! | File | |
 //! |---|---|
@@ -96,7 +96,9 @@ pub enum MutationKind {
 ///
 /// A backfill window is resolved against it, and a clock before the epoch would make the
 /// window nonsense rather than merely wrong, so it saturates at zero.
-fn now_ms() -> i64 {
+/// Wall-clock now, epoch millis: what every age, countdown and "running until now" is
+/// measured against. One definition, so the list, the schedules and the timeline agree.
+pub(crate) fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
