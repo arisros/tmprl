@@ -137,6 +137,11 @@ impl Outline {
         self.events.get(index)
     }
 
+    /// The event with this id, if it is loaded.
+    pub fn event_by_id(&self, id: i64) -> Option<&NormalizedEvent> {
+        self.event_index(id).and_then(|i| self.events.get(i))
+    }
+
     /// Fold a group open or shut. Returns the row the group's own line now sits on, so a
     /// caller can keep the cursor on it.
     pub fn toggle(&mut self, group: usize) -> Option<usize> {

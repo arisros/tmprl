@@ -336,7 +336,8 @@ back-reference in the protocol actually points at. Two properties are worth stat
 Groups are the unit of everything downstream:
 
 - **Compact view**: one row per group
-- **Timeline view**: one Gantt bar per group, positioned by its start and end
+- **Timeline view** · BUILT: each group's events as dots on one axis, the web UI's layout, with
+  idle stretches folded (`tmprl-core::timeline`)
 - **Outline**: a collapsible tree of groups, for jumping around a long history
 - **Diff**: two histories aligned by group key, via LCS
 

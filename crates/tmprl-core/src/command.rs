@@ -83,6 +83,8 @@ pub enum Action {
     ExpandAll,
     CollapseAll,
     TogglePlumbing,
+    ToggleTimeline,
+    ToggleGaps,
     NextFailure,
     PrevFailure,
     ToggleFollow,
@@ -203,6 +205,8 @@ impl Registry {
             "history.expand-all", "History",     "Expand every group"        => ExpandAll;
             "history.collapse-all","History",    "Collapse every group"      => CollapseAll;
             "history.plumbing",   "History",     "Show/hide workflow tasks"  => TogglePlumbing;
+            "history.timeline",   "History",     "Timeline, like the web UI" => ToggleTimeline;
+            "history.gaps",       "History",     "Fold/unfold idle time"     => ToggleGaps;
             "history.next-failure","History",    "Jump to the next failure"  => NextFailure;
             "history.prev-failure","History",    "Jump to the previous failure" => PrevFailure;
             "history.follow",     "History",     "Follow, tail a running workflow" => ToggleFollow;

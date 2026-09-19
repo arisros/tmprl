@@ -31,6 +31,11 @@ pub struct View {
     /// Whether the history is being tailed. Shown in the statusline, because a view that
     /// silently changes under you is worse than one that does not update.
     pub following: bool,
+    /// Whether the history is drawn as a timeline, `<leader>G`. Per pane, so a split can
+    /// show the outline beside the timeline of the same run.
+    pub timeline: bool,
+    /// Whether the timeline shows idle stretches to scale instead of folded, `zg`.
+    pub timeline_gaps_open: bool,
     /// Whether the payload pane is open under the history list.
     pub show_detail: bool,
     /// Output of the last `!` filter, shown in the pane in place of the payloads. `Err` is
@@ -94,6 +99,8 @@ impl View {
             schedules: Loadable::NotAsked,
             viewing: None,
             following: false,
+            timeline: false,
+            timeline_gaps_open: false,
             show_detail: false,
             piped: None,
             detail_scroll: 0,
@@ -131,6 +138,8 @@ impl View {
         out.query = self.query.clone();
         out.viewing = self.viewing.clone();
         out.show_detail = self.show_detail;
+        out.timeline = self.timeline;
+        out.timeline_gaps_open = self.timeline_gaps_open;
         out.namespace_cursor = self.namespace_cursor;
         out.workflow_cursor = self.workflow_cursor;
         out

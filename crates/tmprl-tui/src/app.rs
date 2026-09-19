@@ -939,6 +939,39 @@ impl App {
             Action::NextFailure => self.jump_failure(true),
             Action::PrevFailure => self.jump_failure(false),
             Action::ToggleFollow => self.toggle_follow(),
+            Action::ToggleTimeline => {
+                if self.view.screen != Screen::History {
+                    self.note = Some(("the timeline is of a workflow history".into(), Note::Warn));
+                } else {
+                    self.view.timeline = !self.view.timeline;
+                    self.note = Some((
+                        if self.view.timeline {
+                            "timeline on (zg folds idle time, <leader>G to leave)".into()
+                        } else {
+                            "timeline off".into()
+                        },
+                        Note::Info,
+                    ));
+                }
+            }
+            Action::ToggleGaps => {
+                if !self.view.timeline {
+                    self.note = Some((
+                        "idle time folds on the timeline, <leader>G".into(),
+                        Note::Warn,
+                    ));
+                } else {
+                    self.view.timeline_gaps_open = !self.view.timeline_gaps_open;
+                    self.note = Some((
+                        if self.view.timeline_gaps_open {
+                            "idle time drawn to scale".into()
+                        } else {
+                            "idle time folded".into()
+                        },
+                        Note::Info,
+                    ));
+                }
+            }
             Action::DetailDown => self.scroll_detail(n as isize),
             Action::DetailUp => self.scroll_detail(-(n as isize)),
             Action::OpenPipe => self.open_pipe(),

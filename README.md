@@ -40,6 +40,7 @@ tmprl --config-path      # every file tmprl reads, and whether it exists
 | `i` `Enter` | edit / apply the query | `<Space>ff` | find a workflow |
 | `V` | select rows | `<C-o>` `<C-i>` | jumplist |
 | `za` `zR` `zM` | fold / expand / collapse | `zp` | show workflow tasks |
+| `<Space>G` | timeline, like the web UI | `zg` | fold idle time |
 | `]f` `[f` | next / previous failure | `F` | follow, like `tail -f` |
 | `K` | payloads and the full failure | `!` | pipe them through `jq` |
 | `y` `Y` | yank value / row | `<Space>y{a,i,r}` | yank payloads |
