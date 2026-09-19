@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.1-rc.3 — 2026-09-19
 
 - **Timeline**: `<Space>G` draws a history the way Temporal's web UI does, each group's
   events as dots on one time axis, coloured by how it ended. Idle stretches fold to `≀`;
