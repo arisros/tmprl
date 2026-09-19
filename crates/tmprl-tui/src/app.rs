@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use tmprl_client::{Codec, Conn, NamespaceInfo};
 use tmprl_core::ScheduleRow;
+use tmprl_core::clock::{Clock, TimeFormat};
 use tmprl_core::form::Form;
 use tmprl_core::history::{NormalizedEvent, group_events, merge_events};
 use tmprl_core::jumplist::Jumplist;
@@ -353,6 +354,12 @@ pub struct App {
     /// once into the other half is exactly the friction this is avoiding.
     pub search: Search,
 
+    /// Whether time columns read as an age or as a wall clock, `<leader>T`. Session-level:
+    /// it is how *you* are reading the screen, so it holds across panes and tabs.
+    pub times: TimeFormat,
+    /// The zone wall-clock times are rendered in, from `config.toml`.
+    pub clock: Clock,
+
     pub note: Option<(String, Note)>,
     pub should_quit: bool,
     pub dirty: bool,
@@ -429,6 +436,8 @@ impl App {
             editing: None,
             jumps: Jumplist::default(),
             search: Search::default(),
+            times: TimeFormat::default(),
+            clock: Clock::system(),
             note: None,
             should_quit: false,
             dirty: true,
@@ -456,6 +465,11 @@ impl App {
                     self.accent = resolved.accent;
                     self.readonly = resolved.readonly;
                     self.payload_pane = cfg.payload_pane;
+                    // Already validated by `parse_config`, so this cannot be the zone
+                    // failing; unwrapping to the system zone here would be unreachable.
+                    if let Ok(clock) = Clock::from_config(cfg.timezone.as_deref()) {
+                        self.clock = clock;
+                    }
                 }
                 Err(e) => self.note = Some((e.to_string(), Note::Error)),
             }
@@ -805,6 +819,13 @@ impl App {
                 }
             }
             Action::Refresh => self.refresh(),
+            Action::ToggleTimes => {
+                self.times = self.times.toggled();
+                self.note = Some((
+                    format!("times: {} ({})", self.times.label(), self.clock.name()),
+                    Note::Info,
+                ));
+            }
 
             // While the help overlay is open the motions scroll it. It is the frontmost
             // thing on screen, so moving a cursor hidden behind it would be surprising.

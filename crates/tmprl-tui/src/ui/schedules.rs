@@ -5,6 +5,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
+use tmprl_core::clock::STAMP_WIDTH;
 use tmprl_core::schedule::time_until;
 
 use super::truncate;
@@ -46,7 +47,12 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
         .cursor
         .saturating_sub(height.saturating_sub(1) / 2)
         .min(rows.len().saturating_sub(height));
-    let fixed = GUTTER + STATE + TYPE + SPEC + NEXT;
+    let next_width = if app.times.is_absolute() {
+        STAMP_WIDTH
+    } else {
+        NEXT
+    };
+    let fixed = GUTTER + STATE + TYPE + SPEC + next_width;
     let id_width = (area.width as usize).saturating_sub(fixed).max(8);
 
     let lines: Vec<Line> = rows
@@ -90,12 +96,16 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
                     Style::new().fg(t.ok),
                 ),
                 Span::styled(
-                    match time_until(s.next_run, now) {
-                        // A paused schedule still has future times: the server computes them
-                        // from the spec, not from whether it will act on them.
-                        Some(_) if s.paused => format!("{:>NEXT$}", ""),
-                        Some(next) => format!("{next:>NEXT$}"),
-                        None => format!("{:>NEXT$}", ""),
+                    // A paused schedule still has future times: the server computes them
+                    // from the spec, not from whether it will act on them. Blanking them is
+                    // what keeps a paused row from reading as one that is about to fire.
+                    match (s.paused, app.times.is_absolute()) {
+                        (true, _) => format!("{:>next_width$}", ""),
+                        (false, true) => app.clock.stamp(s.next_run),
+                        (false, false) => match time_until(s.next_run, now) {
+                            Some(next) => format!("{next:>NEXT$}"),
+                            None => format!("{:>NEXT$}", ""),
+                        },
                     },
                     Style::new().fg(t.faint),
                 ),
@@ -106,7 +116,6 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
         .map(|l| highlight(l, &app.search, match_style()))
         .collect();
 
-    let _ = app;
     frame.render_widget(Paragraph::new(lines), area);
 }
 

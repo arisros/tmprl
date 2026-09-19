@@ -45,6 +45,7 @@ tmprl --config-path      # every file tmprl reads, and whether it exists
 | `y` `Y` | yank value / row | `<Space>y{a,i,r}` | yank payloads |
 | `<Space>m…` | cancel, terminate, signal, delete, reset, update | `gs` `gw` | schedules / workflows |
 | `<Space>s…` `<C-w>hjkl` | splits | `<Space>t…` | tabs |
+| `<Space>T` | times as a clock or an age | `R` | reload from the server |
 | `?` `:` | help / command line | `<Space>q` | quit |
 
 Yank is OSC 52, so it reaches your clipboard through SSH and tmux. `?` and `:` are generated

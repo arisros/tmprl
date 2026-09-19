@@ -242,6 +242,11 @@ pub fn default_keymap() -> Keymap {
     bind(Mode::Normal, "gs", "nav.schedules");
     bind(Mode::Normal, "gw", "nav.workflows");
 
+    // `<leader>T` for time. Not a vim binding, there is nothing in vim it resembles; it
+    // sits on the leader because it changes what the whole screen shows rather than where
+    // the cursor is.
+    bind(Mode::Normal, "<leader>T", "app.times");
+
     // Folds use vim's `z` family, so the which-key popup on `z` reads like vim's does.
     // `zp` is not a vim binding, but it sits in the same namespace as the folds it
     // resembles: it folds away the workflow-task plumbing.
