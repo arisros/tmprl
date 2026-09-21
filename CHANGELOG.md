@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1-rc.4 — 2026-09-21
+
+- feat: reach past the loaded rows, in the picker and in /
+- feat: show retries in progress from describe
+
 ## 0.1.1-rc.3 — 2026-09-19
 
 - **Timeline**: `<Space>G` draws a history the way Temporal's web UI does, each group's
