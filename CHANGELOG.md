@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.1 — 2026-09-21
 
 - **Find past the pane**: `<Space>ff` asks the server when the rows a pane has loaded match
   nothing you typed, and `/` on a history reads the rest of the run in rather than stopping
