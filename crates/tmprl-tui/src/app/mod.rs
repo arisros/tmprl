@@ -43,6 +43,7 @@ use tmprl_core::jumplist::Jumplist;
 use tmprl_core::mutation::{Confirm, Mutation};
 use tmprl_core::outline::{Outline, Row};
 use tmprl_core::payload::Payload;
+use tmprl_core::pending::PendingActivity;
 use tmprl_core::picker::{self, Picker, Target};
 use tmprl_core::search::{self, Search};
 use tmprl_core::timerange::parse_backfill;
@@ -62,6 +63,10 @@ const PAGE_SIZE: i32 = 50;
 /// History events per page. Larger than the workflow page because events are small and a
 /// history is read top to bottom, so the first screen wants plenty behind it.
 const HISTORY_PAGE_SIZE: i32 = 500;
+
+/// How often a followed run is re-described. A retry's backoff starts at a second and
+/// grows, so this catches every attempt of a slow retry and most of a fast one.
+const PENDING_POLL: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Continuation tokens, one per namespace that still has pages. The client owns the shape;
 /// this is an alias so the reducer reads the same way.
@@ -251,6 +256,11 @@ pub enum Msg {
     History {
         generation: u64,
         result: Result<(Vec<NormalizedEvent>, Vec<u8>), String>,
+    },
+    /// The open activities of the run on screen, from describe.
+    Pending {
+        generation: u64,
+        result: Result<Vec<PendingActivity>, String>,
     },
 }
 
@@ -648,6 +658,7 @@ impl App {
                             // closed. There is nothing further to tail, so stop rather than
                             // spin on a call that now returns instantly.
                             self.stop_following();
+                            self.view.pending.clear();
                             self.note =
                                 Some(("workflow closed, follow stopped".into(), Note::Info));
                         }
@@ -674,6 +685,17 @@ impl App {
                             self.view.history = Loadable::Failed(e);
                         }
                     }
+                }
+            }
+            Msg::Pending { generation, result } => {
+                if generation != self.view.generation {
+                    return;
+                }
+                match result {
+                    Ok(pending) => self.view.pending = pending,
+                    // The history is still right without this, so a failed describe
+                    // warns and keeps whatever was known rather than clearing it.
+                    Err(e) => self.note = Some((format!("pending activities: {e}"), Note::Warn)),
                 }
             }
             Msg::Schedules { generation, result } => {

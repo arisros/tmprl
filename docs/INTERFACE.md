@@ -253,6 +253,15 @@ and `K` shows the rest: every `caused by` down to the root, the SDK that raised 
 was marked non-retryable, and the stack traces, which sit after the payloads because a
 fifty-line Java trace would otherwise push the input out of sight.
 
+A retry in progress is not in the history at all. Temporal writes `ActivityTaskStarted`, the
+event carrying the attempt and the last failure, only when the activity closes, so a retrying
+activity is a bare `ActivityTaskScheduled`. For a running workflow tmprl therefore also calls
+`DescribeWorkflowExecution` and matches its pending activities to the open rows by activity id:
+the row shows `×4/10` (attempt and maximum, `∞` when unlimited), `retry in 12s` while backing
+off, and the last failure; `K` adds the state, the next attempt time and the last worker. This
+is fetched when the history opens and on `R`, and every 5 seconds under `F`, because a retry
+writes no event for the follow long poll to wake on.
+
 `F` tails a running workflow, the way `tail -f` does. The statusline carries a **FOLLOW**
 badge while it is on, because a view that rewrites itself under you needs to say so, a
 screen that changes on its own otherwise reads as a glitch. Following stops on `F`, on leaving

@@ -16,6 +16,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use tmprl_core::history::{Failure, NormalizedEvent};
 use tmprl_core::outline::{Outline, Row};
 use tmprl_core::payload::Rendered;
+use tmprl_core::pending::{self, PendingActivity};
 
 use crate::app::{App, DecodeState};
 use crate::theme::Theme;
@@ -39,7 +40,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
             .event(event)
             .map(|e| event_lines(e, app, t))
             .unwrap_or_default(),
-        Some(Row::Group { group, .. }) => group_lines(outline, group, app, t),
+        Some(Row::Group { group, .. }) => group_lines(outline, group, view, app, t),
         None => Vec::new(),
     };
 
@@ -77,10 +78,17 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
     max_scroll
 }
 
-fn group_lines<'a>(outline: &'a Outline, group: usize, app: &App, t: &Theme) -> Vec<Line<'a>> {
+fn group_lines<'a>(
+    outline: &'a Outline,
+    group: usize,
+    view: &'a View,
+    app: &App,
+    t: &Theme,
+) -> Vec<Line<'a>> {
     let Some(g) = outline.group(group) else {
         return Vec::new();
     };
+    let live = pending::for_group(&view.pending, g, outline.events());
     let mut title = vec![
         Span::styled(
             format!("  {} ", g.subject),
@@ -104,7 +112,14 @@ fn group_lines<'a>(outline: &'a Outline, group: usize, app: &App, t: &Theme) -> 
         ));
     }
     let mut lines = vec![Line::from(title)];
-    if let Some(f) = &g.failure {
+    if let Some(p) = live {
+        lines.push(pending_line(p, app, t));
+    }
+    let failure = g
+        .failure
+        .as_ref()
+        .or(live.and_then(|p| p.last_failure.as_ref()));
+    if let Some(f) = failure {
         lines.extend(failure_lines(f, "  ", t));
     }
 
@@ -126,10 +141,28 @@ fn group_lines<'a>(outline: &'a Outline, group: usize, app: &App, t: &Theme) -> 
             Style::new().fg(t.faint),
         )));
     }
-    if let Some(f) = &g.failure {
+    if let Some(f) = failure {
         lines.extend(stack_lines(f, "  ", t));
     }
     lines
+}
+
+/// Where a still-open activity is in its retries, as the server last described it.
+fn pending_line<'a>(p: &PendingActivity, app: &App, t: &Theme) -> Line<'a> {
+    let mut parts = vec![
+        format!("attempt {}", p.attempts_label()),
+        p.state.label().to_string(),
+    ];
+    if let Some(at) = p.next_attempt_at {
+        parts.push(format!("next attempt {}", app.clock.stamp(Some(at))));
+    }
+    if let Some(w) = &p.last_worker {
+        parts.push(format!("worker {w}"));
+    }
+    Line::from(Span::styled(
+        format!("  {}", parts.join(" · ")),
+        Style::new().fg(t.warn),
+    ))
 }
 
 /// The failure chain: every link's message, then what it was raised from.

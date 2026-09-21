@@ -4,6 +4,7 @@
 //! keeps a `temporalio-client` bump contained: the generated types stop here.
 
 pub mod codec;
+pub mod describe;
 pub mod history;
 pub mod mutate;
 pub mod namespace;

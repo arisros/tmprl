@@ -245,7 +245,7 @@ fn status_from_payload(
     WorkflowStatus::parse(std::str::from_utf8(&p.data).ok()?)
 }
 
-fn epoch_millis(t: prost_wkt_types::Timestamp) -> i64 {
+pub(crate) fn epoch_millis(t: prost_wkt_types::Timestamp) -> i64 {
     t.seconds * 1000 + i64::from(t.nanos) / 1_000_000
 }
 

@@ -110,6 +110,7 @@ Every file opens with a `//!` line saying what it is; this is those lines, gathe
 |---|---|
 | `history.rs` | the event log folded into groups: an activity is one row, not three |
 | `outline.rs` | the collapsible, virtualised view over those groups |
+| `pending.rs` | what a run is doing *now*: the retry the history has no event for yet |
 | `timeline.rs` | the time axis behind the timeline view, idle gaps folded |
 | `workflow.rs` | the workflow list: rows, paging, ordering, counts |
 | `query.rs`, `search.rs` | visibility query strings; `/` over what is on screen |
@@ -122,8 +123,9 @@ Every file opens with a `//!` line saying what it is; this is those lines, gathe
 | `config.rs`, `clock.rs`, `loadable.rs` | config parsing, wall-clock rendering, four-state remote data |
 
 **`tmprl-client`**, all network IO: `conn.rs` connects; `ops/` has one file per area of the
-API (`workflow`, `history`, `schedule`, `namespace`, `mutate`, `codec`). `ops/history.rs` is
-where protobuf events become `tmprl-core` events.
+API (`workflow`, `history`, `schedule`, `namespace`, `mutate`, `codec`, `describe`).
+`ops/history.rs` is where protobuf events become `tmprl-core` events, and `ops/describe.rs`
+reads the mutable state they cannot carry, the activities still being retried.
 
 **`tmprl-ui`**, the window tree: `tree.rs` (one tab's splits), `tabs.rs`. Despite the name it
 draws nothing; it is rectangles and focus, and `tmprl-tui` draws into them.

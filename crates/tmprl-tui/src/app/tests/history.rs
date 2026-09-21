@@ -250,3 +250,50 @@ fn leaving_the_history_stops_following() {
     );
     assert!(app.view.history_resume.is_empty());
 }
+
+#[test]
+fn a_pending_reply_for_a_history_since_left_is_dropped() {
+    let mut app = app();
+    app.view.screen = Screen::History;
+    app.view.viewing = Some(wf("default", "r1", 0));
+    app.load_history();
+    let stale = app.view.generation.wrapping_sub(1);
+
+    app.handle(Msg::Pending {
+        generation: stale,
+        result: Ok(vec![PendingActivity::default()]),
+    });
+    assert!(app.view.pending.is_empty());
+
+    app.handle(Msg::Pending {
+        generation: app.view.generation,
+        result: Ok(vec![PendingActivity::default()]),
+    });
+    assert_eq!(app.view.pending.len(), 1);
+}
+
+#[test]
+fn opening_another_run_forgets_the_last_ones_pending_activities() {
+    // SDKs number activity ids from "1" in every run, so a list left over from the
+    // previous run would attach itself to this one's rows.
+    let mut app = app();
+    app.view.screen = Screen::History;
+    app.view.viewing = Some(wf("default", "r1", 0));
+    app.view.pending = vec![PendingActivity::default()];
+    app.run("app.refresh", None);
+    assert!(app.view.pending.is_empty());
+}
+
+#[test]
+fn a_failed_describe_warns_and_keeps_what_was_known() {
+    let mut app = app();
+    app.view.pending = vec![PendingActivity::default()];
+    app.handle(Msg::Pending {
+        generation: app.view.generation,
+        result: Err("permission denied".into()),
+    });
+    assert_eq!(app.view.pending.len(), 1);
+    let (note, level) = app.note.clone().expect("should warn");
+    assert_eq!(level, Note::Warn);
+    assert!(note.contains("permission denied"), "{note}");
+}
