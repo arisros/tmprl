@@ -13,6 +13,7 @@
 use tmprl_client::NamespaceInfo;
 use tmprl_core::history::NormalizedEvent;
 use tmprl_core::outline::{Outline, Row};
+use tmprl_core::pending::PendingActivity;
 use tmprl_core::{Loadable, ScheduleRow, StatusCounts, WorkflowList, WorkflowRow};
 
 use crate::app::Screen;
@@ -83,6 +84,12 @@ pub struct View {
     pub history_resume: Vec<u8>,
     /// The follow task, so toggling off (or leaving the screen) actually stops the poll.
     pub follow_task: Option<tokio::task::JoinHandle<()>>,
+    /// Open activities as the server last described them. A retry in progress shows up
+    /// here and nowhere in the history.
+    pub pending: Vec<PendingActivity>,
+    /// Re-describes the run while it is followed. The history long poll cannot notice a
+    /// retry, since a retry writes no event.
+    pub pending_task: Option<tokio::task::JoinHandle<()>>,
     /// A page request is in flight; scrolling must not queue a second one.
     pub loading_more: bool,
 }
@@ -118,6 +125,8 @@ impl View {
             history_token: Vec::new(),
             history_resume: Vec::new(),
             follow_task: None,
+            pending: Vec::new(),
+            pending_task: None,
             loading_more: false,
         }
     }
@@ -151,7 +160,10 @@ impl View {
     /// closed, so closing a window has to come through here.
     pub fn stop_following(&mut self) {
         self.following = false;
-        if let Some(task) = self.follow_task.take() {
+        for task in [self.follow_task.take(), self.pending_task.take()]
+            .into_iter()
+            .flatten()
+        {
             task.abort();
         }
     }
@@ -161,9 +173,7 @@ impl Drop for View {
     fn drop(&mut self) {
         // Closing a window must not leave its long poll running against a pane that no
         // longer exists.
-        if let Some(task) = self.follow_task.take() {
-            task.abort();
-        }
+        self.stop_following();
     }
 }
 

@@ -92,6 +92,7 @@ impl App {
         let Some(conn) = self.conn.clone() else {
             return;
         };
+        self.start_pending_poll();
         let (tx, generation) = (self.tx.clone(), self.view.generation);
         let mut token = self.view.history_resume.clone();
 

@@ -123,10 +123,14 @@ impl App {
     /// The same landing as `Enter` on its row, reached without first putting the cursor
     /// there, which is the entire reason a picker beats scrolling.
     pub(super) fn open_workflow(&mut self, namespace: &str, run_id: &str) {
+        let matches = |w: &&WorkflowRow| w.namespace == namespace && w.run_id == run_id;
         let Some(row) = self
             .workflow_rows()
             .iter()
-            .find(|w| w.namespace == namespace && w.run_id == run_id)
+            .find(matches)
+            // A row the picker fetched is in no pane's table, and opening it is the whole
+            // point of having fetched it.
+            .or_else(|| self.picker_found.iter().find(matches))
             .cloned()
         else {
             self.note = Some(("that workflow is no longer in the list".into(), Note::Warn));
@@ -155,6 +159,7 @@ impl App {
     /// that open-code it have drifted apart before, so it lives in one place.
     pub(super) fn reset_history(&mut self) {
         self.stop_following();
+        self.scan = None;
         self.view.history = Loadable::NotAsked;
         self.view.history_events.clear();
         self.view.history_token.clear();

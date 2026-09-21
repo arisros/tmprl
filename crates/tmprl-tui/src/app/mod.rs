@@ -43,6 +43,7 @@ use tmprl_core::jumplist::Jumplist;
 use tmprl_core::mutation::{Confirm, Mutation};
 use tmprl_core::outline::{Outline, Row};
 use tmprl_core::payload::Payload;
+use tmprl_core::pending::PendingActivity;
 use tmprl_core::picker::{self, Picker, Target};
 use tmprl_core::search::{self, Search};
 use tmprl_core::timerange::parse_backfill;
@@ -59,9 +60,26 @@ use tmprl_ui::{Axis, Direction, Rect as UiRect, Tabs, ViewId};
 /// enough that the first screen arrives promptly on a slow link.
 const PAGE_SIZE: i32 = 50;
 
+/// History events per page while a search is paging the rest of a run in. Larger than a
+/// scrolled page because nobody is reading these rows, they are only being matched, and
+/// each round trip is a round trip.
+const SCAN_PAGE_SIZE: i32 = 1000;
+
+/// How long a picker prompt must sit still before a search for it goes out, and the
+/// shortest prompt worth sending. Both exist to keep an id typed one character at a time
+/// from becoming one visibility query per character.
+const PICKER_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(300);
+const PICKER_SEARCH_MIN: usize = 6;
+/// Rows a picker search asks for. It is a lookup, not a listing.
+const PICKER_SEARCH_LIMIT: i32 = 20;
+
 /// History events per page. Larger than the workflow page because events are small and a
 /// history is read top to bottom, so the first screen wants plenty behind it.
 const HISTORY_PAGE_SIZE: i32 = 500;
+
+/// How often a followed run is re-described. A retry's backoff starts at a second and
+/// grows, so this catches every attempt of a slow retry and most of a fast one.
+const PENDING_POLL: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Continuation tokens, one per namespace that still has pages. The client owns the shape;
 /// this is an alias so the reducer reads the same way.
@@ -252,6 +270,35 @@ pub enum Msg {
         generation: u64,
         result: Result<(Vec<NormalizedEvent>, Vec<u8>), String>,
     },
+    /// A picker's debounce expired: search the server for this prompt if it is still the
+    /// one on screen and the loaded rows still do not match it.
+    PickerDebounce {
+        search: u64,
+    },
+    /// Workflows fetched for a picker prompt.
+    PickerFound {
+        search: u64,
+        result: Result<Vec<WorkflowRow>, String>,
+    },
+    /// The open activities of the run on screen, from describe.
+    Pending {
+        generation: u64,
+        result: Result<Vec<PendingActivity>, String>,
+    },
+}
+
+/// A `/` still looking, one page of history at a time.
+#[derive(Debug, Clone, Copy)]
+struct Scan {
+    /// Where the search started, re-searched from after every page: a match on a page that
+    /// lands *above* the cursor is still the match, and forgetting the origin would skip it.
+    from: usize,
+    forward: bool,
+    inclusive: bool,
+    /// The history this belongs to. A pane that has moved on must not keep paging.
+    generation: u64,
+    /// Events loaded when it started, so the report can say how far it went.
+    started_with: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -313,12 +360,22 @@ pub struct App {
     /// `Some` while a `<leader>f` picker is open. It owns the keyboard while it is, the
     /// way a prompt does.
     pub picker: Option<Picker>,
+    /// Rows a picker search fetched. They are not in any pane's list, so opening one has
+    /// to find it here rather than in the table behind the picker.
+    picker_found: Vec<WorkflowRow>,
+    /// Bumped on every keystroke in a picker. A search is only issued for the prompt that
+    /// is still there when its debounce expires, and only the reply for the prompt still
+    /// on screen is used.
+    picker_search: u64,
     /// Set when `<leader>e` has written a payload out; the event loop takes it, drops
     /// the terminal, runs the editor and puts the terminal back.
     pub editing: Option<EditRequest>,
     /// `<C-o>` / `<C-i>`. Session-level, not per-pane: the jumps you want to retrace
     /// are the ones *you* made, and they cross panes as readily as they cross screens.
     pub jumps: Jumplist<Jump>,
+    /// A search that ran out of loaded history and is paging the rest of the run in to
+    /// keep looking. `<Esc>` ends it, and so does anything that replaces the history.
+    scan: Option<Scan>,
     /// The last pattern searched for, vim's `/` register.
     ///
     /// Session-level rather than per-pane, and deliberately so: the pattern is something
@@ -406,8 +463,11 @@ impl App {
             insert_buf: String::new(),
             insert_target: InsertTarget::Scratch,
             picker: None,
+            picker_found: Vec::new(),
+            picker_search: 0,
             editing: None,
             jumps: Jumplist::default(),
+            scan: None,
             search: Search::default(),
             times: TimeFormat::default(),
             clock: Clock::system(),
@@ -648,6 +708,7 @@ impl App {
                             // closed. There is nothing further to tail, so stop rather than
                             // spin on a call that now returns instantly.
                             self.stop_following();
+                            self.view.pending.clear();
                             self.note =
                                 Some(("workflow closed, follow stopped".into(), Note::Info));
                         }
@@ -667,13 +728,36 @@ impl App {
                             }
                         }
                         self.clamp_cursor();
+                        self.continue_scan(generation);
                     }
                     Err(e) => {
+                        self.scan = None;
                         self.note = Some((e.clone(), Note::Error));
                         if self.view.history_events.is_empty() {
                             self.view.history = Loadable::Failed(e);
                         }
                     }
+                }
+            }
+            Msg::PickerDebounce { search } => self.picker_search_due(search),
+            Msg::PickerFound { search, result } => {
+                if search != self.picker_search {
+                    return;
+                }
+                match result {
+                    Ok(rows) => self.picker_takes(rows),
+                    Err(e) => self.note = Some((format!("workflow search: {e}"), Note::Warn)),
+                }
+            }
+            Msg::Pending { generation, result } => {
+                if generation != self.view.generation {
+                    return;
+                }
+                match result {
+                    Ok(pending) => self.view.pending = pending,
+                    // The history is still right without this, so a failed describe
+                    // warns and keeps whatever was known rather than clearing it.
+                    Err(e) => self.note = Some((format!("pending activities: {e}"), Note::Warn)),
                 }
             }
             Msg::Schedules { generation, result } => {
@@ -767,7 +851,9 @@ impl App {
                 self.mode = Mode::Command;
             }
             Action::Cancel => {
-                if self.show_help {
+                if self.scan.is_some() {
+                    self.stop_scan();
+                } else if self.show_help {
                     self.show_help = false;
                     self.help_scroll = 0;
                 } else {

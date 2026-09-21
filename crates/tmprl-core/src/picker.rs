@@ -41,6 +41,12 @@ pub enum Target {
 pub struct Item {
     /// What is matched against and rendered in the list.
     pub label: String,
+    /// Fetched for the prompt rather than taken from the pane's list, so nothing on screen
+    /// mentions it and opening it cannot go through that list.
+    pub fetched: bool,
+    /// This row answers the current prompt through a lookup the picker could not do itself,
+    /// over fields the label does not carry. Shown whatever the prompt scores against it.
+    pub lookup: bool,
     /// The second, dimmer column: a workflow's type, a command's group. Not matched
     /// against, so that typing a status does not pull in every row that merely ends in it.
     pub note: String,
@@ -54,6 +60,8 @@ impl Item {
     pub fn new(label: impl Into<String>, target: Target) -> Self {
         Self {
             label: label.into(),
+            fetched: false,
+            lookup: false,
             note: String::new(),
             preview: String::new(),
             target,
@@ -67,6 +75,13 @@ impl Item {
 
     pub fn with_preview(mut self, preview: impl Into<String>) -> Self {
         self.preview = preview.into();
+        self
+    }
+
+    /// Mark this as an answer to the prompt that came back from a lookup.
+    pub fn from_lookup(mut self) -> Self {
+        self.fetched = true;
+        self.lookup = true;
         self
     }
 }
@@ -131,6 +146,29 @@ impl Picker {
         self.items.len()
     }
 
+    /// Add the answers a lookup came back with.
+    ///
+    /// A row the picker already holds is *promoted* rather than added twice: the lookup
+    /// routinely finds one the pane had loaded all along, and dropping it on the floor
+    /// would leave the picker saying "no matches" about a row it is holding.
+    ///
+    /// Returns how many rows the prompt can now see. The prompt and the cursor survive,
+    /// because this lands while someone is typing.
+    pub fn answer(&mut self, items: impl IntoIterator<Item = Item>) -> usize {
+        let cursor = self.cursor;
+        let mut shown = 0;
+        for item in items {
+            shown += 1;
+            match self.items.iter_mut().find(|i| i.target == item.target) {
+                Some(held) => held.lookup = true,
+                None => self.items.push(item),
+            }
+        }
+        self.refilter();
+        self.cursor = cursor.min(self.hits.len().saturating_sub(1));
+        shown
+    }
+
     pub fn shown(&self) -> usize {
         self.hits.len()
     }
@@ -152,6 +190,7 @@ impl Picker {
 
     pub fn push(&mut self, c: char) {
         self.prompt.push(c);
+        self.forget_answers();
         self.refilter();
     }
 
@@ -160,6 +199,7 @@ impl Picker {
     pub fn backspace(&mut self) -> bool {
         let had = self.prompt.pop().is_some();
         if had {
+            self.forget_answers();
             self.refilter();
         }
         had
@@ -179,13 +219,41 @@ impl Picker {
         self.cursor = (self.cursor as isize + delta).clamp(0, last) as usize;
     }
 
+    /// Drop the answers to a prompt that is no longer the one on screen.
+    ///
+    /// They answered a question nobody is asking any more. Rows that were merely promoted
+    /// stay, they belong to the pane's list; they just go back to being ranked like the
+    /// rest.
+    fn forget_answers(&mut self) {
+        self.items.retain(|i| !i.fetched);
+        for i in &mut self.items {
+            i.lookup = false;
+        }
+    }
+
     /// Re-rank against the current prompt.
     ///
     /// The cursor goes back to the top on every keystroke, because the best match is what
     /// typing another character is *for*. Holding position would leave the cursor on
     /// whatever happens to be at that index in a completely different list.
+    ///
+    /// Fetched candidates are not ranked. They were found *by* this prompt, over fields a
+    /// label does not carry: a run id fetches the row whose label is a workflow id, and
+    /// matching that label against the run id would throw away the row that was asked for.
     fn refilter(&mut self) {
-        self.hits = fuzzy::rank(&self.prompt, &self.items, |i| i.label.clone());
+        let mut local: Vec<(usize, Match)> = Vec::new();
+        let mut fetched: Vec<(usize, Match)> = Vec::new();
+        for (at, item) in self.items.iter().enumerate() {
+            if item.lookup {
+                // Nothing to highlight: what matched is a field the label does not show.
+                fetched.push((at, Match::default()));
+            } else if let Some(m) = fuzzy::match_score(&self.prompt, &item.label) {
+                local.push((at, m));
+            }
+        }
+        local.sort_by_key(|h| std::cmp::Reverse(h.1.score));
+        local.extend(fetched);
+        self.hits = local;
         self.cursor = 0;
     }
 }
@@ -310,6 +378,71 @@ mod tests {
         let (item, m) = p.rows().next().unwrap();
         assert_eq!(m.positions.len(), 1);
         assert!(item.label.is_char_boundary(m.positions[0]));
+    }
+
+    #[test]
+    fn an_answer_the_picker_already_holds_is_promoted_not_dropped() {
+        // The lookup routinely finds a row the pane had loaded all along. Deduplicating it
+        // away leaves the picker saying "no matches" about a row it is holding.
+        let mut p = picker(&["order-1", "order-2"]);
+        for c in "01a0c4bc".chars() {
+            p.push(c);
+        }
+        assert!(p.is_empty(), "the run id matches no label");
+
+        let shown = p.answer(vec![Item::new("order-2", Target::Row(1)).from_lookup()]);
+        assert_eq!(shown, 1);
+        assert_eq!(labels(&p), vec!["order-2"]);
+        assert_eq!(p.total(), 2, "it was promoted, not added again");
+        assert!(matches!(p.accept(), Some(Target::Row(1))));
+    }
+
+    #[test]
+    fn answers_join_the_list_without_disturbing_the_prompt() {
+        let mut p = picker(&["order-1", "order-2"]);
+        p.push('o');
+        p.push('r');
+        p.answer(vec![Item::new("order-9", Target::Row(9)).from_lookup()]);
+
+        assert_eq!(p.prompt, "or", "typing must survive the arrival");
+        assert!(labels(&p).contains(&"order-9".to_string()));
+        assert_eq!(p.items.iter().filter(|i| i.fetched).count(), 1);
+    }
+
+    #[test]
+    fn a_fetched_candidate_survives_a_prompt_its_label_does_not_match() {
+        // The case the picker exists for: a run id was typed, and the row that came back is
+        // labelled with its *workflow* id. Ranking that label against a run id drops the one
+        // row that was asked for.
+        let mut p = picker(&["order-1", "order-2"]);
+        for c in "01a0c4bc-b01b".chars() {
+            p.push(c);
+        }
+        assert!(p.is_empty(), "nothing loaded matches a run id");
+
+        p.answer(vec![
+            Item::new("big-history-1", Target::Row(7)).from_lookup(),
+        ]);
+        assert_eq!(labels(&p), vec!["big-history-1"], "the answer must show");
+        assert!(matches!(p.accept(), Some(Target::Row(7))));
+    }
+
+    #[test]
+    fn typing_again_forgets_what_was_fetched_for_the_old_prompt() {
+        let mut p = picker(&["order-1"]);
+        for c in "01a0".chars() {
+            p.push(c);
+        }
+        p.answer(vec![
+            Item::new("big-history-1", Target::Row(7)).from_lookup(),
+        ]);
+        assert_eq!(labels(&p), vec!["big-history-1"]);
+
+        p.push('x');
+        assert!(
+            p.is_empty(),
+            "a row fetched for another prompt must not linger"
+        );
     }
 
     #[test]

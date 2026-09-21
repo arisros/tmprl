@@ -18,6 +18,7 @@ pub mod mode;
 pub mod mutation;
 pub mod outline;
 pub mod payload;
+pub mod pending;
 pub mod picker;
 pub mod query;
 pub mod schedule;

@@ -103,6 +103,51 @@ fn app_with_workflows(scope: &[&str]) -> App {
     app
 }
 
+/// A running workflow whose only activity is backing off before its fourth attempt. The
+/// history has nothing but the scheduling event; the rest came from describe.
+fn app_with_retrying_activity() -> App {
+    use tmprl_core::history::{Category as C, Failure, GroupRef as G, NormalizedEvent, Role as R};
+    use tmprl_core::pending::{PendingActivity, PendingState};
+
+    let mut scheduled = NormalizedEvent::new(
+        5,
+        "ActivityTaskScheduled",
+        C::Activity,
+        G::Opened(5),
+        R::Opens,
+    )
+    .with_subject("ChargeCard")
+    .with_time(Some(5_000));
+    scheduled.fields.push(("activityId", "1".into()));
+    let events = vec![
+        NormalizedEvent::new(1, "EVENT", C::Workflow, G::Workflow, R::Opens)
+            .with_subject("OrderWorkflow"),
+        scheduled,
+    ];
+
+    let mut app = app_with_workflows(&["default"]);
+    app.view.screen = crate::app::Screen::History;
+    app.view.viewing = Some(wf("default", "order-1001", WorkflowStatus::Running, 0));
+    let groups = tmprl_core::history::group_events(&events);
+    app.view.history = Loadable::loaded(tmprl_core::outline::Outline::new(events, groups));
+    app.view.pending = vec![PendingActivity {
+        activity_id: "1".into(),
+        activity_type: "ChargeCard".into(),
+        state: PendingState::Scheduled,
+        attempt: 4,
+        maximum_attempts: 10,
+        last_failure: Some(Failure {
+            message: "card declined".into(),
+            kind: Some("PaymentDeclined".into()),
+            ..Failure::default()
+        }),
+        next_attempt_at: Some(crate::app::now_ms() + 30_000),
+        last_worker: Some("worker-7@host".into()),
+        ..PendingActivity::default()
+    }];
+    app
+}
+
 /// A history screen with a workflow, a hidden workflow task, and two activities, the
 /// second of which failed after a retry.
 fn app_with_history() -> App {

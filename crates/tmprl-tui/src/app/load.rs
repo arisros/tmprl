@@ -106,14 +106,25 @@ impl App {
     /// re-grouped whenever one lands, because a page boundary routinely falls inside a
     /// group.
     pub fn load_history(&mut self) {
+        self.load_history_page(HISTORY_PAGE_SIZE);
+    }
+
+    pub(super) fn load_history_page(&mut self, page_size: i32) {
         let Some(row) = self.view.viewing.clone() else {
             return;
         };
-        if self.view.history_events.is_empty() {
+        let first_page = self.view.history_events.is_empty();
+        if first_page {
             self.view.generation = self.view.generation.wrapping_add(1);
             self.view.history.begin_refresh();
+            // Activity ids repeat across runs ("1", "2", …), so another run's list would
+            // attach itself to this one's rows.
+            self.view.pending.clear();
         }
         self.view.loading_more = true;
+        if first_page && row.status.is_running() {
+            self.load_pending();
+        }
 
         let Some(conn) = self.conn.clone() else {
             return;
@@ -129,7 +140,7 @@ impl App {
                     &row.namespace,
                     &row.workflow_id,
                     &row.run_id,
-                    HISTORY_PAGE_SIZE,
+                    page_size,
                     token,
                 )
                 .await
@@ -137,6 +148,51 @@ impl App {
                 .map_err(|e| e.to_string());
             let _ = tx.send(Msg::History { generation, result });
         });
+    }
+
+    /// Describe the run on screen once, for its pending activities.
+    ///
+    /// A retry in progress writes no history event, so the attempt it is on, the failure
+    /// that caused it and the time of the next try are only in this call's reply. See
+    /// `tmprl_core::pending`.
+    fn load_pending(&mut self) {
+        let (Some(row), Some(conn)) = (self.view.viewing.clone(), self.conn.clone()) else {
+            return;
+        };
+        let (tx, generation) = (self.tx.clone(), self.view.generation);
+        tokio::spawn(async move {
+            let result = conn
+                .pending_activities(&row.namespace, &row.workflow_id, &row.run_id)
+                .await
+                .map_err(|e| e.to_string());
+            let _ = tx.send(Msg::Pending { generation, result });
+        });
+    }
+
+    /// Re-describe on a timer for as long as a follow runs, because the history long poll
+    /// has nothing to wake on while an activity retries.
+    ///
+    /// Stops at the first failure, so a describe the server refuses warns once rather than
+    /// every few seconds.
+    pub(super) fn start_pending_poll(&mut self) {
+        let (Some(row), Some(conn)) = (self.view.viewing.clone(), self.conn.clone()) else {
+            return;
+        };
+        let (tx, generation) = (self.tx.clone(), self.view.generation);
+        self.view.pending_task = Some(tokio::spawn(async move {
+            let mut every = tokio::time::interval(PENDING_POLL);
+            loop {
+                every.tick().await;
+                let result = conn
+                    .pending_activities(&row.namespace, &row.workflow_id, &row.run_id)
+                    .await
+                    .map_err(|e| e.to_string());
+                let failed = result.is_err();
+                if tx.send(Msg::Pending { generation, result }).is_err() || failed {
+                    return;
+                }
+            }
+        }));
     }
 
     pub(super) fn load_more(&mut self) {

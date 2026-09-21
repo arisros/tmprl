@@ -246,3 +246,14 @@ fn the_pipe_prompt_is_drawn_with_its_own_sigil() {
         "a pipe prompt must not offer command completions:\n{out}"
     );
 }
+
+#[test]
+fn k_on_a_retrying_activity_shows_where_it_is() {
+    let mut app = app_with_retrying_activity();
+    app.run("motion.bottom", None);
+    app.run("history.detail", None);
+    let out = draw(&mut app, 120, 20);
+    assert!(out.contains("attempt 4/10"), "attempt missing:\n{out}");
+    assert!(out.contains("worker-7@host"), "worker missing:\n{out}");
+    assert!(out.contains("PaymentDeclined"), "failure missing:\n{out}");
+}

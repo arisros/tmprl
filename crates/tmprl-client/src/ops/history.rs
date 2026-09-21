@@ -170,7 +170,7 @@ struct Mapped {
 /// A worker that raises `PaymentDeclined("card declined")` inside an activity produces an
 /// activity failure wrapping an application failure: three fields of the chain say what
 /// went wrong, and `message` alone is usually the one that does not.
-fn normalize_failure(f: Failure) -> CoreFailure {
+pub(crate) fn normalize_failure(f: Failure) -> CoreFailure {
     let application = match &f.failure_info {
         Some(FailureInfo::ApplicationFailureInfo(a)) => Some(a),
         _ => None,

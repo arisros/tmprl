@@ -152,3 +152,24 @@ fn the_history_screen_renders_at_a_cramped_size() {
     app.run("history.expand-all", None);
     let _ = draw(&mut app, 20, 4);
 }
+
+#[test]
+fn a_retry_in_progress_shows_on_its_row() {
+    let mut app = app_with_retrying_activity();
+    let out = draw(&mut app, 120, 8);
+    assert!(out.contains("×4/10"), "live attempt missing:\n{out}");
+    assert!(out.contains("retry in"), "backoff missing:\n{out}");
+    assert!(
+        out.contains("card declined"),
+        "last failure missing:\n{out}"
+    );
+}
+
+#[test]
+fn a_pending_entry_for_another_activity_changes_nothing() {
+    let mut app = app_with_retrying_activity();
+    app.view.pending[0].activity_id = "2".into();
+    let out = draw(&mut app, 120, 8);
+    assert!(!out.contains("×4"), "matched the wrong activity:\n{out}");
+    assert!(!out.contains("card declined"), "{out}");
+}

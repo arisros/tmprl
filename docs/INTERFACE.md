@@ -253,6 +253,30 @@ and `K` shows the rest: every `caused by` down to the root, the SDK that raised 
 was marked non-retryable, and the stack traces, which sit after the payloads because a
 fifty-line Java trace would otherwise push the input out of sight.
 
+`<leader>ff` ranks the rows this pane has loaded, and a prompt those rows cannot answer is
+sent to the server: `WorkflowId = '…' OR RunId = '…'`, then `STARTS_WITH` if that finds
+nothing. Either kind of id works, because the id pasted out of a log line is as often a run
+id as a workflow id. Rows that came back are tagged `found by id`, whether they were already
+in the pane's list or had to be fetched, and either way they open. The query goes out 300ms after typing stops,
+never while the loaded rows still match, and never for a prompt under six characters, so
+reading the list costs nothing and looking for one id costs one round trip.
+
+`/` searches the rows a pane holds, and on a history it will read on to find them. A run's
+events are finite and all belong to the workflow on screen, so when a pattern is in none of
+the events loaded, tmprl keeps fetching pages (1000 events at a time) and searching until it
+lands or the run runs out. The statusline counts as it goes and `<Esc>` stops it. On a
+workflow list `/` stays local: paging a namespace to find a row is unbounded, and that is
+what the query bar is for.
+
+A retry in progress is not in the history at all. Temporal writes `ActivityTaskStarted`, the
+event carrying the attempt and the last failure, only when the activity closes, so a retrying
+activity is a bare `ActivityTaskScheduled`. For a running workflow tmprl therefore also calls
+`DescribeWorkflowExecution` and matches its pending activities to the open rows by activity id:
+the row shows `×4/10` (attempt and maximum, `∞` when unlimited), `retry in 12s` while backing
+off, and the last failure; `K` adds the state, the next attempt time and the last worker. This
+is fetched when the history opens and on `R`, and every 5 seconds under `F`, because a retry
+writes no event for the follow long poll to wake on.
+
 `F` tails a running workflow, the way `tail -f` does. The statusline carries a **FOLLOW**
 badge while it is on, because a view that rewrites itself under you needs to say so, a
 screen that changes on its own otherwise reads as a glitch. Following stops on `F`, on leaving

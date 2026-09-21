@@ -14,11 +14,12 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use tmprl_core::history::{Category, Outcome};
 use tmprl_core::outline::{Outline, Row};
+use tmprl_core::pending;
 use tmprl_core::workflow::humanize_age_ms;
 
 use super::truncate;
 use super::{highlight, match_style};
-use crate::app::App;
+use crate::app::{App, now_ms};
 use crate::theme::Theme;
 use crate::view::View;
 
@@ -125,10 +126,16 @@ fn render_row<'a>(
                 ),
                 Span::styled(format!("{:<32}", truncate(&g.subject, 31)), base),
             ];
+            let live = pending::for_group(&view.pending, g, outline.events());
             // Attempts are only worth the space when something was actually retried.
-            if g.attempts > 1 {
+            let attempts = match live {
+                Some(p) if p.attempt > 1 => Some(p.attempts_label()),
+                Some(_) => None,
+                None => (g.attempts > 1).then(|| g.attempts.to_string()),
+            };
+            if let Some(n) = attempts {
                 spans.push(Span::styled(
-                    format!("×{} ", g.attempts),
+                    format!("×{n} "),
                     Style::new().fg(t.warn).add_modifier(Modifier::BOLD),
                 ));
             }
@@ -144,7 +151,14 @@ fn render_row<'a>(
                 },
                 Style::new().fg(t.faint),
             ));
-            if let Some(f) = &g.failure {
+            if let Some(status) = live.and_then(|p| p.status(now_ms())) {
+                spans.push(Span::styled(format!("  {status}"), Style::new().fg(t.warn)));
+            }
+            if let Some(f) = g
+                .failure
+                .as_ref()
+                .or(live.and_then(|p| p.last_failure.as_ref()))
+            {
                 spans.push(Span::styled(
                     format!("  {}", truncate(&f.headline(), 48)),
                     Style::new().fg(t.err),

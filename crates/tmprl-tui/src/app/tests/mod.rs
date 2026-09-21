@@ -129,6 +129,18 @@ fn history_events() -> Vec<NormalizedEvent> {
     ]
 }
 
+/// A history with a page still outstanding, as a long run has while you read the top.
+fn half_read_history() -> App {
+    let mut app = app();
+    loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
+    app.run("nav.open", None);
+    app.handle(Msg::History {
+        generation: app.view.generation,
+        result: Ok((history_events(), b"more".to_vec())),
+    });
+    app
+}
+
 fn viewing_history() -> App {
     let mut app = app();
     loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
