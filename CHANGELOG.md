@@ -1,9 +1,26 @@
 # Changelog
 
+## Unreleased
+
+- **Find past the pane**: `<Space>ff` asks the server when the rows a pane has loaded match
+  nothing you typed, and `/` on a history reads the rest of the run in rather than stopping
+  at the events already loaded.
+- **Retries in progress**: an activity being retried right now shows its attempt, when it
+  tries again and why the last one failed.
+
 ## 0.1.1-rc.4 — 2026-09-21
 
-- feat: reach past the loaded rows, in the picker and in /
-- feat: show retries in progress from describe
+- **Find past the pane**: `<Space>ff` sends a prompt of six characters or more to the server
+  as a `WorkflowId` or a `RunId`, 300ms after typing stops, so an id pasted from a log finds
+  its workflow whether or not the pane has loaded it. Matches are tagged `found by id` and
+  open from the picker. `/` on a history keeps reading pages until the pattern turns up;
+  `<Esc>` stops it. On a workflow list `/` stays local, the query bar is the server-side
+  filter.
+- **Retries in progress**: a running workflow's activity now shows `×4/10` (`∞` when the
+  policy never gives up), `retry in 12s` while it backs off, and the failure that caused the
+  retry. `K` adds the state, the next attempt time and the worker that ran the last one.
+  Temporal writes no event for a retry, so this comes from describe: read when the history
+  opens, on `R`, and every 5s under `F`.
 
 ## 0.1.1-rc.3 — 2026-09-19
 
