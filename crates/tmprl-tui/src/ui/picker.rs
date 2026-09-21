@@ -112,6 +112,12 @@ fn render_list(frame: &mut Frame, area: Rect, picker: &Picker, t: &Theme) {
                 Style::new().fg(t.accent),
             )];
             spans.extend(marked(&item.label, &m.positions, base, t));
+            if item.lookup {
+                // Nothing in the prompt is underlined on this row, because what matched is
+                // a field the label does not show. Saying where it came from is the
+                // difference between "I had missed it" and "the server was asked".
+                spans.push(Span::styled("  found by id", Style::new().fg(t.accent)));
+            }
             if !item.note.is_empty() {
                 spans.push(Span::styled(
                     format!("  {}", item.note),

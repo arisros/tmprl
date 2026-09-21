@@ -20,7 +20,7 @@
 //! on screen, this one reorders a list by how well it matches.
 
 /// A scored hit.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Match {
     /// Higher is better. Only comparable between matches on the same needle.
     pub score: i32,

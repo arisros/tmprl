@@ -422,3 +422,163 @@ fn the_command_picker_finds_a_command_by_its_title() {
         "got {shown:?}"
     );
 }
+
+#[test]
+fn a_prompt_the_loaded_rows_cannot_answer_is_one_for_the_server() {
+    let mut app = app();
+    four(&mut app);
+    app.run("find.workflow", None);
+
+    type_into_picker(&mut app, "order");
+    assert!(
+        !app.picker_wants_server(),
+        "the loaded rows answer this one"
+    );
+
+    type_into_picker(&mut app, "-r2");
+    assert!(!app.picker_wants_server(), "still a local match");
+
+    app.picker = None;
+    app.run("find.workflow", None);
+    type_into_picker(&mut app, "20e3bca5");
+    assert!(
+        app.picker.as_ref().unwrap().is_empty(),
+        "nothing loaded matches it"
+    );
+    assert!(app.picker_wants_server(), "this is what the server is for");
+}
+
+#[test]
+fn a_few_characters_are_not_worth_a_query() {
+    // Three characters of a UUID match half a namespace; the round trip would be spent to
+    // say so.
+    let mut app = app();
+    four(&mut app);
+    app.run("find.workflow", None);
+    type_into_picker(&mut app, "zzz");
+    assert!(app.picker.as_ref().unwrap().is_empty());
+    assert!(!app.picker_wants_server());
+}
+
+#[test]
+fn a_reply_for_a_prompt_since_retyped_is_dropped() {
+    let mut app = app();
+    four(&mut app);
+    app.run("find.workflow", None);
+    type_into_picker(&mut app, "20e3bca5");
+    let stale = app.picker_search.wrapping_sub(1);
+
+    app.handle(Msg::PickerFound {
+        search: stale,
+        result: Ok(vec![wf("default", "20e3bca5-b066", 500)]),
+    });
+    assert!(app.picker.as_ref().unwrap().is_empty(), "not this prompt");
+}
+
+#[test]
+fn a_workflow_the_server_found_opens_although_no_pane_lists_it() {
+    // The whole point of the fallback: this run is in no table on screen, so opening it
+    // cannot go through the list the picker was built from.
+    let mut app = app();
+    four(&mut app);
+    app.run("find.workflow", None);
+    type_into_picker(&mut app, "20e3bca5");
+
+    let mut found = wf("default", "20e3bca5-b066-42b3-aef1-6da8bde9e5c5", 500);
+    found.workflow_id = "20e3bca5-b066-42b3-aef1-6da8bde9e5c5".into();
+    app.handle(Msg::PickerFound {
+        search: app.picker_search,
+        result: Ok(vec![found.clone()]),
+    });
+
+    assert_eq!(picker_labels(&app), vec![found.workflow_id.clone()]);
+    app.handle(Msg::Key(Chord::plain(Key::Enter)));
+    assert_eq!(app.view.screen, Screen::History);
+    assert_eq!(
+        app.view.viewing.as_ref().map(|w| w.run_id.clone()),
+        Some(found.run_id)
+    );
+}
+
+#[test]
+fn a_search_that_runs_out_of_loaded_events_reads_on() {
+    // The activity is 900 events in; the pane has the first page. Saying "no match" would
+    // be answering a question about the page, not about the run.
+    let mut app = half_read_history();
+    search_for(&mut app, "Settle");
+
+    let (note, _) = app.note.clone().expect("should say what it is doing");
+    assert!(note.contains("reading on"), "{note}");
+
+    use tmprl_core::history::{Category as C, GroupRef as G, Role as R};
+    let next = vec![hev(9, G::Opened(9), R::Opens, C::Activity).with_subject("Settle")];
+    app.handle(Msg::History {
+        generation: app.view.generation,
+        result: Ok((next, Vec::new())),
+    });
+
+    let (note, level) = app.note.clone().unwrap();
+    assert_eq!(level, Note::Info);
+    assert!(note.contains("found after reading"), "{note}");
+    assert!(
+        app.view.search_labels()[app.view.cursor].contains("Settle"),
+        "the cursor must be on it"
+    );
+}
+
+#[test]
+fn a_pattern_in_no_page_of_the_run_says_so_once_the_run_is_read() {
+    let mut app = half_read_history();
+    search_for(&mut app, "Nowhere");
+    app.handle(Msg::History {
+        generation: app.view.generation,
+        result: Ok((Vec::new(), Vec::new())),
+    });
+
+    let (note, level) = app.note.clone().unwrap();
+    assert_eq!(level, Note::Warn);
+    assert!(note.contains("whole history"), "{note}");
+}
+
+#[test]
+fn escape_stops_a_search_that_is_still_reading() {
+    let mut app = half_read_history();
+    search_for(&mut app, "Settle");
+    app.handle(Msg::Key(Chord::plain(Key::Esc)));
+
+    let (note, _) = app.note.clone().unwrap();
+    assert!(note.contains("search stopped"), "{note}");
+
+    // A page that lands after the stop must not restart it.
+    use tmprl_core::history::{Category as C, GroupRef as G, Role as R};
+    app.handle(Msg::History {
+        generation: app.view.generation,
+        result: Ok((
+            vec![hev(9, G::Opened(9), R::Opens, C::Activity).with_subject("Settle")],
+            b"more".to_vec(),
+        )),
+    });
+    let (note, _) = app.note.clone().unwrap();
+    assert!(!note.contains("still looking"), "{note}");
+}
+
+#[test]
+fn a_fully_loaded_history_still_just_says_no_match() {
+    // Nothing to read on to: the answer is about the run, not about a page.
+    let mut app = viewing_history();
+    search_for(&mut app, "Nowhere");
+    let (note, level) = app.note.clone().unwrap();
+    assert_eq!(level, Note::Warn);
+    assert!(note.contains("no match"), "{note}");
+}
+
+#[test]
+fn a_search_over_a_workflow_list_never_reads_on() {
+    // Only a history is finite and one run's business. Paging a namespace to find a row is
+    // a different, unbounded thing.
+    let mut app = app();
+    four(&mut app);
+    search_for(&mut app, "Nowhere");
+    let (note, _) = app.note.clone().unwrap();
+    assert!(note.contains("no match"), "{note}");
+}
