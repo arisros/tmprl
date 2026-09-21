@@ -49,7 +49,8 @@ tmprl --config-path      # every file tmprl reads, and whether it exists
 | `<Space>T` | times as a clock or an age | `R` | reload from the server |
 | `?` `:` | help / command line | `<Space>q` | quit |
 
-Yank is OSC 52, so it reaches your clipboard through SSH and tmux. `?` and `:` are generated
+Yank is OSC 52, so it reaches your clipboard through SSH; inside tmux it goes through
+`tmux load-buffer -w`, which needs no tmux settings of your own. `?` and `:` are generated
 from the command registry, so they cannot go stale. `keys.toml` rebinds anything.
 
 ## Payloads
