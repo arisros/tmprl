@@ -146,48 +146,43 @@ impl App {
 
     /// Clauses to build a visibility query out of.
     ///
-    /// Two sources, and the second is the point of the thing. The statuses are fixed and
-    /// come from the protocol. The **types and task queues are read off the rows already
-    /// loaded**, so the picker offers the values that actually exist in this namespace
-    /// rather than asking you to remember how a workflow type is spelled.
+    /// The catalogue itself is [`tmprl_core::filter`], which is pure and tested there. This
+    /// only gathers what it needs from the session: the values on the rows already loaded,
+    /// so the offers are ones that exist in this namespace, and the search attributes the
+    /// cluster registered, so a custom attribute comes with a clause shaped to its type.
     ///
     /// Each entry is a clause, not a whole query: accepting one appends it to the bar with
     /// `AND`, and leaves the text editable. The query is the interface, and a builder that
     /// replaced it with something you could not see is the web UI's mistake.
     pub(super) fn filter_items(&self) -> Vec<picker::Item> {
-        let mut items: Vec<picker::Item> = WorkflowStatus::DISPLAY_ORDER
-            .iter()
-            .map(|s| {
-                let clause = format!("ExecutionStatus = '{}'", s.query_name());
-                picker::Item::new(clause.clone(), Target::Query(clause)).with_note("status")
-            })
-            .collect();
-
         let rows = self.view.workflow_rows();
         let mut types: Vec<&str> = rows.iter().map(|w| w.workflow_type.as_str()).collect();
         types.sort_unstable();
         types.dedup();
-        for t in types {
-            let clause = format!("WorkflowType = '{t}'");
-            items.push(picker::Item::new(clause.clone(), Target::Query(clause)).with_note("type"));
-        }
-
         let mut queues: Vec<&str> = rows.iter().map(|w| w.task_queue.as_str()).collect();
         queues.sort_unstable();
         queues.dedup();
-        for q in queues {
-            let clause = format!("TaskQueue = '{q}'");
-            items.push(
-                picker::Item::new(clause.clone(), Target::Query(clause)).with_note("task queue"),
-            );
-        }
 
-        for clause in ["ORDER BY StartTime DESC", "ORDER BY StartTime ASC"] {
-            items.push(
-                picker::Item::new(clause, Target::Query(clause.to_string())).with_note("order"),
-            );
-        }
-        items
+        let facts = filter::Facts {
+            types: &types,
+            queues: &queues,
+            attributes: self
+                .search_attributes
+                .value()
+                .map(Vec::as_slice)
+                .unwrap_or(&[]),
+            now_ms: now_ms(),
+            clock: &self.clock,
+        };
+
+        filter::clauses(&facts)
+            .into_iter()
+            .map(|c| {
+                picker::Item::new(c.text.clone(), Target::Query(c.text))
+                    .with_note(c.note)
+                    .searchable_as(c.keywords)
+            })
+            .collect()
     }
 
     pub(super) fn picker_key(&mut self, chord: Chord) {

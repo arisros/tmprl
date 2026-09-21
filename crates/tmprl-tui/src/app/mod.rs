@@ -37,6 +37,7 @@ use std::sync::Arc;
 use tmprl_client::{Codec, Conn, NamespaceInfo};
 use tmprl_core::ScheduleRow;
 use tmprl_core::clock::{Clock, TimeFormat};
+use tmprl_core::filter::{self, SearchAttribute};
 use tmprl_core::form::Form;
 use tmprl_core::history::{NormalizedEvent, group_events, merge_events};
 use tmprl_core::jumplist::Jumplist;
@@ -49,7 +50,7 @@ use tmprl_core::search::{self, Search};
 use tmprl_core::timerange::parse_backfill;
 use tmprl_core::{
     Action, Chord, Keymap, Loadable, Mode, PayloadPart, Pending, PendingEntry, Registry,
-    Resolution, SavedView, StatusCounts, WorkflowList, WorkflowRow, WorkflowStatus, default_keymap,
+    Resolution, SavedView, StatusCounts, WorkflowList, WorkflowRow, default_keymap,
 };
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -238,6 +239,11 @@ pub enum Msg {
     Redraw,
     Quit,
     Namespaces(Result<Vec<NamespaceInfo>, String>),
+    /// What the cluster lets you filter on, for the namespace named.
+    SearchAttributes {
+        namespace: String,
+        result: Result<Vec<SearchAttribute>, String>,
+    },
     /// A page of the workflow list. `generation` is the query this was issued for; a reply
     /// for a superseded query is dropped rather than pasted over the current one.
     Workflows {
@@ -340,6 +346,13 @@ pub struct App {
     decode_failed: HashMap<u64, String>,
     codec: Option<Arc<Codec>>,
     pub views: Vec<SavedView>,
+    /// What this cluster lets you filter on, fetched once per namespace the first time the
+    /// filter picker is opened. Session-level rather than per-pane: it is a property of the
+    /// cluster, and every pane is on the same one.
+    pub search_attributes: Loadable<Vec<SearchAttribute>>,
+    /// The namespace `search_attributes` was fetched for, so switching namespace refetches
+    /// rather than offering the previous one's custom attributes.
+    attributes_for: Option<String>,
 
     pub which_key: Vec<PendingEntry>,
     pub show_help: bool,
@@ -453,6 +466,8 @@ impl App {
             decode_failed: HashMap::new(),
             codec: None,
             views: Vec::new(),
+            search_attributes: Loadable::default(),
+            attributes_for: None,
             which_key: Vec::new(),
             show_help: false,
             help_scroll: 0,
@@ -629,6 +644,20 @@ impl App {
                     self.decode_failed.insert(key, e.clone());
                 }
                 self.note = Some((e, Note::Error));
+            }
+            Msg::SearchAttributes { namespace, result } => {
+                // Checked against the namespace on screen, not against the one the fetch
+                // was issued for: what matters is whether these attributes describe what
+                // is being filtered now, and a reply from a namespace since left does not.
+                if namespace != self.namespace() {
+                    return;
+                }
+                match result {
+                    Ok(attrs) => self.search_attributes = Loadable::loaded(attrs),
+                    // Not a note: nothing asked for this out loud, and the rest of the
+                    // catalogue works without it. The picker says so in its own list.
+                    Err(e) => self.search_attributes = Loadable::Failed(e),
+                }
             }
             Msg::Namespaces(Ok(list)) => {
                 self.view.namespaces = Loadable::loaded(list);

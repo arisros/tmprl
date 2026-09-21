@@ -181,9 +181,21 @@ Temporal ids, so an unranked list buries the hit you want. Word starts, contiguo
 early matches all score, and the characters that matched are highlighted in each row, so the
 ranking can be read rather than guessed at. The same matcher backs `:` completion.
 
-`<leader>fg` builds its clauses from the **rows already loaded**: the workflow types and task
-queues it offers are the ones this namespace actually has. Accepting one `AND`s it onto the
-query bar and leaves the text editable, so filters compose by visiting the picker twice.
+`<leader>fg` builds its clauses from three places, and two of them are the point. Statuses
+are fixed by the protocol. Workflow types and task queues come from the **rows already
+loaded**, so the values offered are ones this namespace actually has. Search attributes come
+from the **cluster**, so a custom `CustomerId` is offered without anyone having hardcoded it,
+in the shape its type demands: a keyword takes `= ''`, an int takes `> 0`, a datetime takes a
+timestamp, and offering the wrong one would look right and fail on send.
+
+Time windows are offered as the instant they mean, `StartTime > '2026-09-21T06:03:22Z'`,
+because the visibility grammar has no `now()`. The instant is computed when the picker opens,
+so the clause is a fixed point rather than a window sliding while you read it. A timestamp is
+unsearchable by eye, so those entries also match on words that are never shown: typing
+`last hour` finds the one an hour back, `today` finds midnight **in your zone**, not UTC.
+
+Accepting one `AND`s it onto the query bar and leaves the text editable, so filters compose
+by visiting the picker twice.
 
 ### Windows
 

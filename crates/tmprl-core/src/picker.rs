@@ -53,6 +53,10 @@ pub struct Item {
     /// The body of the preview pane. Empty means the picker has no preview to show, which
     /// is the honest thing for a list of command ids.
     pub preview: String,
+    /// Matched against but never shown: the words for something the label cannot be read
+    /// as. A clause like `StartTime > '2026-09-21T06:03:22Z'` is unfindable otherwise,
+    /// because nobody knows what hour that was.
+    pub keywords: String,
     pub target: Target,
 }
 
@@ -64,6 +68,7 @@ impl Item {
             lookup: false,
             note: String::new(),
             preview: String::new(),
+            keywords: String::new(),
             target,
         }
     }
@@ -83,6 +88,22 @@ impl Item {
         self.fetched = true;
         self.lookup = true;
         self
+    }
+
+    pub fn searchable_as(mut self, keywords: impl Into<String>) -> Self {
+        self.keywords = keywords.into();
+        self
+    }
+
+    /// What the prompt is matched against: the label, and the hidden keywords when there
+    /// are any. Positions past the label are ignored by the renderer, which highlights the
+    /// label alone.
+    fn haystack(&self) -> String {
+        if self.keywords.is_empty() {
+            self.label.clone()
+        } else {
+            format!("{} {}", self.label, self.keywords)
+        }
     }
 }
 
@@ -247,7 +268,7 @@ impl Picker {
             if item.lookup {
                 // Nothing to highlight: what matched is a field the label does not show.
                 fetched.push((at, Match::default()));
-            } else if let Some(m) = fuzzy::match_score(&self.prompt, &item.label) {
+            } else if let Some(m) = fuzzy::match_score(&self.prompt, &item.haystack()) {
                 local.push((at, m));
             }
         }
