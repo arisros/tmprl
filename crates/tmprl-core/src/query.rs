@@ -27,6 +27,34 @@ pub fn count_query(filter: &str) -> String {
     }
 }
 
+/// The query that finds the execution someone typed the id of.
+///
+/// Both fields, because the id pasted out of a log line is as often a run id as a workflow
+/// id and there is no telling them apart by shape: both are usually UUIDs.
+///
+/// `None` when the text cannot go inside a quoted literal. Temporal's grammar has no
+/// escape for a single quote, so a prompt containing one is not a query this can build,
+/// and guessing would send the server something that means something else.
+pub fn by_id(text: &str) -> Option<String> {
+    let text = quotable(text)?;
+    Some(format!("WorkflowId = '{text}' OR RunId = '{text}'"))
+}
+
+/// The same, for a prefix of a workflow id.
+///
+/// Separate from [`by_id`] rather than an `OR` with it: `STARTS_WITH` needs advanced
+/// visibility, so a store that lacks it must reject only this query, leaving the exact
+/// lookup above to work everywhere.
+pub fn by_prefix(text: &str) -> Option<String> {
+    let text = quotable(text)?;
+    Some(format!("WorkflowId STARTS_WITH '{text}'"))
+}
+
+fn quotable(text: &str) -> Option<&str> {
+    let text = text.trim();
+    (!text.is_empty() && !text.contains('\'')).then_some(text)
+}
+
 /// Remove a trailing `<keyword> ...` clause, if the query has one.
 ///
 /// Matching is case-insensitive and skips anything inside single quotes, so a workflow id
@@ -104,6 +132,30 @@ fn is_word_byte(b: u8) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_id_is_looked_up_as_either_kind_of_id() {
+        // Pasting a UUID out of a log says nothing about which one it is.
+        let q = by_id("20e3bca5-b066").expect("plain text is quotable");
+        assert!(q.contains("WorkflowId = '20e3bca5-b066'"), "{q}");
+        assert!(q.contains("RunId = '20e3bca5-b066'"), "{q}");
+    }
+
+    #[test]
+    fn a_quote_in_the_prompt_builds_no_query() {
+        // Temporal's grammar has no escape for it, so there is no safe query to send.
+        assert_eq!(by_id("o'brien"), None);
+        assert_eq!(by_prefix("o'brien"), None);
+        assert_eq!(by_id("   "), None);
+    }
+
+    #[test]
+    fn a_prefix_query_is_kept_apart_from_the_exact_one() {
+        // STARTS_WITH needs advanced visibility; a store without it must be able to reject
+        // this one while the exact lookup still works.
+        let q = by_prefix("order-").expect("quotable");
+        assert_eq!(q, "WorkflowId STARTS_WITH 'order-'");
+    }
 
     #[test]
     fn an_empty_filter_still_groups() {

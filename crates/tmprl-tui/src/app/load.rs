@@ -106,6 +106,10 @@ impl App {
     /// re-grouped whenever one lands, because a page boundary routinely falls inside a
     /// group.
     pub fn load_history(&mut self) {
+        self.load_history_page(HISTORY_PAGE_SIZE);
+    }
+
+    pub(super) fn load_history_page(&mut self, page_size: i32) {
         let Some(row) = self.view.viewing.clone() else {
             return;
         };
@@ -136,7 +140,7 @@ impl App {
                     &row.namespace,
                     &row.workflow_id,
                     &row.run_id,
-                    HISTORY_PAGE_SIZE,
+                    page_size,
                     token,
                 )
                 .await
