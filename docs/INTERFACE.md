@@ -4,7 +4,7 @@
 > workflow history outline, follow mode, payload rendering and piping, the visibility query
 > bar, saved views, search, the pickers, the jumplist, counts, which-key, the `:` command
 > line, the help overlay and yank all work today. Bindings for features that do not exist
-> yet (marks, macros, `.`, and the M5 quickfix list) are **specified here but deliberately
+> yet (marks, macros, `.`, and the quickfix list) are **specified here but deliberately
 > not bound**, a key
 > that opens an empty screen is worse than a key that does nothing at all. The keymap
 > tables below mark which is which.
@@ -91,10 +91,10 @@ Leader is `Space`. A which-key-style popup appears after 500ms on an incomplete 
 | `Enter` | open the focused item, namespace → workflows → history | **live** |
 | `Enter` (in Visual) | open every selected namespace as one merged list | **live** |
 | `-` | **go up a level**, run → workflow → namespace → cluster | **live** |
-| `<leader>-` | floating object browser | M2 |
+| `<leader>-` | floating object browser | planned |
 | `<C-o>` / `<C-i>` (or `<Tab>`) | jumplist back / forward | **live** |
 | `<leader>N` | switch namespace | **live** |
-| `<leader>P` | switch connection profile | M2 |
+| `<leader>P` | switch connection profile | planned |
 
 Multi-namespace is a visual selection rather than a picker: `V j <CR>` on the namespace list
 opens those namespaces as one table, merge-sorted by start time, with each row tagged by the
@@ -166,7 +166,7 @@ lists them by name.
 
 The visibility query is always on screen and always the raw string. Anything that filters the
 list writes *into* that text rather than replacing it with a structure you cannot see: a
-saved view fills the bar and leaves it editable, and the filter builder planned for M2 will
+saved view fills the bar and leaves it editable, and the filter builder, when it lands, will
 do the same. This is the one piece of the web UI's design being deliberately rejected rather
 than ported, a lossy abstraction over the query is what makes that filter widget
 frustrating to use.
@@ -296,8 +296,8 @@ closed is refused with a message instead of polling for events that can never ar
 | `zg` | fold or unfold the timeline's idle stretches | **live** |
 | `]f` / `[f` | jump to the next / previous failure | **live** |
 | `F` | follow, tail a running workflow | **live** |
-| `<leader>cs` | call stack (`__stack_trace` query) | M2 |
-| `<leader>cq` | send a query to the workflow | M2 |
+| `<leader>cs` | call stack (`__stack_trace` query) | planned |
+| `<leader>cq` | send a query to the workflow | planned |
 | `!` | pipe the focused payloads through a command | **live** |
 | `K` | show the payloads and the full failure under the cursor | **live** |
 | `<C-e>` / `<C-y>` | scroll the payload pane | **live** |
@@ -314,7 +314,7 @@ closed is refused with a message instead of polling for events that can never ar
 | `R` | reload from the server | **live** |
 | `<leader>T` | times as a clock reading or as an age | **live** |
 | `<leader>q` / `<C-c>` | quit | **live** |
-| `<C-q>` | send selection to the quickfix list | M5 |
+| `<C-q>` | send selection to the quickfix list | planned |
 | `<leader>mc` | cancel this workflow, or the selection | **live** |
 | `<leader>mt` | terminate this workflow, or the selection | **live** |
 | `<leader>ms` | signal this workflow, or the selection | **live** |
@@ -327,7 +327,7 @@ closed is refused with a message instead of polling for events that can never ar
 | `<leader>mn` | create a schedule, in a form | **live** |
 | `<leader>mu` | send an update and wait for its outcome | **live** |
 | `<leader>xx` | problem list, failed / timed out / terminated | **live** |
-| `<leader>xQ` | open the quickfix list | M5 |
+| `<leader>xQ` | open the quickfix list | planned |
 
 The quickfix list is how batch operations are staged. Select rows, `<C-q>` to stage them,
 then run an operation over the staged set. Staging is a visible, editable list rather than an
@@ -354,7 +354,9 @@ that is silently dropped is a key that does nothing, with no way to find out why
 ## Destructive actions
 
 **Live for one workflow at a time**: cancel, terminate, signal, delete, reset and update,
-under `<leader>m`, clear of bare `m`, which marks reserve. Batch operations are M5.
+under `<leader>m`, clear of bare `m`, which marks reserve. A batch over a *query*, which is
+Temporal's own server-side batch API, is planned for 0.2.0; the batch over a selection of rows
+described above is live.
 
 `<leader>mr` resets to the event under the cursor. Temporal only resets to a *completed
 workflow task*, and those are the rows the outline folds away, so the target resolves backwards
@@ -383,8 +385,8 @@ While it is up it owns every key, so nothing bound elsewhere can fire underneath
 is always a way out. **Delete asks for more**: it destroys the history itself, not just the
 run, so it wants the word `delete` typed.
 
-Batch operations will additionally show a `CountWorkflowExecutions` dry run and require typing
-the affected count. Every mutation appends to `~/.local/state/tmprl/audit.jsonl`, failures
+A query-driven batch will additionally show a `CountWorkflowExecutions` dry run and require
+typing the affected count. Every mutation appends to `~/.local/state/tmprl/audit.jsonl`, failures
 included, the question that log answers is what was *attempted*.
 
 ## Theming

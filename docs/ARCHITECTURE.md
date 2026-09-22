@@ -49,7 +49,7 @@ logic that deserves to be tested without a server anywhere in sight.
 │                 No ratatui types, just rectangles and a tree.   │
 ├──────────────────────────────────────────────────────────────────┤
 │  tmprl-core     Domain logic. History normalisation, visibility  │
-│                 queries, diff, the command registry, the keymap. │
+│                 queries, the command registry, the keymap.       │
 │                 Pure and synchronous. No IO, no async.           │
 ├──────────────────────────────────────────────────────────────────┤
 │  tmprl-client   All network IO. gRPC, TLS, profiles, codec.      │
@@ -284,7 +284,7 @@ welcome.
 ### The raw query is the interface
 
 The visibility query is always on screen and always the literal string sent to the server.
-Saved views fill it and leave it editable; the filter builder planned for M2 will compile
+Saved views fill it and leave it editable; the filter builder, when it lands, will compile
 into it. Nothing holds a structured filter that renders down to a query the user cannot see
 or correct, that abstraction is the most irritating thing about the web UI's filter bar, and
 it is being deliberately rejected rather than ported.
@@ -386,7 +386,7 @@ Groups are the unit of everything downstream:
 - **Timeline view** · BUILT: each group's events as dots on one axis, the web UI's layout, with
   idle stretches folded (`tmprl-core::timeline`)
 - **Outline**: a collapsible tree of groups, for jumping around a long history
-- **Diff**: two histories aligned by group key, via LCS
+- **Diff** · planned: two histories aligned by group, via LCS
 
 **Stage 3: virtualise · BUILT.** Only the visible slice is ever turned into rendered rows.
 Scrolling a 100k-event history moves an index; it does not rebuild a list.
@@ -576,7 +576,7 @@ Two failure modes are refused rather than guessed around:
 
 ---
 
-## 9. Mutations · BUILT (single workflows; batch is M5)
+## 9. Mutations · BUILT (single workflows, and a batch over selected rows)
 
 `tmprl` can terminate workflows and run batch operations across thousands of them. The
 safety design is deliberate:
