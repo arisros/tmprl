@@ -26,7 +26,7 @@ use temporalio_common::protos::temporal::api::{
     enums::v1::HistoryEventFilterType,
     failure::v1::{Failure, failure::FailureInfo},
     history::v1::{HistoryEvent, history_event::Attributes},
-    update::v1::outcome::Value as OutcomeValue,
+    update::v1::{Request as UpdateRequest, outcome::Value as OutcomeValue},
     workflowservice::v1::GetWorkflowExecutionHistoryRequest,
 };
 use tmprl_core::history::{
@@ -186,6 +186,28 @@ pub(crate) fn normalize_failure(f: Failure) -> CoreFailure {
         // Recursion is bounded by the message the server sent, which it built from a
         // bounded chain; a cycle is not representable in the protobuf.
         cause: f.cause.map(|c| Box::new(normalize_failure(*c))),
+    }
+}
+
+/// The update handler being called, and the arguments it was called with.
+///
+/// The name is what a reader recognises: `data-forward-cancel`, the handler the caller asked
+/// for. It sits two levels down on the request, beside the arguments, on every one of the
+/// three update events that echo a request back.
+fn handler_and_input(request: Option<UpdateRequest>) -> (String, Option<Payloads>) {
+    match request.and_then(|r| r.input) {
+        Some(input) => (input.name, input.args),
+        None => (String::new(), None),
+    }
+}
+
+/// The id, when the request carried no name. A row has to say something, and the id is the
+/// only other thing that identifies this update.
+fn or_id(name: String, id: &str) -> String {
+    if name.is_empty() {
+        id.to_string()
+    } else {
+        name
     }
 }
 
@@ -598,17 +620,20 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
         )
         .ends(Outcome::Completed),
 
-        Some(Attributes::WorkflowExecutionUpdateAdmittedEventAttributes(_)) => {
+        Some(Attributes::WorkflowExecutionUpdateAdmittedEventAttributes(a)) => {
+            let (name, input) = handler_and_input(a.request);
             at(Category::Update, GroupRef::Opened(id), Role::Opens)
+                .subject(name)
+                .args("input", input)
         }
         Some(Attributes::WorkflowExecutionUpdateAcceptedEventAttributes(a)) => {
-            // The arguments live two levels down, on the request the acceptance echoes back.
-            let input = a
-                .accepted_request
-                .and_then(|r| r.input)
-                .and_then(|i| i.args);
+            // Both live two levels down, on the request the acceptance echoes back.
+            let (name, input) = handler_and_input(a.accepted_request);
             at(Category::Update, GroupRef::Opened(id), Role::Opens)
-                .subject(a.protocol_instance_id)
+                // The handler's name, not `protocol_instance_id`: that is a UUID, and a
+                // list of UUIDs is a list you cannot read or search. The id is a field.
+                .subject(or_id(name, &a.protocol_instance_id))
+                .field("updateId", a.protocol_instance_id)
                 .args("input", input)
         }
         Some(Attributes::WorkflowExecutionUpdateCompletedEventAttributes(a)) => {
@@ -628,9 +653,13 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
             }
         }
         Some(Attributes::WorkflowExecutionUpdateRejectedEventAttributes(a)) => {
-            // Rejected before acceptance, so there is no accepted event to hang it on.
+            // Rejected before acceptance, so there is no accepted event to hang it on. The
+            // request is still echoed back, so the handler that was asked for is known.
+            let (name, input) = handler_and_input(a.rejected_request);
             at(Category::Update, GroupRef::Opened(id), Role::Opens)
-                .subject(a.protocol_instance_id)
+                .subject(or_id(name, &a.protocol_instance_id))
+                .field("updateId", a.protocol_instance_id)
+                .args("input", input)
                 .ends(Outcome::Rejected)
                 .failed(a.failure)
         }
@@ -744,9 +773,12 @@ mod tests {
             TimerFiredEventAttributes, TimerStartedEventAttributes,
             WorkflowExecutionCompletedEventAttributes, WorkflowExecutionSignaledEventAttributes,
             WorkflowExecutionStartedEventAttributes,
+            WorkflowExecutionUpdateAcceptedEventAttributes,
+            WorkflowExecutionUpdateAdmittedEventAttributes,
             WorkflowExecutionUpdateCompletedEventAttributes,
+            WorkflowExecutionUpdateRejectedEventAttributes,
         },
-        update::v1::Outcome as UpdateOutcome,
+        update::v1::{Input as UpdateInput, Outcome as UpdateOutcome},
     };
 
     fn event(id: i64, ty: EventType, attrs: Attributes) -> HistoryEvent {
@@ -1181,6 +1213,116 @@ mod tests {
 
         let labels: Vec<&str> = n.payloads.iter().map(|(l, _)| l.as_str()).collect();
         assert_eq!(labels, ["data", "side-effect-id"]);
+    }
+
+    #[test]
+    fn an_accepted_update_is_named_by_its_handler_not_by_its_uuid() {
+        // A real one: `data-forward-cancel` is what the caller asked for and what a reader
+        // is looking for. `protocol_instance_id` is a UUID, and a list of those is a list
+        // nobody can read or search.
+        let n = normalize(event(
+            699,
+            EventType::WorkflowExecutionUpdateAccepted,
+            Attributes::WorkflowExecutionUpdateAcceptedEventAttributes(
+                WorkflowExecutionUpdateAcceptedEventAttributes {
+                    protocol_instance_id: "100c4af3-55f6-4ac8-9658-8b5354d66f08".into(),
+                    accepted_request: Some(UpdateRequest {
+                        input: Some(UpdateInput {
+                            name: "data-forward-cancel".into(),
+                            args: Some(Payloads {
+                                payloads: vec![json_payload("{\"actor_id\":\"099018\"}")],
+                            }),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+            ),
+        ));
+
+        assert_eq!(n.subject, "data-forward-cancel");
+        assert_eq!(n.category, Category::Update);
+        // The id is still on the event: it is what correlates this with the caller.
+        assert!(
+            n.fields
+                .iter()
+                .any(|(k, v)| *k == "updateId" && v == "100c4af3-55f6-4ac8-9658-8b5354d66f08"),
+            "the id must stay reachable: {:?}",
+            n.fields
+        );
+        assert!(
+            n.payloads.iter().any(|(label, _)| label == "input"),
+            "the arguments travel with the name: {:?}",
+            n.payloads
+        );
+    }
+
+    #[test]
+    fn a_rejected_update_says_which_handler_was_refused() {
+        let n = normalize(event(
+            8,
+            EventType::WorkflowExecutionUpdateRejected,
+            Attributes::WorkflowExecutionUpdateRejectedEventAttributes(
+                WorkflowExecutionUpdateRejectedEventAttributes {
+                    protocol_instance_id: "b2c3".into(),
+                    rejected_request: Some(UpdateRequest {
+                        input: Some(UpdateInput {
+                            name: "data-forward-cancel".into(),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }),
+                    failure: Some(Failure {
+                        message: "no such handler".into(),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+            ),
+        ));
+
+        assert_eq!(n.subject, "data-forward-cancel");
+        assert_eq!(n.outcome, Outcome::Rejected);
+    }
+
+    #[test]
+    fn an_admitted_update_is_named_too() {
+        let n = normalize(event(
+            5,
+            EventType::WorkflowExecutionUpdateAdmitted,
+            Attributes::WorkflowExecutionUpdateAdmittedEventAttributes(
+                WorkflowExecutionUpdateAdmittedEventAttributes {
+                    request: Some(UpdateRequest {
+                        input: Some(UpdateInput {
+                            name: "data-forward-cancel".into(),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+            ),
+        ));
+
+        assert_eq!(n.subject, "data-forward-cancel");
+    }
+
+    #[test]
+    fn an_update_with_no_request_falls_back_to_the_id_rather_than_a_blank_row() {
+        let n = normalize(event(
+            9,
+            EventType::WorkflowExecutionUpdateAccepted,
+            Attributes::WorkflowExecutionUpdateAcceptedEventAttributes(
+                WorkflowExecutionUpdateAcceptedEventAttributes {
+                    protocol_instance_id: "a1b2".into(),
+                    accepted_request: None,
+                    ..Default::default()
+                },
+            ),
+        ));
+
+        assert_eq!(n.subject, "a1b2", "a row has to say something");
     }
 
     #[test]
