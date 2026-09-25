@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2-rc.1 — 2026-09-25
+
+- fix: name an update by its handler, not by its uuid
+- docs: say what is built, and drop the milestone codes
+- docs: write the rc.4 notes for a reader, fix the yank line
+
 ## 0.1.1 — 2026-09-21
 
 - **Find past the pane**: `<Space>ff` asks the server when the rows a pane has loaded match
