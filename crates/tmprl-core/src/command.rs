@@ -75,7 +75,7 @@ pub enum Action {
     YankPayloadInput,
     YankPayloadResult,
     /// Fetch the next page of the workflow list. Driven by scrolling rather than by a key,
-    /// but it is a command so that `:` and macros reach it like anything else.
+    /// but it is a command so that `:` reaches it like anything else.
     LoadMore,
 
     // History
@@ -132,8 +132,9 @@ pub enum Action {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Command {
-    /// Stable identifier. This is what `keys.toml`, macros and `--exec` refer to, so it is
-    /// part of the public interface and must not change casually.
+    /// Stable identifier. This is what `keys.toml` refers to, and what macros and `--exec`
+    /// will refer to when they exist, so it is part of the public interface and must not
+    /// change casually.
     pub id: &'static str,
     pub title: &'static str,
     /// Grouping for the help overlay.
