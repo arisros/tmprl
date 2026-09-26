@@ -181,9 +181,36 @@ Temporal ids, so an unranked list buries the hit you want. Word starts, contiguo
 early matches all score, and the characters that matched are highlighted in each row, so the
 ranking can be read rather than guessed at. The same matcher backs `:` completion.
 
-`<leader>fg` builds its clauses from the **rows already loaded**: the workflow types and task
-queues it offers are the ones this namespace actually has. Accepting one `AND`s it onto the
-query bar and leaves the text editable, so filters compose by visiting the picker twice.
+`<leader>fg` builds its clauses from three places, and two of them are the point. Statuses
+are fixed by the protocol. Workflow types and task queues come from the **rows already
+loaded**, so the values offered are ones this namespace actually has. Search attributes come
+from the **cluster**, so a custom `CustomerId` is offered without anyone having hardcoded it,
+in the shape its type demands: a keyword takes `= ''`, an int takes `> 0`, a datetime takes a
+timestamp, and offering the wrong one would look right and fail on send.
+
+Time windows are offered as the instant they mean, `StartTime > '2026-09-21T06:03:22Z'`,
+because the visibility grammar has no `now()`. The instant is computed when the picker opens,
+so the clause is a fixed point rather than a window sliding while you read it. A timestamp is
+unsearchable by eye, so those entries also match on words that are never shown: typing
+`last hour` finds the one an hour back, `today` finds midnight **in your zone**, not UTC.
+
+Accepting one `AND`s it onto the query bar and leaves the text editable, so filters compose
+by visiting the picker twice.
+
+The same catalogue is reachable without leaving the bar. Typing in Insert mode offers the
+clauses that match what is being typed, and `<Tab>` takes the highlighted one (the jumplist's
+`<Tab>` is bound in Normal mode only, so the two never meet); `<C-n>` and
+`<C-p>` move through the list, and `<Esc>` dismisses it without costing the line. What is
+replaced is the whole **clause**, everything since the last `AND` or `OR`, not the word at
+the end: `ExecutionStatus = 'Running'` has spaces in it, and completing a word would leave
+the field name behind and produce `ExecutionStatus = ExecutionStatus = 'Running'`. A quoted
+literal is not a split, so `WorkflowId = 'send and forget'` stays one clause.
+
+Nothing is offered until something is typed, and nothing is offered once a clause ends in a
+space: a list that appears the moment Insert mode opens, or that offers back the text just
+finished, is in the way of the common case, which is typing a query you already know. `<Tab>`
+completes but never applies; `⏎` still applies, so a query typed in full is never diverted by
+a list nobody was reading.
 
 ### Windows
 

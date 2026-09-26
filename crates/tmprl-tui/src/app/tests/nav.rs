@@ -459,6 +459,117 @@ fn escape_abandons_a_query_edit() {
 }
 
 #[test]
+fn typing_in_the_query_bar_offers_the_clause_being_typed() {
+    let mut app = app();
+    loaded(&mut app, vec![], vec![]);
+    app.view.query.clear();
+
+    app.run("mode.insert", None);
+    assert!(app.completion.is_none(), "nothing typed, nothing offered");
+
+    type_chars(&mut app, "runn");
+    let offered: Vec<&str> = app
+        .completion
+        .as_ref()
+        .expect("offers")
+        .items()
+        .iter()
+        .map(|c| c.text.as_str())
+        .collect();
+    assert!(
+        offered.contains(&"ExecutionStatus = 'Running'"),
+        "got {offered:?}"
+    );
+}
+
+#[test]
+fn tab_splices_the_offer_into_the_bar_without_applying_it() {
+    let mut app = app();
+    loaded(&mut app, vec![], vec![]);
+    app.view.query.clear();
+
+    app.run("mode.insert", None);
+    type_chars(&mut app, "runn");
+    app.handle(Msg::Key(Chord::plain(Key::Tab)));
+
+    assert_eq!(app.query_display(), "ExecutionStatus = 'Running'");
+    assert_eq!(app.view.query, "", "Tab completes; it does not apply");
+    assert!(app.is_editing_query(), "and it stays in the bar, editable");
+    assert!(app.completion.is_none(), "the clause is finished");
+}
+
+#[test]
+fn a_completion_replaces_only_the_clause_being_typed() {
+    let mut app = app();
+    loaded(&mut app, vec![], vec![]);
+    app.view.query.clear();
+
+    app.run("mode.insert", None);
+    type_chars(&mut app, "WorkflowType = 'Checkout' AND runn");
+    app.handle(Msg::Key(Chord::plain(Key::Tab)));
+
+    assert_eq!(
+        app.query_display(),
+        "WorkflowType = 'Checkout' AND ExecutionStatus = 'Running'"
+    );
+}
+
+#[test]
+fn escape_closes_the_offers_before_it_abandons_anything() {
+    // The list was never asked for, so dismissing it must not cost the line being typed.
+    let mut app = app();
+    loaded(&mut app, vec![], vec![]);
+    app.view.query.clear();
+
+    app.run("mode.insert", None);
+    type_chars(&mut app, "runn");
+    assert!(app.completion.is_some());
+
+    app.handle(Msg::Key(Chord::plain(Key::Esc)));
+    assert!(app.completion.is_none(), "the first Esc closes the list");
+    assert!(app.is_editing_query(), "and keeps the edit");
+    assert_eq!(app.query_display(), "runn");
+
+    app.handle(Msg::Key(Chord::plain(Key::Esc)));
+    assert!(!app.is_editing_query(), "the second Esc leaves Insert mode");
+}
+
+#[test]
+fn backspacing_widens_the_offers_again() {
+    // A list that only ever narrowed would go empty on a backspace and stay there.
+    let mut app = app();
+    loaded(&mut app, vec![], vec![]);
+    app.view.query.clear();
+
+    app.run("mode.insert", None);
+    type_chars(&mut app, "runnzz");
+    assert!(app.completion.is_none(), "nothing matches `runnzz`");
+
+    app.handle(Msg::Key(Chord::plain(Key::Backspace)));
+    app.handle(Msg::Key(Chord::plain(Key::Backspace)));
+    assert!(
+        app.completion.is_some(),
+        "the offers must come back as the fragment shrinks"
+    );
+}
+
+#[test]
+fn enter_applies_the_query_rather_than_accepting_an_offer() {
+    // A query typed in full must never be diverted by a list nobody was reading.
+    let mut app = app();
+    loaded(&mut app, vec![], vec![]);
+    app.view.query.clear();
+
+    app.run("mode.insert", None);
+    type_chars(&mut app, "runn");
+    app.handle(Msg::Key(Chord::plain(Key::Enter)));
+
+    assert_eq!(app.view.query, "runn");
+    assert!(app.completion.is_none());
+    assert_eq!(app.mode, Mode::Normal);
+}
+
+#[test]
 fn insert_mode_on_the_namespace_screen_is_not_the_query_bar() {
     let mut app = app();
     app.run("mode.insert", None);

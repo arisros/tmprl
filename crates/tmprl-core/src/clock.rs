@@ -125,11 +125,31 @@ impl Clock {
         }
     }
 
+    /// Midnight at the start of `ms`'s day, in this zone, as epoch millis.
+    ///
+    /// "Today" is a zone's idea, not UTC's: someone in Jakarta asking for today's workflows
+    /// means since midnight where they are, which is 17:00 the previous day in UTC.
+    pub fn start_of_day(&self, ms: i64) -> Option<i64> {
+        let z = self.zoned(Some(ms))?;
+        z.start_of_day().ok()?.timestamp().as_millisecond().into()
+    }
+
     fn zoned(&self, ms: Option<i64>) -> Option<jiff::Zoned> {
         let ms = ms?;
         Timestamp::from_millisecond(ms)
             .ok()
             .map(|t| t.to_zoned(self.tz.clone()))
+    }
+}
+
+/// An instant as a query literal: `2026-09-21T07:03:22Z`, always UTC.
+///
+/// Deliberately not the viewing zone. This goes into a query the server parses, where an
+/// offset the reader has to think about is a way to be an hour wrong; `Z` is not.
+pub fn rfc3339_utc(ms: i64) -> String {
+    match Timestamp::from_millisecond(ms) {
+        Ok(t) => t.strftime("%Y-%m-%dT%H:%M:%SZ").to_string(),
+        Err(_) => String::new(),
     }
 }
 

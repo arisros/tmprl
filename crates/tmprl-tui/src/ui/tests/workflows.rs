@@ -86,6 +86,26 @@ fn the_query_bar_is_always_on_screen() {
 }
 
 #[test]
+fn the_offers_are_drawn_under_the_bar_with_the_key_that_takes_them() {
+    let mut app = app_with_workflows(&["default"]);
+    app.view.query.clear();
+    app.run("mode.insert", None);
+    for c in "runn".chars() {
+        app.handle(crate::app::Msg::Key(Chord::ch(c)));
+    }
+
+    let out = draw(&mut app, 110, 12);
+    assert!(
+        out.contains("ExecutionStatus = 'Running'"),
+        "the offer must be on screen, not only in state:\n{out}"
+    );
+    assert!(
+        out.contains("accept"),
+        "a list you cannot act on is in the way:\n{out}"
+    );
+}
+
+#[test]
 fn editing_the_query_shows_the_live_text_not_the_applied_one() {
     let mut app = app_with_workflows(&["default"]);
     app.view.query = "A = 1".into();

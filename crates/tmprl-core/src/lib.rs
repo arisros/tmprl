@@ -6,7 +6,9 @@
 
 pub mod clock;
 pub mod command;
+pub mod complete;
 pub mod config;
+pub mod filter;
 pub mod form;
 pub mod fuzzy;
 pub mod history;
@@ -30,6 +32,7 @@ pub mod workflow;
 pub use clock::{Clock, TimeFormat};
 pub use command::{Action, Command, PayloadPart, Registry};
 pub use config::{CodecConfig, Config, ConfigError, SavedView};
+pub use filter::{AttributeType, Clause, SearchAttribute};
 pub use fuzzy::Match;
 pub use history::{Category, Group, GroupRef, NormalizedEvent, Outcome, Role};
 pub use jumplist::Jumplist;

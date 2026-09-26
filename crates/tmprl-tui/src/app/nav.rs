@@ -248,6 +248,7 @@ impl App {
         // `R` is the retry: a codec that was down, or a key that was wrong, is usually
         // fixed outside tmprl, and nothing else would clear the recorded failures.
         self.decode_failed.clear();
+        self.forget_search_attributes();
         match self.view.screen {
             Screen::Namespaces => self.load_namespaces(),
             Screen::Workflows => self.load_workflows(false),
