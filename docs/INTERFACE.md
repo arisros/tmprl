@@ -197,6 +197,21 @@ unsearchable by eye, so those entries also match on words that are never shown: 
 Accepting one `AND`s it onto the query bar and leaves the text editable, so filters compose
 by visiting the picker twice.
 
+The same catalogue is reachable without leaving the bar. Typing in Insert mode offers the
+clauses that match what is being typed, and `<Tab>` takes the highlighted one (the jumplist's
+`<Tab>` is bound in Normal mode only, so the two never meet); `<C-n>` and
+`<C-p>` move through the list, and `<Esc>` dismisses it without costing the line. What is
+replaced is the whole **clause**, everything since the last `AND` or `OR`, not the word at
+the end: `ExecutionStatus = 'Running'` has spaces in it, and completing a word would leave
+the field name behind and produce `ExecutionStatus = ExecutionStatus = 'Running'`. A quoted
+literal is not a split, so `WorkflowId = 'send and forget'` stays one clause.
+
+Nothing is offered until something is typed, and nothing is offered once a clause ends in a
+space: a list that appears the moment Insert mode opens, or that offers back the text just
+finished, is in the way of the common case, which is typing a query you already know. `<Tab>`
+completes but never applies; `⏎` still applies, so a query typed in full is never diverted by
+a list nobody was reading.
+
 ### Windows
 
 | Key | Action | |

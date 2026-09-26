@@ -90,22 +90,70 @@ impl App {
         self.load_workflows(false);
     }
 
-    /// Literal input, plus the two editing keys a text field cannot do without.
+    /// Literal input, the two editing keys a text field cannot do without, and the keys
+    /// that drive the completion list under the bar.
     pub(super) fn insert_keys(&mut self, flushed: Vec<Chord>) {
-        use tmprl_core::Key;
+        use tmprl_core::{Key, Mods};
         for c in flushed {
             match c.key {
                 Key::Backspace if c.mods.is_none() => {
                     self.insert_buf.pop();
+                    self.recompute_completion();
                 }
+                // Enter applies the query rather than accepting an offer. The offer is on
+                // `<Tab>`, so a query you typed in full is never diverted by a list you
+                // were not reading.
                 Key::Enter if c.mods.is_none() => self.commit_insert(),
+                Key::Tab if c.mods.is_none() => self.accept_completion(),
+                Key::Char('n') if c.mods == Mods::CTRL => self.move_completion(1),
+                Key::Char('p') if c.mods == Mods::CTRL => self.move_completion(-1),
                 _ => {
                     if let Some(ch) = c.as_insertable() {
                         self.insert_buf.push(ch);
+                        self.recompute_completion();
                     }
                 }
             }
         }
+    }
+
+    /// Rebuild the offers for what is in the bar now.
+    ///
+    /// Recomputed per keystroke rather than filtered down: the fragment can grow *and*
+    /// shrink, and a list that only ever narrows would go empty on a backspace and stay
+    /// there.
+    pub(super) fn recompute_completion(&mut self) {
+        if !self.is_editing_query() {
+            self.completion = None;
+            return;
+        }
+        let clauses = self.filter_clauses();
+        self.completion = Completion::new(&self.insert_buf, clauses);
+    }
+
+    fn move_completion(&mut self, delta: isize) {
+        if let Some(c) = self.completion.as_mut() {
+            c.move_cursor(delta);
+        }
+    }
+
+    /// `<Tab>`: splice the selected offer into the bar, replacing the clause being typed.
+    ///
+    /// The query is *not* applied: the text lands in the bar and stays editable, which is
+    /// the rule the whole bar is built on. Enter still applies it.
+    fn accept_completion(&mut self) {
+        let Some(clause) = self
+            .completion
+            .as_ref()
+            .and_then(|c| c.selected())
+            .map(|c| c.text.clone())
+        else {
+            return;
+        };
+        self.insert_buf = complete::apply(&self.insert_buf, &clause);
+        // A fresh list for the text as it now stands: what was being typed is complete, so
+        // there is nothing left to offer for it.
+        self.completion = None;
     }
 
     /// Enter in Insert mode. On the query bar this applies the query and reloads.
@@ -117,6 +165,7 @@ impl App {
         self.mode = Mode::Normal;
         self.insert_target = InsertTarget::Scratch;
         self.insert_buf.clear();
+        self.completion = None;
         self.load_workflows(false);
     }
 }

@@ -37,6 +37,7 @@ use std::sync::Arc;
 use tmprl_client::{Codec, Conn, NamespaceInfo};
 use tmprl_core::ScheduleRow;
 use tmprl_core::clock::{Clock, TimeFormat};
+use tmprl_core::complete::{self, Completion};
 use tmprl_core::filter::{self, SearchAttribute};
 use tmprl_core::form::Form;
 use tmprl_core::history::{NormalizedEvent, group_events, merge_events};
@@ -350,6 +351,8 @@ pub struct App {
     /// filter picker is opened. Session-level rather than per-pane: it is a property of the
     /// cluster, and every pane is on the same one.
     pub search_attributes: Loadable<Vec<SearchAttribute>>,
+    /// The offers under the query bar while Insert mode owns it, `<Tab>` to accept.
+    pub completion: Option<Completion>,
     /// The namespace `search_attributes` was fetched for, so switching namespace refetches
     /// rather than offering the previous one's custom attributes.
     attributes_for: Option<String>,
@@ -467,6 +470,7 @@ impl App {
             codec: None,
             views: Vec::new(),
             search_attributes: Loadable::default(),
+            completion: None,
             attributes_for: None,
             which_key: Vec::new(),
             show_help: false,
@@ -956,6 +960,11 @@ impl App {
                 }
             }
             Action::LeaveInsert => {
+                // With offers on screen Esc dismisses those and leaves the edit alone: the
+                // list was not asked for, so closing it must not cost the line being typed.
+                if self.completion.take().is_some() {
+                    return;
+                }
                 // Esc abandons the edit; the applied query is unchanged. Enter applies,
                 // see `insert_keys`.
                 self.mode = Mode::Normal;

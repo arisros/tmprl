@@ -6,6 +6,7 @@
 
 pub mod clock;
 pub mod command;
+pub mod complete;
 pub mod config;
 pub mod filter;
 pub mod form;

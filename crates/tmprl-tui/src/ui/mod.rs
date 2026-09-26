@@ -2,6 +2,7 @@
 //! is mutated except the viewport height, which the layout is what determines.
 
 mod cmdline;
+mod complete;
 mod confirm;
 mod detail;
 mod form;
@@ -202,6 +203,10 @@ fn render_pane(
         Screen::Workflows => {
             query::render(frame, areas.query, view, app, theme, focused);
             workflows::render(frame, areas.list, view, app, theme);
+            // After the rows, because it sits over them.
+            if focused && let Some(c) = &app.completion {
+                complete::render(frame, areas.list, area, c, theme);
+            }
         }
         Screen::Schedules => schedules::render(frame, areas.list, view, app, theme),
         Screen::History => {

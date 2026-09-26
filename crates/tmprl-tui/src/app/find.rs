@@ -155,6 +155,19 @@ impl App {
     /// `AND`, and leaves the text editable. The query is the interface, and a builder that
     /// replaced it with something you could not see is the web UI's mistake.
     pub(super) fn filter_items(&self) -> Vec<picker::Item> {
+        self.filter_clauses()
+            .into_iter()
+            .map(|c| {
+                picker::Item::new(c.text.clone(), Target::Query(c.text))
+                    .with_note(c.note)
+                    .searchable_as(c.keywords)
+            })
+            .collect()
+    }
+
+    /// The catalogue itself, shared by the picker and by the completion under the query
+    /// bar: two ways to reach one list, not two lists that drift apart.
+    pub(super) fn filter_clauses(&self) -> Vec<filter::Clause> {
         let rows = self.view.workflow_rows();
         let mut types: Vec<&str> = rows.iter().map(|w| w.workflow_type.as_str()).collect();
         types.sort_unstable();
@@ -176,13 +189,6 @@ impl App {
         };
 
         filter::clauses(&facts)
-            .into_iter()
-            .map(|c| {
-                picker::Item::new(c.text.clone(), Target::Query(c.text))
-                    .with_note(c.note)
-                    .searchable_as(c.keywords)
-            })
-            .collect()
     }
 
     pub(super) fn picker_key(&mut self, chord: Chord) {
