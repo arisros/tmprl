@@ -39,6 +39,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
 
     // Scroll so the cursor stays on screen.
     let height = area.height as usize;
+    let area = super::list_scrollbar(frame, area, view.cursor, rows.len(), t);
     let first = app
         .view
         .cursor
