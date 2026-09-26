@@ -74,6 +74,9 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
         .title(Span::styled(title, Style::new().fg(t.accent)));
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    // This pane's only border is the rule along its top, so the bar takes a column rather
+    // than being drawn over the payload.
+    let inner = super::list_scrollbar(frame, inner, scroll, lines.len(), t);
     frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, 0)), inner);
     max_scroll
 }
