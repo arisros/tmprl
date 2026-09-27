@@ -24,9 +24,10 @@ pub(crate) use highlight::{highlight, match_style};
 pub(crate) use history::category_label;
 
 use ratatui::Frame;
+use ratatui::layout::Rect;
 use ratatui::layout::{Constraint, Layout};
 use ratatui::style::Style;
-use ratatui::widgets::{Block, Borders};
+use ratatui::widgets::{Block, Borders, Scrollbar, ScrollbarOrientation, ScrollbarState};
 
 use tmprl_core::config::PayloadPane;
 
@@ -235,6 +236,72 @@ fn to_ui(r: ratatui::layout::Rect) -> tmprl_ui::Rect {
 
 fn from_ui(r: tmprl_ui::Rect) -> ratatui::layout::Rect {
     ratatui::layout::Rect::new(r.x, r.y, r.width, r.height)
+}
+
+/// Draw a scrollbar for a list, and give back the width the rows may use.
+///
+/// The bar only appears when there is something to scroll, so a list that fits looks
+/// exactly as it did before. A borderless pane has no spare column for it, so one is taken
+/// out of the content: the alternative is drawing the thumb over the rightmost column,
+/// which here holds the age, and a corrupted value is worse than a narrower one.
+///
+/// The decision is made from the row count alone, before any width is computed, so the
+/// columns do not shift as the cursor moves.
+fn list_scrollbar(frame: &mut Frame, area: Rect, cursor: usize, total: usize, t: &Theme) -> Rect {
+    let height = area.height as usize;
+    if total <= height || area.width < 4 {
+        return area;
+    }
+    let body = Rect {
+        width: area.width.saturating_sub(1),
+        ..area
+    };
+    // `width: 1` and not a struct update from `area`: a full-width rect would put the
+    // right-hand bar off the end of it, where it is clipped away entirely.
+    let bar = Rect {
+        x: area.x + area.width - 1,
+        y: area.y,
+        width: 1,
+        height: area.height,
+    };
+    draw_scrollbar(frame, bar, cursor, total, height, t);
+    body
+}
+
+/// Draw a scrollbar over a bordered area's right edge.
+///
+/// For the overlays: the thumb rides the border it already has, so nothing gives up a
+/// column and the pane is the same size whether or not it is scrolling.
+fn border_scrollbar(frame: &mut Frame, area: Rect, position: usize, total: usize, t: &Theme) {
+    let height = area.height.saturating_sub(2) as usize;
+    if total <= height || height == 0 {
+        return;
+    }
+    draw_scrollbar(frame, area, position, total, height, t);
+}
+
+/// No arrows, no track: an unscrolled pane should look untouched, and the thumb alone says
+/// both how far down this is and how much of the whole it covers.
+fn draw_scrollbar(
+    frame: &mut Frame,
+    area: Rect,
+    position: usize,
+    total: usize,
+    viewport: usize,
+    t: &Theme,
+) {
+    let mut state = ScrollbarState::new(total)
+        .position(position)
+        .viewport_content_length(viewport);
+    frame.render_stateful_widget(
+        Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(None)
+            .end_symbol(None)
+            .track_symbol(None)
+            .thumb_style(Style::new().fg(t.faint)),
+        area,
+        &mut state,
+    );
 }
 
 /// The hybrid relative/absolute gutter, matching `set relativenumber number`: the cursor

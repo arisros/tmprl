@@ -212,6 +212,15 @@ finished, is in the way of the common case, which is typing a query you already 
 completes but never applies; `⏎` still applies, so a query typed in full is never diverted by
 a list nobody was reading.
 
+A list longer than its pane carries a scrollbar down the right edge: thumb only, no track
+and no arrows, so a pane with nothing to scroll looks exactly as it did. The thumb is sized
+to the share of the list on screen, which is the part a row count cannot tell you: `1/4312`
+says where the cursor is, the thumb says how much of the whole you are looking at.
+
+Where a pane is boxed, the help overlay, the bar rides the border and costs nothing. The
+lists are not boxed, and their rightmost column holds the age, so there the bar takes a
+column of its own rather than painting over a value.
+
 ### Windows
 
 | Key | Action | |

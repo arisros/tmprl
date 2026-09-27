@@ -58,6 +58,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
         return super::timeline::render(frame, area, outline, view, app, t);
     }
 
+    let area = super::list_scrollbar(frame, area, view.cursor, outline.len(), t);
     let height = area.height as usize;
     let first = app
         .view
