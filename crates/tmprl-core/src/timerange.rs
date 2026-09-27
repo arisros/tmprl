@@ -206,6 +206,30 @@ fn days_in_month(y: i64, m: i64) -> Option<i64> {
     })
 }
 
+/// Replace each `{instant}` in a saved query with that instant as RFC 3339, so
+/// `CloseTime > '{-24h}'` means the last day whenever the view is picked, not the day it was
+/// written. A brace whose contents are not an instant is left alone, it may be part of a
+/// quoted value.
+pub fn expand_instants(query: &str, now_ms: i64) -> String {
+    let mut out = String::with_capacity(query.len());
+    let mut rest = query;
+    while let Some(open) = rest.find('{') {
+        out.push_str(&rest[..open]);
+        let after = &rest[open + 1..];
+        let Some(close) = after.find('}') else {
+            rest = &rest[open..];
+            break;
+        };
+        match parse_instant(after[..close].trim(), now_ms) {
+            Ok(ms) => out.push_str(&to_rfc3339(ms)),
+            Err(_) => out.push_str(&rest[open..open + close + 2]),
+        }
+        rest = &after[close + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
 /// An instant as RFC 3339, which is what `temporal schedule backfill` takes.
 pub fn to_rfc3339(ms: i64) -> String {
     let secs = ms.div_euclid(1_000);
@@ -253,6 +277,21 @@ pub fn parse_backfill(input: &str, now_ms: i64) -> Result<(TimeRange, Overlap), 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_view_query_gets_its_instants_filled_in_when_picked() {
+        let now = parse_absolute("2026-09-28T10:00:00Z").unwrap();
+        assert_eq!(
+            expand_instants("CloseTime > '{-24h}' AND StartTime < '{now}'", now),
+            "CloseTime > '2026-09-27T10:00:00Z' AND StartTime < '2026-09-28T10:00:00Z'"
+        );
+    }
+
+    #[test]
+    fn braces_that_are_not_instants_are_left_as_written() {
+        let q = "WorkflowId = '{order}' AND RunId = '{' AND x = '{-1h'";
+        assert_eq!(expand_instants(q, 0), q);
+    }
 
     /// 2026-09-06T00:00:00Z.
     const NOW: i64 = 1_788_652_800_000;

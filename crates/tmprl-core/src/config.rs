@@ -49,7 +49,8 @@ pub enum ConfigError {
 
 /// A saved visibility query, reachable from a key.
 ///
-/// The query is stored verbatim. A saved view sets the query bar's contents and nothing
+/// The query is stored verbatim; a `{-24h}` or `{now}` in it becomes an instant when the
+/// view is picked. A saved view sets the query bar's contents and nothing
 /// else, it is a bookmark, not a mode, so after selecting one the text is still right there
 /// to edit.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -119,6 +119,11 @@ endpoint = "https://codec.internal"
 key   = "1"
 name  = "Running now"
 query = "ExecutionStatus = 'Running'"
+
+[[view]]
+key   = "2"
+name  = "Failed, last day"
+query = "ExecutionStatus = 'Failed' AND CloseTime > '{-24h}'"   # filled in when picked
 ```
 
 ## Layout
