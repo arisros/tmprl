@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2-rc.2 — 2026-09-27
+
+- feat: show where you are in a list with a scrollbar
+- docs: list the filter, completion and attribute modules
+- feat: complete the clause being typed, <Tab> to take it
+- feat: offer time windows and the cluster's own search attributes
+
 ## 0.1.2-rc.1 — 2026-09-25
 
 - fix: name an update by its handler, not by its uuid
