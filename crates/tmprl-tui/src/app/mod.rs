@@ -315,6 +315,14 @@ pub enum Note {
     Error,
 }
 
+/// Where audit lines go. Tests capture them, so a test run never lands in the user's real
+/// log under a profile like `prod`.
+pub(super) enum AuditSink {
+    File,
+    #[cfg(test)]
+    Captured(Vec<String>),
+}
+
 pub struct App {
     /// The focused pane's state, held directly rather than looked up.
     ///
@@ -416,6 +424,7 @@ pub struct App {
     accent: Option<tmprl_core::config::Accent>,
     /// Refuse every mutation on this profile.
     readonly: bool,
+    audit_sink: AuditSink,
     /// Where `K` opens, from `config.toml`'s `[layout]`.
     payload_pane: tmprl_core::config::PayloadPane,
     namespace: String,
@@ -438,13 +447,15 @@ impl App {
     /// server.
     #[cfg(test)]
     pub fn detached(profile: &str, namespace: &str, tx: UnboundedSender<Msg>) -> Self {
-        Self::build(
+        let mut app = Self::build(
             None,
             profile.to_string(),
             "http://detached".to_string(),
             namespace.to_string(),
             tx,
-        )
+        );
+        app.audit_sink = AuditSink::Captured(Vec::new());
+        app
     }
 
     fn build(
@@ -497,6 +508,7 @@ impl App {
             address,
             accent: None,
             readonly: false,
+            audit_sink: AuditSink::File,
             payload_pane: Default::default(),
             namespace,
             conn,
