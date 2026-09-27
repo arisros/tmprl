@@ -1,17 +1,34 @@
 # Changelog
 
+## Unreleased
+
+- **Search inside payloads**: `/` on a history matches the values in readable inputs and
+  results, not only a row's name and fields. `/8812` finds the value wherever it sits;
+  `/customer.id=8812` finds it only as a customer id. The statusline names the path that
+  matched, and `K` highlights it and scrolls to it. `/` never calls the codec, so a miss
+  says how many encrypted payloads it could not see.
+- **Query completion**: the query bar offers whole clauses as you type, including the
+  cluster's own search attributes and windows such as "last hour"; `<Tab>` takes one.
+- **Scrollbars** on every list and pane that overflows.
+- **Updates** are named by their handler rather than a uuid.
+
 ## 0.1.2-rc.2 — 2026-09-27
 
-- feat: show where you are in a list with a scrollbar
-- docs: list the filter, completion and attribute modules
-- feat: complete the clause being typed, <Tab> to take it
-- feat: offer time windows and the cluster's own search attributes
+- **Query completion**: the query bar completes the clause being typed and `<Tab>` takes it.
+  It completes a whole clause such as `ExecutionStatus = 'Running'`, respects quoting so
+  `'send and forget'` stays one clause, and offers nothing before you type or after a clause
+  ends in a space.
+- **Filter picker**: offers the search attributes registered on the cluster, custom ones
+  included, and time windows (the last hour, 6 hours, 24 hours, 7 days), each compiled to
+  the instant it means because the visibility grammar has no `now()`.
+- **Scrollbars**: a list or pane that overflows shows a thumb, so you can see how much is
+  below. A pane that fits is unchanged.
 
 ## 0.1.2-rc.1 — 2026-09-25
 
-- fix: name an update by its handler, not by its uuid
-- docs: say what is built, and drop the milestone codes
-- docs: write the rc.4 notes for a reader, fix the yank line
+- **Updates** in a history are named by their handler instead of their
+  `protocol_instance_id`, so the list no longer reads as a column of uuids and `/` finds an
+  update by name. The id stays as an `updateId` field, to correlate with the caller.
 
 ## 0.1.1 — 2026-09-21
 
