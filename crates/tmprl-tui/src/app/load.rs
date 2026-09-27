@@ -46,6 +46,40 @@ impl App {
         });
     }
 
+    /// Fetch what this cluster lets you filter on, unless it is already in hand.
+    ///
+    /// Once per namespace, alongside the workflow list rather than when the filter picker
+    /// opens: the picker snapshots its items, so an attribute that arrived after it opened
+    /// would not appear until it was opened again. `R` is the retry, which is what clears
+    /// the namespace recorded here.
+    pub fn load_search_attributes(&mut self) {
+        let namespace = self.namespace().to_string();
+        // A failure is remembered, not retried on every query change: on a cluster whose
+        // operator service is closed off this would otherwise fire on every keystroke-
+        // committed filter.
+        if self.attributes_for.as_deref() == Some(namespace.as_str()) {
+            return;
+        }
+        let Some(conn) = self.conn.clone() else {
+            return;
+        };
+        self.attributes_for = Some(namespace.clone());
+        self.search_attributes.begin_refresh();
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            let result = conn
+                .list_search_attributes(&namespace)
+                .await
+                .map_err(|e| e.to_string());
+            let _ = tx.send(Msg::SearchAttributes { namespace, result });
+        });
+    }
+
+    /// `R`: ask the cluster again next time the list loads.
+    pub(super) fn forget_search_attributes(&mut self) {
+        self.attributes_for = None;
+    }
+
     /// Fetch the first page for the current query, and the header counts alongside it.
     ///
     /// Bumping the generation is what makes an in-flight reply for the previous query
@@ -56,6 +90,7 @@ impl App {
             self.view.workflows.begin_refresh();
             self.view.counts.begin_refresh();
             self.load_counts();
+            self.load_search_attributes();
         }
 
         // Set before the connection guard: this records the decision to fetch, which is

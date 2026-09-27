@@ -87,6 +87,7 @@ pub fn render(frame: &mut Frame, app: &mut App, t: &Theme) {
         )
     };
 
+    let total = lines.len();
     frame.render_widget(Clear, area);
     frame.render_widget(
         Paragraph::new(lines).scroll((scroll as u16, 0)).block(
@@ -96,4 +97,7 @@ pub fn render(frame: &mut Frame, app: &mut App, t: &Theme) {
         ),
         area,
     );
+    // The overlay is boxed on all four sides, so the thumb rides the right border and the
+    // list keeps its full width.
+    super::border_scrollbar(frame, area, scroll, total, t);
 }

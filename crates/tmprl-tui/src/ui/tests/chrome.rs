@@ -267,3 +267,73 @@ fn renders_at_a_cramped_terminal_size() {
     app.handle(crate::app::Msg::Key(Chord::ch(' ')));
     let _ = draw(&mut app, 20, 4);
 }
+
+#[test]
+fn a_list_longer_than_the_pane_grows_a_scrollbar() {
+    // The thumb is the only thing that says "there is more below" on a list whose rows all
+    // look alike.
+    let mut app = app_with_workflows(&["default"]);
+    let start = 1_789_628_602_431;
+    let mut list = WorkflowList::default();
+    list.reset(
+        (0..80)
+            .map(|i| {
+                wf(
+                    "default",
+                    &format!("order-{i}"),
+                    WorkflowStatus::Running,
+                    start,
+                )
+            })
+            .collect(),
+        vec![],
+    );
+    app.view.workflows = Loadable::loaded(list);
+
+    let out = draw(&mut app, 110, 12);
+    assert!(
+        out.contains('█') || out.contains('║') || out.contains('▐'),
+        "a scrollbar thumb should be on screen:\n{out}"
+    );
+}
+
+#[test]
+fn a_list_that_fits_draws_no_scrollbar() {
+    // A pane with nothing to scroll must look exactly as it did before.
+    let mut app = app_with_workflows(&["default"]);
+    let out = draw(&mut app, 110, 20);
+    assert!(
+        !out.contains('█'),
+        "two rows in a twenty-row pane need no thumb:\n{out}"
+    );
+}
+
+#[test]
+fn the_scrollbar_does_not_eat_the_column_beside_it() {
+    // The bar takes its own column rather than painting over the rightmost one, which on
+    // the workflow list is the age.
+    let mut app = app_with_workflows(&["default"]);
+    let start = 1_789_628_602_431;
+    let mut list = WorkflowList::default();
+    list.reset(
+        (0..80)
+            .map(|i| {
+                wf(
+                    "default",
+                    &format!("order-{i}"),
+                    WorkflowStatus::Running,
+                    start,
+                )
+            })
+            .collect(),
+        vec![],
+    );
+    app.view.workflows = Loadable::loaded(list);
+
+    let out = draw(&mut app, 110, 12);
+    assert!(out.contains("order-0"), "the rows still render:\n{out}");
+    assert!(
+        out.contains("Running"),
+        "and so does every column before the bar:\n{out}"
+    );
+}

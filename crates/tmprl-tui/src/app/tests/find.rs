@@ -244,6 +244,70 @@ fn the_filter_builder_offers_the_types_actually_loaded() {
 }
 
 #[test]
+fn the_filter_builder_offers_a_custom_attribute_the_cluster_registered() {
+    use tmprl_core::filter::{AttributeType, SearchAttribute};
+
+    let mut app = app();
+    four(&mut app);
+    // Whatever this cluster lets you filter on is a property of the cluster, so it can only
+    // arrive from it.
+    let namespace = app.namespace().to_string();
+    app.handle(Msg::SearchAttributes {
+        namespace,
+        result: Ok(vec![SearchAttribute {
+            name: "CustomerId".into(),
+            kind: AttributeType::Keyword,
+            system: false,
+        }]),
+    });
+
+    app.run("find.filter", None);
+    let offered = picker_labels(&app);
+    assert!(
+        offered.iter().any(|l| l == "CustomerId = ''"),
+        "got {offered:?}"
+    );
+}
+
+#[test]
+fn attributes_for_a_namespace_already_left_are_dropped() {
+    use tmprl_core::filter::{AttributeType, SearchAttribute};
+
+    let mut app = app();
+    four(&mut app);
+    app.handle(Msg::SearchAttributes {
+        namespace: "somewhere-else".into(),
+        result: Ok(vec![SearchAttribute {
+            name: "CustomerId".into(),
+            kind: AttributeType::Keyword,
+            system: false,
+        }]),
+    });
+
+    app.run("find.filter", None);
+    let offered = picker_labels(&app);
+    assert!(
+        !offered.iter().any(|l| l == "CustomerId = ''"),
+        "another namespace's attributes must not be offered here: {offered:?}"
+    );
+}
+
+#[test]
+fn a_time_window_is_found_by_the_words_its_timestamp_cannot_be_read_as() {
+    // The clause is an absolute instant, because the grammar has no `now()`. Typing "last
+    // hour" has to find it anyway, or the entry may as well not be there.
+    let mut app = app();
+    four(&mut app);
+    app.run("find.filter", None);
+    type_into_picker(&mut app, "last hour");
+    let shown = picker_labels(&app);
+    assert!(
+        shown.iter().any(|l| l.starts_with("StartTime > '")),
+        "got {shown:?}"
+    );
+}
+
+#[test]
 fn a_filter_clause_is_anded_onto_the_query_already_there() {
     let mut app = app();
     four(&mut app);

@@ -56,6 +56,10 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
         return;
     }
 
+    // Before any width is worked out: the rows must be laid out inside whatever the
+    // scrollbar leaves, not over it.
+    let area = super::list_scrollbar(frame, area, view.cursor, rows.len(), t);
+
     let show_ns = view.is_fanned_out();
     let times = if app.times.is_absolute() { STAMPS } else { AGE };
     let fixed = GUTTER + STATUS + TYPE + times + if show_ns { NAMESPACE } else { 0 };
