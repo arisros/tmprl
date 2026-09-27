@@ -617,3 +617,28 @@ fn schedule_keys_need_a_schedule_under_the_cursor() {
     assert!(app.confirm.is_none());
     assert!(matches!(app.note, Some((_, Note::Warn))));
 }
+
+#[test]
+fn a_test_run_captures_the_audit_line_instead_of_writing_the_real_log() {
+    let mut app = on_a_workflow();
+    app.handle(Msg::Mutated {
+        mutation: Box::new(Mutation::Cancel {
+            namespace: "default".into(),
+            workflow_id: "order-r1".into(),
+            run_id: "r1".into(),
+        }),
+        result: Ok(()),
+        batch: None,
+    });
+
+    let AuditSink::Captured(lines) = &app.audit_sink else {
+        panic!("a detached app must never write the user's audit log");
+    };
+    assert_eq!(lines.len(), 1);
+    assert!(
+        lines[0].contains("\"workflowId\":\"order-r1\""),
+        "{}",
+        lines[0]
+    );
+    assert!(lines[0].contains("\"outcome\":\"ok\""), "{}", lines[0]);
+}

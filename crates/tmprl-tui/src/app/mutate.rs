@@ -414,11 +414,17 @@ impl App {
             profile: &self.profile,
             address: &self.address,
         };
-        if let Err(e) = crate::config::append_audit(&mutation.audit_line(now_ms(), target, outcome))
-        {
-            // A failed audit write must not be silent: the log is the record that an
-            // irreversible thing happened.
-            self.note = Some((format!("audit log: {e}"), Note::Error));
+        let line = mutation.audit_line(now_ms(), target, outcome);
+        match &mut self.audit_sink {
+            AuditSink::File => {
+                if let Err(e) = crate::config::append_audit(&line) {
+                    // A failed audit write must not be silent: the log is the record that an
+                    // irreversible thing happened.
+                    self.note = Some((format!("audit log: {e}"), Note::Error));
+                }
+            }
+            #[cfg(test)]
+            AuditSink::Captured(lines) => lines.push(line),
         }
     }
 }

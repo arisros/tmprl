@@ -134,7 +134,10 @@ pub fn append_audit(line: &str) -> Result<(), String> {
         .append(true)
         .open(&path)
         .map_err(|e| format!("could not open {}: {e}", path.display()))?;
-    writeln!(file, "{line}").map_err(|e| format!("could not write {}: {e}", path.display()))
+    // One write per line: `writeln!` may split into several, and two processes appending at
+    // once would interleave the pieces.
+    file.write_all(format!("{line}\n").as_bytes())
+        .map_err(|e| format!("could not write {}: {e}", path.display()))
 }
 
 #[cfg(test)]
