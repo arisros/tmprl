@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.2-rc.3 — 2026-09-27
 
 - **Search inside payloads**: `/` on a history matches the values in readable inputs and
   results, not only a row's name and fields. `/8812` finds the value wherever it sits;
