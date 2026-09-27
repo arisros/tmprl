@@ -2,10 +2,10 @@
 #
 # Keep the code maps honest.
 #
-# Every source file opens with a `//!` line saying what it is, and the maps that list
-# files by hand (docs/ARCHITECTURE.md, app/mod.rs) name every file they cover. Both drift
-# silently otherwise: the architecture doc's test counts were months stale before anyone
-# looked. Run by CI; runnable by hand from the repository root.
+# Every source file opens with a `//!` line saying what it is, the maps that list files by
+# hand (docs/ARCHITECTURE.md, app/mod.rs) name every file they cover, and the per-crate test
+# counts in README.md and docs/ARCHITECTURE.md match the code. All of these drift silently
+# otherwise. Run by CI; runnable by hand from the repository root.
 
 set -euo pipefail
 
@@ -34,6 +34,17 @@ for f in crates/tmprl-tui/src/app/*.rs; do
     name=$(basename "$f" .rs)
     [ "$name" = mod ] && continue
     grep -q "^//! | \`$name\`" "$table" || complain "$f is missing from the table in $table"
+done
+
+# 4. The test counts in both crate tables: a crate's row carries its count of `#[test]` and
+# `#[tokio::test]` attributes.
+for dir in crates/*/; do
+    crate=$(basename "$dir")
+    n=$(grep -rE '^\s*#\[(tokio::)?test' "$dir" | wc -l | tr -d ' ')
+    for doc in README.md docs/ARCHITECTURE.md; do
+        grep -qE "^\| \`$crate\` \|(.*\|)? $n \|" "$doc" \
+            || complain "$doc does not say $crate has $n tests"
+    done
 done
 
 exit "$fail"
