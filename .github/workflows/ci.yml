@@ -29,10 +29,46 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - run: cargo fmt --all -- --check
-      # Every file has a //! header and is named in the code maps that list it.
+      # Every file has a //! header, is named in the code maps that list it, and the test
+      # counts in README.md and docs/ARCHITECTURE.md match the code.
       - run: scripts/check-docs.sh
       - run: cargo clippy --all-targets --all-features
       - run: cargo build --all-targets
+
+  # rust-version in Cargo.toml is a promise to `cargo install` users on older toolchains;
+  # nothing else checks it. Keep the toolchain here equal to it.
+  msrv:
+    name: msrv (1.95)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.95"
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo check --all-targets --all-features --locked
+
+  # Half the release targets and the Homebrew formula are macOS, which otherwise first
+  # builds in release.yml. No server here, so the integration tests skip.
+  macos:
+    name: macOS · build · tests
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install protoc
+        run: brew install protobuf
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo test --all-features
 
   test:
     name: tests (against a live server)

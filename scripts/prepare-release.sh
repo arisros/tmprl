@@ -58,12 +58,13 @@ sed -i "0,/^version = \".*\"$/s//version = \"$next\"/" Cargo.toml
 sed -i -E "s#(tmprl-[a-z]+ = \{ path = \"crates/tmprl-[a-z]+\", version = \")[^\"]+#\1$next#" Cargo.toml
 cargo check --quiet >&2   # rewrites Cargo.lock
 
-# The changelog section: whatever sits under Unreleased, plus the merges since the last
-# tag, so a release always says what changed even when nobody wrote it down by hand.
+# The changelog section: whatever sits under Unreleased, or else the user-visible commits
+# since the last tag, so a release always says what changed even when nobody wrote it down
+# by hand. docs, chore, ci and test commits change nothing a user runs.
 last_tag=$(git tag -l 'v*' --sort=-v:refname | head -1)
 range=${last_tag:+$last_tag..HEAD}
 commits=$(git log "${range:-HEAD}" --no-merges --format='- %s' \
-  --grep='^feat' --grep='^fix' --grep='^perf' --grep='^docs' -E | sed 's/([^)]*)//' || true)
+  --grep='^feat' --grep='^fix' --grep='^perf' -E | sed 's/([^)]*)//' || true)
 
 python3 - "$next" "$commits" <<'PY' >&2
 import datetime, pathlib, sys
