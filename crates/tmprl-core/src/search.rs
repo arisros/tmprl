@@ -54,6 +54,22 @@ impl Search {
         self.pattern.is_empty()
     }
 
+    /// The part of the pattern the payload pane can show.
+    ///
+    /// `/customer.id=8812` matches the flattened `path=value` form, which is never on
+    /// screen: the pane shows the JSON, `"id": "8812"`. The value is in both, so that is
+    /// what the pane paints. Case sensitivity stays as the whole pattern decided it, since
+    /// that is what the reader typed.
+    pub fn for_pane(&self) -> Search {
+        match self.pattern.rsplit_once('=') {
+            Some((_, value)) if !value.is_empty() => Search {
+                pattern: value.to_string(),
+                case_sensitive: self.case_sensitive,
+            },
+            _ => self.clone(),
+        }
+    }
+
     /// Whether this text contains the pattern anywhere.
     pub fn matches(&self, haystack: &str) -> bool {
         if self.pattern.is_empty() {
@@ -179,6 +195,24 @@ mod tests {
 
     fn labels(v: &[&str]) -> Vec<String> {
         v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn the_pane_is_searched_for_the_value_of_a_path_pattern() {
+        assert_eq!(Search::new("customer.id=8812").for_pane().pattern(), "8812");
+        assert_eq!(Search::new("8812").for_pane().pattern(), "8812");
+        // Nothing after the `=` to look for: keep the pattern whole rather than match all.
+        assert_eq!(Search::new("status=").for_pane().pattern(), "status=");
+    }
+
+    #[test]
+    fn the_pane_pattern_keeps_the_case_the_whole_pattern_chose() {
+        let pane = Search::new("Status=approved").for_pane();
+        assert!(
+            !pane.matches("APPROVED"),
+            "an uppercase path made it case sensitive"
+        );
+        assert!(pane.matches("approved"));
     }
 
     #[test]

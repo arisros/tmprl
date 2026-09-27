@@ -10,10 +10,14 @@
 //! application held one cursor and one history, so a second pane had nothing of its own to
 //! show.
 
+use std::cell::RefCell;
+
 use tmprl_client::NamespaceInfo;
 use tmprl_core::history::NormalizedEvent;
 use tmprl_core::outline::{Outline, Row};
+use tmprl_core::payload::FlatCache;
 use tmprl_core::pending::PendingActivity;
+use tmprl_core::search::Search;
 use tmprl_core::{Loadable, ScheduleRow, StatusCounts, WorkflowList, WorkflowRow};
 
 use crate::app::Screen;
@@ -92,6 +96,12 @@ pub struct View {
     pub pending_task: Option<tokio::task::JoinHandle<()>>,
     /// A page request is in flight; scrolling must not queue a second one.
     pub loading_more: bool,
+    /// A search just landed: the payload pane scrolls to the first match on its next draw,
+    /// which is the first moment its lines exist to look in.
+    pub detail_seek: bool,
+    /// Payloads flattened for `/`. A `RefCell` because labels are built from `&self`, and
+    /// per pane because what it holds is this pane's history.
+    flat: RefCell<FlatCache>,
 }
 
 impl View {
@@ -128,6 +138,8 @@ impl View {
             pending: Vec::new(),
             pending_task: None,
             loading_more: false,
+            detail_seek: false,
+            flat: RefCell::default(),
         }
     }
 
@@ -205,6 +217,18 @@ impl View {
     /// that cannot find it would send you back to the query bar for something the pane has
     /// already loaded.
     pub fn search_labels(&self) -> Vec<String> {
+        let mut labels = self.row_labels();
+        if self.screen == Screen::History {
+            self.append_payloads(&mut labels);
+        } else {
+            self.flat.borrow_mut().sweep();
+        }
+        labels
+    }
+
+    /// What a row is called, without its payloads: the picker shows these, and a label
+    /// carrying a flattened input would push the name off the line.
+    pub fn row_labels(&self) -> Vec<String> {
         match self.screen {
             Screen::Namespaces => self
                 .namespace_rows()
@@ -255,35 +279,73 @@ impl View {
             return Vec::new();
         };
         (0..outline.len())
-            .map(|row| match outline.row_at(row) {
-                Some(Row::Group { group, .. }) => match outline.group(group) {
-                    Some(g) => {
-                        let mut s = format!("{} {}", category_label(g.category), g.subject);
-                        if let Some(f) = &g.failure {
-                            s.push(' ');
-                            s.push_str(&f.headline());
-                        }
-                        s
-                    }
-                    None => String::new(),
-                },
-                Some(Row::Event { event, .. }) => match outline.event(event) {
-                    Some(e) => {
-                        let mut s = format!("{} {}", e.id, e.name);
-                        for (k, v) in &e.fields {
-                            s.push_str(&format!(" {k}={v}"));
-                        }
-                        if let Some(f) = &e.failure {
-                            s.push(' ');
-                            s.push_str(&f.headline());
-                        }
-                        s
-                    }
-                    None => String::new(),
-                },
-                None => String::new(),
-            })
+            .map(|row| history_label(outline, row))
             .collect()
+    }
+
+    /// Add each history row's readable payloads, flattened, to its label.
+    ///
+    /// A group carries the payloads `K` shows for it, its input and result, so a search
+    /// lands on a folded group rather than finding nothing until `zR`. Opened up, the group
+    /// and the event under it both match, which is where the value actually is.
+    fn append_payloads(&self, labels: &mut [String]) {
+        let Some(outline) = self.history.value() else {
+            return;
+        };
+        let mut cache = self.flat.borrow_mut();
+        for (row, label) in labels.iter_mut().enumerate() {
+            for e in payload_events(outline, row) {
+                for (name, p) in &e.payloads {
+                    for line in cache.lines(name, p) {
+                        label.push(' ');
+                        label.push_str(line);
+                    }
+                }
+            }
+        }
+        cache.sweep();
+    }
+
+    /// The payload path a search matched on this row, when only a payload explains the hit.
+    ///
+    /// `None` when the row's own text matches: the highlight already shows why, and naming
+    /// a path as well would suggest the payload was the reason.
+    pub fn payload_match(&self, row: usize, search: &Search) -> Option<String> {
+        if self.screen != Screen::History {
+            return None;
+        }
+        let outline = self.history.value()?;
+        if search.matches(&history_label(outline, row)) {
+            return None;
+        }
+        let cache = self.flat.borrow();
+        for e in payload_events(outline, row) {
+            for (name, p) in &e.payloads {
+                let lines = match cache.peek(name, p) {
+                    Some(lines) => lines.to_vec(),
+                    None => tmprl_core::payload::flatten(name, p),
+                };
+                if let Some(line) = lines.iter().find(|l| search.matches(l)) {
+                    let path = line.split_once('=').map_or(line.as_str(), |(path, _)| path);
+                    return Some(path.to_string());
+                }
+            }
+        }
+        None
+    }
+
+    #[cfg(test)]
+    pub fn cached_payloads(&self) -> usize {
+        self.flat.borrow().len()
+    }
+
+    /// Payloads in the loaded history still waiting on the codec, which `/` cannot see.
+    pub fn undecoded_payloads(&self) -> usize {
+        self.history_events
+            .iter()
+            .flat_map(|e| &e.payloads)
+            .filter(|(_, p)| p.needs_codec())
+            .count()
     }
 
     /// How many rows this pane's screen has.
@@ -310,5 +372,66 @@ impl View {
 
     pub fn is_selected(&self, i: usize) -> bool {
         self.selection().is_some_and(|(lo, hi)| i >= lo && i <= hi)
+    }
+}
+
+/// A history row's own text, without its payloads.
+fn history_label(outline: &Outline, row: usize) -> String {
+    match outline.row_at(row) {
+        Some(Row::Group { group, .. }) => match outline.group(group) {
+            Some(g) => {
+                let mut s = format!("{} {}", category_label(g.category), g.subject);
+                if let Some(f) = &g.failure {
+                    s.push(' ');
+                    s.push_str(&f.headline());
+                }
+                s
+            }
+            None => String::new(),
+        },
+        Some(Row::Event { event, .. }) => match outline.event(event) {
+            Some(e) => {
+                let mut s = format!("{} {}", e.id, e.name);
+                for (k, v) in &e.fields {
+                    s.push_str(&format!(" {k}={v}"));
+                }
+                if let Some(f) = &e.failure {
+                    s.push(' ');
+                    s.push_str(&f.headline());
+                }
+                s
+            }
+            None => String::new(),
+        },
+        None => String::new(),
+    }
+}
+
+/// The events whose payloads a row carries: an event its own, a group what `K` shows for
+/// it, the events that opened and closed it.
+///
+/// Events arrive in id order, so a group's ends are found by binary search: a linear scan
+/// per group makes every search quadratic in the length of the run.
+fn payload_events(outline: &Outline, row: usize) -> Vec<&NormalizedEvent> {
+    match outline.row_at(row) {
+        Some(Row::Group { group, .. }) => {
+            let events = outline.events();
+            outline
+                .group(group)
+                .map(|g| {
+                    g.payload_ends()
+                        .into_iter()
+                        .filter_map(|id| {
+                            events
+                                .binary_search_by_key(&id, |e| e.id)
+                                .ok()
+                                .map(|i| &events[i])
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        }
+        Some(Row::Event { event, .. }) => outline.event(event).into_iter().collect(),
+        None => Vec::new(),
     }
 }

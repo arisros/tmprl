@@ -22,18 +22,21 @@ use crate::app::{App, DecodeState};
 use crate::theme::Theme;
 use crate::view::View;
 
-pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) -> usize {
+/// Draw the pane. Returns how far it can scroll and where it ended up, which moves when a
+/// search asked it to find the match.
+pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) -> (usize, usize) {
     if area.height < 2 {
-        return 0;
+        return (0, 0);
     }
     // A filter result replaces the payloads: you asked to see the filtered value, and
     // showing both would bury it.
     if let Some(piped) = view.piped.clone() {
-        return render_piped(frame, area, view, &piped, t);
+        let max = render_piped(frame, area, view, &piped, t);
+        return (max, view.detail_scroll.min(max));
     }
 
     let Some(outline) = view.history.value() else {
-        return 0;
+        return (0, 0);
     };
     let lines = match outline.row_at(view.cursor) {
         Some(Row::Event { event, .. }) => outline
@@ -53,11 +56,25 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
         lines
     };
 
+    let search = app.search.for_pane();
+    let first_match = lines
+        .iter()
+        .position(|l| l.spans.iter().any(|s| search.matches(&s.content)));
+    let lines: Vec<Line> = lines
+        .into_iter()
+        .map(|l| super::highlight(l, &search, super::match_style()))
+        .collect();
+
     // A payload can be far taller than the pane. Clipping it silently would hide the end of
     // a stack trace, which is the part worth reading, so the pane scrolls and says so.
     let visible = area.height.saturating_sub(1) as usize;
     let max_scroll = lines.len().saturating_sub(visible);
-    let scroll = view.detail_scroll.min(max_scroll);
+    // One line of context above the match, its label or the key it sits under.
+    let scroll = match first_match {
+        Some(at) if view.detail_seek => at.saturating_sub(1),
+        _ => view.detail_scroll,
+    }
+    .min(max_scroll);
 
     let title = if max_scroll == 0 {
         " payloads (K to close) ".to_string()
@@ -78,7 +95,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
     // than being drawn over the payload.
     let inner = super::list_scrollbar(frame, inner, scroll, lines.len(), t);
     frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, 0)), inner);
-    max_scroll
+    (max_scroll, scroll)
 }
 
 fn group_lines<'a>(
