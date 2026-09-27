@@ -500,7 +500,16 @@ query = "ExecutionStatus = 'Running'"
 key   = "2"
 name  = "Broken"
 query = "ExecutionStatus = 'Failed' OR ExecutionStatus = 'Terminated'"
+
+[[view]]
+key   = "3"
+name  = "Closed, last day"
+query = "CloseTime > '{-24h}'"
 ```
+
+A `{…}` holding an instant (`{now}`, `{-1h}`, `{-7d}`, `{2026-09-01}`) becomes an RFC 3339
+time when the view is picked, not when the file is read, so a view stays relative for as long
+as tmprl runs. Any other brace is sent as written.
 
 Connection settings are deliberately *not* in this list, those come from
 `~/.config/temporalio/temporal.toml`, the same file the `temporal` CLI uses.

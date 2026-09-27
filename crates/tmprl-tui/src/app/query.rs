@@ -82,7 +82,7 @@ impl App {
         let (name, query) = (view.name.clone(), view.query.clone());
         self.mark_jump();
         // A view is a bookmark, not a mode: it fills the query bar, which stays editable.
-        self.view.query = query;
+        self.view.query = tmprl_core::timerange::expand_instants(&query, now_ms());
         if self.view.screen == Screen::Namespaces {
             self.view.screen = Screen::Workflows;
         }

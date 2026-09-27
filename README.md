@@ -119,6 +119,11 @@ endpoint = "https://codec.internal"
 key   = "1"
 name  = "Running now"
 query = "ExecutionStatus = 'Running'"
+
+[[view]]
+key   = "2"
+name  = "Failed, last day"
+query = "ExecutionStatus = 'Failed' AND CloseTime > '{-24h}'"   # filled in when picked
 ```
 
 ## Layout
@@ -135,7 +140,7 @@ flowchart LR
 | Crate | Tests | |
 |---|---|---|
 | `tmprl-client` | 68 | all network IO |
-| `tmprl-core` | 315 | no terminal, no server |
+| `tmprl-core` | 317 | no terminal, no server |
 | `tmprl-tui` | 286 | ratatui |
 | `tmprl-ui` | 37 | window tree |
 
