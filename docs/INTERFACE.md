@@ -156,6 +156,17 @@ What a row matches on is wider than what fits in its columns: a run id is search
 rendered. So a row can match with nothing on it lit up, which is why the statusline reports a
 count rather than leaving you to find the highlight.
 
+On a history that includes the payloads, flattened one leaf per `path=value`, so `/8812` finds
+the value and `/customer.id=8812` finds it only where it is a customer id. A group matches on
+what `K` shows for it, its input and result, so a folded group is found without `zR`. Only
+readable payloads count: `/` never calls the codec, so a value still encrypted is invisible to
+it until `K` has shown that row, and a miss says how many payloads it could not read.
+
+A payload value is not on the row, so there is nothing there to light up. When only a payload
+explains a hit, the statusline names the path, `3 match(es), in .input.customer.id`. The `K`
+pane paints the match and scrolls to it when a search lands; for a `path=value` pattern it
+paints the value, since the pane shows JSON and never the flattened form.
+
 Saved views are bound under the **leader**, not to bare digits as this document originally
 specified. A leading digit in Normal mode starts a count, and counts composing with every
 motion (`7j`, `10G`) is worth more than saving one keystroke. Only views that `views.toml`

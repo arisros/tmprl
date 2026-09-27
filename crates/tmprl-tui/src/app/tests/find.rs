@@ -646,3 +646,99 @@ fn a_search_over_a_workflow_list_never_reads_on() {
     let (note, _) = app.note.clone().unwrap();
     assert!(note.contains("no match"), "{note}");
 }
+
+#[test]
+fn a_search_finds_a_value_inside_a_payload() {
+    let mut app = viewing_payloads();
+    search_for(&mut app, "amount=100");
+    assert!(
+        app.view.row_labels()[app.view.cursor].contains("Charge"),
+        "the Charge activity carries amount 100"
+    );
+}
+
+#[test]
+fn a_search_does_not_see_through_ciphertext_and_says_so() {
+    let mut app = viewing_payloads();
+    search_for(&mut app, "4242");
+    let (note, level) = app.note.clone().unwrap();
+    assert_eq!(level, Note::Warn);
+    assert!(note.contains("no match"), "{note}");
+    assert!(
+        note.contains("1 encrypted payload(s) not searched"),
+        "a miss must say what it could not read: {note}"
+    );
+}
+
+#[test]
+fn a_decoded_payload_becomes_searchable() {
+    let mut app = viewing_payloads();
+    let key = App::payload_key(&Payload::new("binary/encrypted", vec![0u8; 16]));
+    app.handle(Msg::Decoded(Ok(vec![(
+        key,
+        Payload::new("json/plain", br#"{"secret":true}"#.to_vec()),
+    )])));
+
+    search_for(&mut app, "secret=true");
+    assert!(
+        app.view.row_labels()[app.view.cursor].contains("Secret"),
+        "the decoded value should be found on its row"
+    );
+}
+
+#[test]
+fn the_event_picker_does_not_show_payloads() {
+    // A flattened input in a picker label pushes the row's name off the line.
+    let app = viewing_payloads();
+    let items = app.history_items();
+    assert!(
+        items.iter().all(|i| !i.label.contains("amount=100")),
+        "picker labels must stay names"
+    );
+}
+
+#[test]
+fn flattened_payloads_are_kept_between_searches_and_freed_after_leaving() {
+    let mut app = viewing_payloads();
+    search_for(&mut app, "amount=100");
+    assert!(
+        app.view.cached_payloads() > 0,
+        "a history search fills the cache"
+    );
+
+    app.run("nav.up", None);
+    assert_ne!(app.view.screen, Screen::History);
+    search_for(&mut app, "anything");
+    assert_eq!(
+        app.view.cached_payloads(),
+        0,
+        "a history no longer on screen must not stay in memory"
+    );
+}
+
+#[test]
+fn a_hit_inside_a_payload_names_the_path() {
+    // Nothing on the row can show a payload value, so the statusline says where it was.
+    let mut app = viewing_payloads();
+    search_for(&mut app, "amount=100");
+    let (note, _) = app.note.clone().unwrap();
+    assert!(note.contains("in .input.amount"), "{note}");
+}
+
+#[test]
+fn a_hit_on_the_row_itself_names_no_path() {
+    let mut app = viewing_payloads();
+    search_for(&mut app, "Charge");
+    let (note, _) = app.note.clone().unwrap();
+    assert!(
+        !note.contains(", in ."),
+        "the row's own text explains it: {note}"
+    );
+}
+
+#[test]
+fn a_hit_asks_the_payload_pane_to_find_it() {
+    let mut app = viewing_payloads();
+    search_for(&mut app, "amount=100");
+    assert!(app.view.detail_seek);
+}

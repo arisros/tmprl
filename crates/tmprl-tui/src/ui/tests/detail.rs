@@ -257,3 +257,60 @@ fn k_on_a_retrying_activity_shows_where_it_is() {
     assert!(out.contains("worker-7@host"), "worker missing:\n{out}");
     assert!(out.contains("PaymentDeclined"), "failure missing:\n{out}");
 }
+
+/// Whether the cell showing `symbol` on the row containing `row_text` is painted as a match.
+fn lit_on_row(app: &mut App, w: u16, h: u16, row_text: &str, symbol: &str) -> bool {
+    let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
+    term.draw(|f| render(f, app)).unwrap();
+    let buf = term.backend().buffer().clone();
+    (0..buf.area.height).any(|y| {
+        let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+        line.contains(row_text)
+            && (0..buf.area.width).map(|x| &buf[(x, y)]).any(|c| {
+                c.symbol() == symbol && c.modifier.contains(ratatui::style::Modifier::REVERSED)
+            })
+    })
+}
+
+#[test]
+fn a_search_lights_up_its_value_in_the_payload_pane() {
+    let mut app = app_with_payloads();
+    app.run("motion.down", None);
+    app.run("history.detail", None);
+    app.search = tmprl_core::search::Search::new("GBP");
+    assert!(lit_on_row(&mut app, 110, 20, "\"currency\"", "G"));
+}
+
+#[test]
+fn a_path_search_lights_up_the_value_the_pane_shows() {
+    // `currency=GBP` is the flattened form, never on screen; the value is.
+    let mut app = app_with_payloads();
+    app.run("motion.down", None);
+    app.run("history.detail", None);
+    app.search = tmprl_core::search::Search::new("currency=GBP");
+    assert!(lit_on_row(&mut app, 110, 20, "\"currency\"", "G"));
+}
+
+#[test]
+fn a_search_that_lands_scrolls_the_pane_to_the_match_once() {
+    let mut app = app_with_payloads();
+    app.run("motion.down", None);
+    app.run("history.detail", None);
+    app.search = tmprl_core::search::Search::new("charged");
+
+    draw(&mut app, 110, 12);
+    assert_eq!(app.view.detail_scroll, 0, "no search landed, nothing moves");
+
+    app.view.detail_seek = true;
+    draw(&mut app, 110, 12);
+    assert!(app.view.detail_scroll > 0, "the result sits below the fold");
+    assert!(!app.view.detail_seek, "the seek is spent on the draw");
+
+    app.run("history.detail-up", None);
+    let after = app.view.detail_scroll;
+    draw(&mut app, 110, 12);
+    assert_eq!(
+        app.view.detail_scroll, after,
+        "later draws leave the scroll alone"
+    );
+}

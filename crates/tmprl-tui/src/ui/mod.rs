@@ -86,10 +86,13 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             focused_detail_max = max;
         }
     }
-    if let Some(max) = focused_detail_max {
+    if let Some((max, scroll)) = focused_detail_max {
         app.view.detail_max_scroll = max;
-        app.view.detail_scroll = app.view.detail_scroll.min(max);
+        app.view.detail_scroll = scroll;
     }
+    // Spent on this draw whether or not the pane was open: opening `K` later is not the
+    // moment the search landed, and jumping then would move a pane you had not asked to.
+    app.view.detail_seek = false;
 
     statusline::render_status(frame, status, app, &theme);
 
@@ -182,7 +185,7 @@ fn render_pane(
     theme: &Theme,
     focused: bool,
     split: bool,
-) -> Option<usize> {
+) -> Option<(usize, usize)> {
     // With one window there is nothing to distinguish, and a border would only cost a row.
     let area = if split {
         let block = Block::default()

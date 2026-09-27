@@ -208,6 +208,111 @@ pub fn unwrap_single(json: &str) -> Option<String> {
     }
 }
 
+/// One payload as `path=value` lines, for `/` to match on.
+///
+/// Substring search over pretty-printed JSON finds `8812` but cannot tell a customer id from
+/// an amount; one leaf per line with its path in front makes `/customer.id=8812` a precise
+/// query and keeps `/8812` working. `key=value` is the form event fields already search as.
+///
+/// Only what is readable: ciphertext still waiting on the codec and opaque bytes yield
+/// nothing, so a search never decodes. A payload the codec already answered was swapped for
+/// its plaintext and flattens like any other.
+pub fn flatten(label: &str, p: &Payload) -> Vec<String> {
+    let Some(text) = p.pipeable().and_then(|b| std::str::from_utf8(b).ok()) else {
+        return Vec::new();
+    };
+    let root = format!(".{label}");
+    let mut out = Vec::new();
+    match p.encoding.as_str() {
+        "json/plain" | "json/protobuf" => match serde_json::from_str(text) {
+            Ok(v) => flatten_value(&root, &v, &mut out),
+            Err(_) => out.push(format!("{root}={text}")),
+        },
+        _ => out.push(format!("{root}={text}")),
+    }
+    out
+}
+
+/// Flattened payloads, kept between searches.
+///
+/// `/` rebuilds every row's label on each search, and again for every page a read-on
+/// search pulls in, so without this a long run's payloads are parsed once per keystroke.
+/// Keyed by content rather than by event: a payload the codec answers comes back as new
+/// bytes and so as a new entry, and nothing has to be told to invalidate.
+///
+/// Bounded by [`FlatCache::sweep`], which drops whatever the last pass did not ask for.
+/// What survives is one flattened copy of the history on screen, and leaving a history
+/// frees it on the next search.
+#[derive(Debug, Default)]
+pub struct FlatCache {
+    entries: std::collections::HashMap<u64, (u64, Vec<String>)>,
+    pass: u64,
+}
+
+impl FlatCache {
+    /// [`flatten`], computed once per distinct label and payload.
+    pub fn lines(&mut self, label: &str, p: &Payload) -> &[String] {
+        let pass = self.pass;
+        let entry = self
+            .entries
+            .entry(Self::key(label, p))
+            .or_insert_with(|| (pass, flatten(label, p)));
+        entry.0 = pass;
+        &entry.1
+    }
+
+    /// What is cached for this payload, without counting as a use: a read after the pass
+    /// that swept must not keep an entry alive into the next one.
+    pub fn peek(&self, label: &str, p: &Payload) -> Option<&[String]> {
+        self.entries
+            .get(&Self::key(label, p))
+            .map(|(_, l)| l.as_slice())
+    }
+
+    fn key(label: &str, p: &Payload) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        label.hash(&mut h);
+        p.encoding.hash(&mut h);
+        p.data.hash(&mut h);
+        h.finish()
+    }
+
+    /// End a pass: forget every entry it did not use.
+    pub fn sweep(&mut self) {
+        let pass = self.pass;
+        self.entries.retain(|_, (used, _)| *used == pass);
+        self.pass += 1;
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+}
+
+fn flatten_value(path: &str, v: &serde_json::Value, out: &mut Vec<String>) {
+    use serde_json::Value;
+    match v {
+        Value::Object(m) if !m.is_empty() => {
+            for (k, v) in m {
+                flatten_value(&format!("{path}.{k}"), v, out);
+            }
+        }
+        Value::Array(a) if !a.is_empty() => {
+            for (i, v) in a.iter().enumerate() {
+                flatten_value(&format!("{path}[{i}]"), v, out);
+            }
+        }
+        // Unquoted, so `/status=APPROVED` matches without the reader typing JSON quotes.
+        Value::String(s) => out.push(format!("{path}={s}")),
+        other => out.push(format!("{path}={other}")),
+    }
+}
+
 /// Pretty-print JSON, or hand back the input unchanged when it is not JSON.
 ///
 /// Payloads claim `json/plain` and are usually right, but a workflow can put anything in one.
@@ -329,6 +434,96 @@ mod tests {
 
         // Short values are shown whole, without an ellipsis.
         assert_eq!(json("42").summary(30), "42");
+    }
+
+    #[test]
+    fn a_json_payload_flattens_to_one_line_per_leaf() {
+        let p =
+            json(r#"{"customer":{"id":"8812"},"items":[{"sku":"A"},{"sku":"B"}],"amount":5000}"#);
+        assert_eq!(
+            flatten("input", &p),
+            vec![
+                ".input.amount=5000",
+                ".input.customer.id=8812",
+                ".input.items[0].sku=A",
+                ".input.items[1].sku=B",
+            ]
+        );
+    }
+
+    #[test]
+    fn empty_containers_and_scalars_keep_a_line() {
+        // An empty object is still a value someone may search for, dropping it would make
+        // `/items=[]` find nothing on the one row where it is true.
+        assert_eq!(flatten("result", &json("{}")), vec![".result={}"]);
+        assert_eq!(
+            flatten("result", &json(r#"{"items":[]}"#)),
+            vec![".result.items=[]"]
+        );
+        assert_eq!(flatten("result", &json("null")), vec![".result=null"]);
+        assert_eq!(flatten("result", &json("true")), vec![".result=true"]);
+    }
+
+    #[test]
+    fn text_and_unparseable_json_flatten_whole() {
+        let text = Payload::new("text/plain", b"hello".to_vec());
+        assert_eq!(flatten("input", &text), vec![".input=hello"]);
+        assert_eq!(flatten("input", &json("not json")), vec![".input=not json"]);
+    }
+
+    #[test]
+    fn ciphertext_and_opaque_bytes_flatten_to_nothing() {
+        // Searching must not reach for the codec; only what is already readable counts.
+        let enc = Payload::new("binary/encrypted", vec![1, 2, 3]);
+        let raw = Payload::new("binary/plain", vec![1, 2, 3]);
+        assert!(flatten("input", &enc).is_empty());
+        assert!(flatten("input", &raw).is_empty());
+    }
+
+    #[test]
+    fn the_cache_answers_what_flatten_would() {
+        let mut cache = FlatCache::default();
+        let p = json(r#"{"id":"8812"}"#);
+        assert_eq!(cache.lines("input", &p), flatten("input", &p).as_slice());
+        assert_eq!(cache.lines("input", &p), [".input.id=8812"]);
+        assert_eq!(cache.len(), 1, "the same payload is one entry");
+    }
+
+    #[test]
+    fn a_peek_does_not_keep_an_entry_alive() {
+        let mut cache = FlatCache::default();
+        let p = json("1");
+        cache.lines("input", &p);
+        cache.sweep();
+        assert_eq!(
+            cache.peek("input", &p),
+            Some([".input=1".to_string()].as_slice())
+        );
+        cache.sweep();
+        assert!(cache.is_empty(), "only `lines` counts as a use");
+    }
+
+    #[test]
+    fn the_label_is_part_of_the_key() {
+        // The same bytes as an input and as a result flatten to different paths.
+        let mut cache = FlatCache::default();
+        let p = json("1");
+        assert_eq!(cache.lines("input", &p), [".input=1"]);
+        assert_eq!(cache.lines("result", &p), [".result=1"]);
+    }
+
+    #[test]
+    fn a_sweep_keeps_only_what_the_last_pass_used() {
+        let mut cache = FlatCache::default();
+        let kept = json("1");
+        let dropped = json("2");
+        cache.lines("input", &kept);
+        cache.lines("input", &dropped);
+        cache.sweep();
+        cache.lines("input", &kept);
+        cache.sweep();
+        assert_eq!(cache.len(), 1, "a payload no longer on screen is forgotten");
+        assert_eq!(cache.lines("input", &kept), [".input=1"]);
     }
 
     #[test]

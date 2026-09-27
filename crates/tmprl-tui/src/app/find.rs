@@ -59,7 +59,7 @@ impl App {
         if self.view.screen != Screen::History {
             return Vec::new();
         }
-        let labels = self.view.search_labels();
+        let labels = self.view.row_labels();
         let Some(outline) = self.view.history.value() else {
             return Vec::new();
         };
@@ -419,6 +419,7 @@ impl App {
         match search::find(&self.search, &labels, from, forward, inclusive) {
             Some(hit) => {
                 self.set_cursor(hit.row);
+                self.view.detail_seek = true;
                 let where_ = if hit.wrapped {
                     if forward {
                         " (wrapped to the top)"
@@ -429,7 +430,11 @@ impl App {
                     ""
                 };
                 self.note = Some((
-                    format!("/{}  {total} match(es){where_}", self.search.pattern()),
+                    format!(
+                        "/{}  {total} match(es){where_}{}",
+                        self.search.pattern(),
+                        self.matched_in(hit.row)
+                    ),
                     Note::Info,
                 ));
                 true
@@ -439,11 +444,35 @@ impl App {
                     return false;
                 }
                 self.note = Some((
-                    format!("no match for /{} in {total} row(s)", self.search.pattern()),
+                    format!(
+                        "no match for /{} in {total} row(s){}",
+                        self.search.pattern(),
+                        self.unsearched_note()
+                    ),
                     Note::Warn,
                 ));
                 false
             }
+        }
+    }
+
+    /// Where on the row a hit was, when nothing on the row can show it: the payload path.
+    fn matched_in(&self, row: usize) -> String {
+        self.view
+            .payload_match(row, &self.search)
+            .map(|path| format!(", in {path}"))
+            .unwrap_or_default()
+    }
+
+    /// Why a miss may not be the last word: `/` reads only decoded payloads, and a value
+    /// behind the codec is invisible to it until `K` has shown that row.
+    fn unsearched_note(&self) -> String {
+        if self.view.screen != Screen::History {
+            return String::new();
+        }
+        match self.view.undecoded_payloads() {
+            0 => String::new(),
+            n => format!(", {n} encrypted payload(s) not searched"),
         }
     }
 
@@ -497,11 +526,13 @@ impl App {
         ) {
             self.scan = None;
             self.set_cursor(hit.row);
+            self.view.detail_seek = true;
             self.note = Some((
                 format!(
-                    "/{}  found after reading {} more event(s)",
+                    "/{}  found after reading {} more event(s){}",
                     self.search.pattern(),
-                    loaded - scan.started_with
+                    loaded - scan.started_with,
+                    self.matched_in(hit.row)
                 ),
                 Note::Info,
             ));
@@ -511,8 +542,9 @@ impl App {
             self.scan = None;
             self.note = Some((
                 format!(
-                    "no match for /{} in the whole history ({loaded} events)",
-                    self.search.pattern()
+                    "no match for /{} in the whole history ({loaded} events){}",
+                    self.search.pattern(),
+                    self.unsearched_note()
                 ),
                 Note::Warn,
             ));
