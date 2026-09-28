@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2 — 2026-09-28
+
+- fix: keep test runs out of the user's audit log
+
 ## 0.1.2-rc.3 — 2026-09-27
 
 - **Search inside payloads**: `/` on a history matches the values in readable inputs and
