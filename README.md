@@ -12,6 +12,11 @@
 
 <sub>Real history on Temporal Cloud. Two customer values blurred, nothing else.</sub>
 
+[![A recorded tmprl session: search, folds and the payload pane](https://asciinema.org/a/mTNgbyV9vP1SC5Ed.svg)](https://asciinema.org/a/mTNgbyV9vP1SC5Ed)
+
+<sub>Recorded on a local dev server. Payload values and a few identifying words were replaced
+with <code>*</code> afterwards, same length, so the layout and timing are untouched.</sub>
+
 ## Quickstart
 
 ```sh
