@@ -58,32 +58,31 @@ sed -i "0,/^version = \".*\"$/s//version = \"$next\"/" Cargo.toml
 sed -i -E "s#(tmprl-[a-z]+ = \{ path = \"crates/tmprl-[a-z]+\", version = \")[^\"]+#\1$next#" Cargo.toml
 cargo check --quiet >&2   # rewrites Cargo.lock
 
-# The changelog section: whatever sits under Unreleased, or else the user-visible commits
-# since the last tag, so a release always says what changed even when nobody wrote it down
-# by hand. docs, chore, ci and test commits change nothing a user runs.
-last_tag=$(git tag -l 'v*' --sort=-v:refname | head -1)
-range=${last_tag:+$last_tag..HEAD}
-commits=$(git log "${range:-HEAD}" --no-merges --format='- %s' \
-  --grep='^feat' --grep='^fix' --grep='^perf' -E | sed 's/([^)]*)//' || true)
+# The changelog. A candidate leaves it alone: `## Unreleased` keeps saying what is coming,
+# and the entry lands under the real version when that ships. Promoting instead per candidate
+# gave every release a section its candidates had already emptied.
+if [ "$channel" = "rc" ]; then
+  echo "changelog: untouched, this is a candidate for $base" >&2
+else
+  # Whatever is under Unreleased, plus any section a candidate for this version did claim.
+  scripts/changelog.py promote "$next" >&2
 
-python3 - "$next" "$commits" <<'PY' >&2
-import datetime, pathlib, sys
-
-version, commits = sys.argv[1], sys.argv[2]
+  # An empty entry means nobody wrote one, so fall back to the user-visible commits since
+  # the last release. docs, chore, ci and test commits change nothing a user runs.
+  if grep -qF -- "- No user-visible changes." CHANGELOG.md; then
+    last_release=$(git tag -l 'v*' --sort=-v:refname | grep -v -- '-rc\.' | head -1)
+    range=${last_release:+$last_release..HEAD}
+    commits=$(git log "${range:-HEAD}" --no-merges --format='- %s' \
+      --grep='^feat' --grep='^fix' --grep='^perf' -E | sed 's/([^)]*)//' || true)
+    if [ -n "$commits" ]; then
+      python3 - "$commits" <<'PY' >&2
+import pathlib, sys
 path = pathlib.Path("CHANGELOG.md")
-text = path.read_text()
-heading = f"## {version} — {datetime.date.today():%Y-%m-%d}"
-
-# A hand-written Unreleased section wins: it says what changed in the words someone chose.
-# With none, open a section from the commit subjects, which is better than an empty entry.
-if "## Unreleased" in text:
-    text = text.replace("## Unreleased", heading, 1)
-else:
-    body = commits.strip() or "- No user-visible changes."
-    text = text.replace("# Changelog\n", f"# Changelog\n\n{heading}\n\n{body}\n", 1)
-
-path.write_text(text)
-print(f"changelog: {heading}", file=sys.stderr)
+path.write_text(path.read_text().replace("- No user-visible changes.", sys.argv[1].strip(), 1))
+print("changelog: filled from the commit subjects", file=sys.stderr)
 PY
+    fi
+  fi
+fi
 
 echo "$next"

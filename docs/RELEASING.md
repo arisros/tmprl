@@ -12,13 +12,29 @@ Two buttons in the **Actions** tab, no local git needed.
 | `channel` | `release`, or `rc` for a candidate (`0.2.0-rc.1`) |
 
 It bumps `workspace.package.version` and the three `tmprl-*` versions beside it, refreshes
-`Cargo.lock`, turns the changelog's `## Unreleased` section into `## X.Y.Z — date`, and opens
-a PR. With no Unreleased section it writes one from the `feat:` / `fix:` / `perf:` / `docs:`
-commits since the last tag, so a release always says what changed.
+`Cargo.lock`, updates the changelog, and opens a PR.
 
-Review the PR, edit the changelog if the generated wording is thin, and merge it.
+Review the PR, edit the changelog if the wording is thin, and merge it.
 
 Locally, the same thing: `scripts/prepare-release.sh patch`, `… minor rc`, `… 0.4.0`.
+
+### The changelog, and candidates
+
+A candidate does **not** touch `CHANGELOG.md`. What is coming stays under `## Unreleased`
+until the real version ships, because a section per candidate buries the release it was
+rehearsing for, and leaves that release with an entry its candidates already emptied.
+
+A real release promotes `## Unreleased` to `## X.Y.Z — date`, folding in any section an
+earlier candidate for that same version did claim. With nothing written down it falls back to
+the `feat:` / `fix:` / `perf:` commits since the last *release* (candidates are skipped), so
+a release always says what changed. `scripts/changelog.py tidy` folds stray candidate
+sections back; both it and `promote` only move bullets, never reword them.
+
+### Releasing after a candidate
+
+`patch` on top of `0.1.2-rc.4` gives **`0.1.2`**, the release the candidates were for, not
+`0.1.3`. So: Prepare release with `patch` + `release`, merge, then Release with `v0.1.2`.
+Pick `minor` or `major` only when the change deserves it — the candidates do not decide.
 
 ## 2. Release
 

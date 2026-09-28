@@ -1,19 +1,10 @@
 # Changelog
 
-## 0.1.2-rc.3 — 2026-09-27
+## Unreleased
 
-- **Search inside payloads**: `/` on a history matches the values in readable inputs and
-  results, not only a row's name and fields. `/8812` finds the value wherever it sits;
-  `/customer.id=8812` finds it only as a customer id. The statusline names the path that
-  matched, and `K` highlights it and scrolls to it. `/` never calls the codec, so a miss
-  says how many encrypted payloads it could not see.
-- **Query completion**: the query bar offers whole clauses as you type, including the
-  cluster's own search attributes and windows such as "last hour"; `<Tab>` takes one.
-- **Scrollbars** on every list and pane that overflows.
-- **Updates** are named by their handler rather than a uuid.
-
-## 0.1.2-rc.2 — 2026-09-27
-
+- **Updates** in a history are named by their handler instead of their
+  `protocol_instance_id`, so the list no longer reads as a column of uuids and `/` finds an
+  update by name. The id stays as an `updateId` field, to correlate with the caller.
 - **Query completion**: the query bar completes the clause being typed and `<Tab>` takes it.
   It completes a whole clause such as `ExecutionStatus = 'Running'`, respects quoting so
   `'send and forget'` stays one clause, and offers nothing before you type or after a clause
@@ -23,23 +14,25 @@
   the instant it means because the visibility grammar has no `now()`.
 - **Scrollbars**: a list or pane that overflows shows a thumb, so you can see how much is
   below. A pane that fits is unchanged.
-
-## 0.1.2-rc.1 — 2026-09-25
-
-- **Updates** in a history are named by their handler instead of their
-  `protocol_instance_id`, so the list no longer reads as a column of uuids and `/` finds an
-  update by name. The id stays as an `updateId` field, to correlate with the caller.
+- **Search inside payloads**: `/` on a history matches the values in readable inputs and
+  results, not only a row's name and fields. `/8812` finds the value wherever it sits;
+  `/customer.id=8812` finds it only as a customer id. The statusline names the path that
+  matched, and `K` highlights it and scrolls to it. `/` never calls the codec, so a miss
+  says how many encrypted payloads it could not see.
 
 ## 0.1.1 — 2026-09-21
 
-- **Find past the pane**: `<Space>ff` asks the server when the rows a pane has loaded match
-  nothing you typed, and `/` on a history reads the rest of the run in rather than stopping
-  at the events already loaded.
-- **Retries in progress**: an activity being retried right now shows its attempt, when it
-  tries again and why the last one failed.
-
-## 0.1.1-rc.4 — 2026-09-21
-
+- `[layout] payload = "right"` in `config.toml` opens the `K` payload pane beside the
+  history list instead of under it. Terminals narrower than 100 columns still stack it.
+- **Timeline**: `<Space>G` draws a history the way Temporal's web UI does, each group's
+  events as dots on one time axis, coloured by how it ended. Idle stretches fold to `≀`;
+  `zg` unfolds them.
+- **Clock times**: `<Space>T` swaps ages for clock readings in every list, in the zone set by
+  `timezone` in `config.toml` (default: the machine's). Closed workflows gain a close time.
+- **Failures**: `K` on a failure shows the whole chain, every `caused by` down to the root,
+  its type, the SDK that raised it, whether it was retryable, and the stack traces.
+- **Yank** inside tmux goes through `tmux load-buffer -w`, so it reaches the clipboard
+  without extra tmux settings.
 - **Find past the pane**: `<Space>ff` sends a prompt of six characters or more to the server
   as a `WorkflowId` or a `RunId`, 300ms after typing stops, so an id pasted from a log finds
   its workflow whether or not the pane has loaded it. Matches are tagged `found by id` and
@@ -51,23 +44,6 @@
   retry. `K` adds the state, the next attempt time and the worker that ran the last one.
   Temporal writes no event for a retry, so this comes from describe: read when the history
   opens, on `R`, and every 5s under `F`.
-
-## 0.1.1-rc.3 — 2026-09-19
-
-- **Timeline**: `<Space>G` draws a history the way Temporal's web UI does, each group's
-  events as dots on one time axis, coloured by how it ended. Idle stretches fold to `≀`;
-  `zg` unfolds them.
-- **Clock times**: `<Space>T` swaps ages for clock readings in every list, in the zone set by
-  `timezone` in `config.toml` (default: the machine's). Closed workflows gain a close time.
-- **Failures**: `K` on a failure shows the whole chain, every `caused by` down to the root,
-  its type, the SDK that raised it, whether it was retryable, and the stack traces.
-- **Yank** inside tmux goes through `tmux load-buffer -w`, so it reaches the clipboard
-  without extra tmux settings.
-
-## 0.1.1-rc.2 — 2026-09-17
-
-- `[layout] payload = "right"` in `config.toml` opens the `K` payload pane beside the
-  history list instead of under it. Terminals narrower than 100 columns still stack it.
 
 ## 0.1.0
 
