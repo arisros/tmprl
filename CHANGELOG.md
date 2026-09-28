@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3 — 2026-09-28
+
+- fix: keep test runs out of the user's audit log
+
 ## 0.1.2 — 2026-09-28
 
 - fix: keep test runs out of the user's audit log
