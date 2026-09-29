@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3 — 2026-09-29
+
+- No user-visible changes.
+
 ## 0.1.2 — 2026-09-28
 
 - **Updates** in a history are named by their handler instead of their
