@@ -44,7 +44,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-llvm-cov
 
       - name: Install Temporal CLI
         run: |
@@ -77,4 +80,10 @@ jobs:
         env:
           TEMPORAL_ADDRESS: 127.0.0.1:7233
           TMPRL_REQUIRE_SERVER: "1"
-        run: cargo test --all-features
+        run: cargo llvm-cov --all-features --lcov --output-path lcov.info
+
+      - uses: codecov/codecov-action@v5
+        with:
+          files: lcov.info
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
