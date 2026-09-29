@@ -3,12 +3,17 @@
 <p align="center">A keyboard-driven terminal client for <a href="https://temporal.io">Temporal</a>.</p>
 
 <p align="center">
+  <a href="https://crates.io/crates/tmprl"><img alt="crates.io" src="https://img.shields.io/crates/v/tmprl"></a>
+  <a href="https://github.com/arisros/tmprl"><img alt="GitHub" src="https://img.shields.io/badge/github-arisros%2Ftmprl-blue?logo=github"></a>
+  <a href="https://docs.rs/tmprl-core"><img alt="docs.rs" src="https://img.shields.io/docsrs/tmprl-core?label=docs"></a>
+  <a href="https://github.com/arisros/tmprl/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/crates/l/tmprl"></a>
   <a href="https://github.com/arisros/tmprl/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/arisros/tmprl/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://deps.rs/repo/github/arisros/tmprl"><img alt="Dependencies" src="https://deps.rs/repo/github/arisros/tmprl/status.svg"></a>
+  <a href="https://codecov.io/gh/arisros/tmprl"><img alt="Coverage" src="https://codecov.io/gh/arisros/tmprl/graph/badge.svg"></a>
   <img alt="Rust 1.95+" src="https://img.shields.io/badge/rust-1.95%2B-orange">
-  <img alt="MIT" src="https://img.shields.io/badge/license-MIT-blue">
 </p>
 
-![A workflow history, groups folded, with an encrypted payload decoded in the pane below](docs/img/history.png)
+![A workflow history, groups folded, with an encrypted payload decoded in the pane below](https://raw.githubusercontent.com/arisros/tmprl/main/docs/img/history.png)
 
 <sub>Real history on Temporal Cloud. Two customer values blurred, nothing else.</sub>
 
@@ -32,7 +37,7 @@ tmprl --config-path      # every file tmprl reads, and whether it exists
 
 ## Keys
 
-![The ? help overlay](docs/img/help.png)
+![The ? help overlay](https://raw.githubusercontent.com/arisros/tmprl/main/docs/img/help.png)
 
 | | | | |
 |---|---|---|---|
