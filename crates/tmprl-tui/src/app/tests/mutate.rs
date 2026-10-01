@@ -7,6 +7,7 @@ fn a_mutation_key_only_opens_a_confirmation() {
     // Nothing reaches the cluster until the reader says yes.
     let mut app = on_a_workflow();
     app.run("workflow.terminate", None);
+    enter(&mut app);
 
     let c = app.confirm.clone().expect("a confirmation should open");
     assert_eq!(c.first().verb(), "Terminate");
@@ -63,6 +64,7 @@ fn a_readonly_profile_refuses_before_a_confirmation_opens() {
 
     app.run("workflow.terminate", None);
     assert!(app.confirm.is_none(), "no confirmation may open");
+    assert!(app.prompt.is_none(), "nor a prompt for the reason");
     let (text, level) = app.note.clone().expect("a refusal should be reported");
     assert!(
         text.contains("prod"),
@@ -100,6 +102,7 @@ fn a_profile_without_a_readonly_flag_still_mutates() {
     );
 
     app.run("workflow.terminate", None);
+    enter(&mut app);
     assert!(app.confirm.is_some(), "a confirmation should still open");
 }
 
@@ -109,6 +112,7 @@ fn a_confirmation_owns_every_key_while_it_is_up() {
     let mut app = on_a_workflow();
     let before = app.view.cursor;
     app.run("workflow.terminate", None);
+    enter(&mut app);
 
     app.handle(Msg::Key(Chord::ch('j')));
     assert_eq!(app.view.cursor, before, "j must not move the cursor");
@@ -128,6 +132,7 @@ fn a_confirmation_owns_every_key_while_it_is_up() {
 fn escape_always_backs_out() {
     let mut app = on_a_workflow();
     app.run("workflow.terminate", None);
+    enter(&mut app);
     app.handle(Msg::Key(Chord::plain(tmprl_core::Key::Esc)));
 
     assert!(app.confirm.is_none());
@@ -220,6 +225,7 @@ fn a_destructive_batch_costs_the_count_rather_than_a_keypress() {
     let mut app = on_four_workflows();
     select(&mut app, 3);
     app.run("workflow.terminate", None);
+    enter(&mut app);
 
     let c = app.confirm.clone().unwrap();
     assert_eq!(c.typed_word.as_deref(), Some("3"));
@@ -344,6 +350,7 @@ fn a_reset_resolves_to_a_workflow_task_the_cursor_is_not_on() {
     app.run("motion.bottom", None); // the activity group, not a workflow task
 
     app.run("workflow.reset", None);
+    enter(&mut app);
     let c = app.confirm.clone().expect("a confirmation");
     assert!(
         c.first().cli().contains("--event-id 3"),
@@ -358,6 +365,10 @@ fn a_reset_needs_a_history_and_says_so() {
     let mut app = on_a_workflow(); // still on the workflow list
     app.run("workflow.reset", None);
     assert!(app.confirm.is_none());
+    assert!(
+        app.prompt.is_none(),
+        "no reason is asked for a reset it cannot do"
+    );
     let (msg, kind) = app.note.clone().unwrap();
     assert_eq!(kind, Note::Warn);
     assert!(msg.contains("history"), "got {msg}");
@@ -376,7 +387,156 @@ fn a_history_with_no_completed_task_cannot_be_reset() {
         )),
     });
     app.run("workflow.reset", None);
-    assert!(app.confirm.is_none(), "there is nowhere valid to reset to");
+    assert!(app.prompt.is_none(), "there is nowhere valid to reset to");
+    assert!(app.confirm.is_none());
+}
+
+#[test]
+fn a_terminate_asks_for_its_reason_before_confirming() {
+    let mut app = on_a_workflow();
+    app.run("workflow.terminate", None);
+    assert!(app.confirm.is_none(), "the reason comes first");
+    let prompt = app.prompt.clone().expect("a prompt for the reason");
+    assert_eq!(prompt.kind, PromptKind::TerminateReason);
+    assert_eq!(prompt.buf, "terminated from tmprl");
+
+    // Enter alone sends what tmprl sent before the reason could be typed.
+    enter(&mut app);
+    assert!(app.prompt.is_none());
+    let cli = app.confirm.clone().expect("now it can be confirmed");
+    assert!(
+        cli.first()
+            .cli()
+            .ends_with("--reason 'terminated from tmprl'"),
+        "{}",
+        cli.first().cli()
+    );
+}
+
+/// Replace what a reason prompt opened with.
+fn retype(app: &mut App, reason: &str) {
+    let held = app.prompt.as_ref().expect("a prompt").buf.chars().count();
+    for _ in 0..held {
+        app.handle(Msg::Key(Chord::plain(Key::Backspace)));
+    }
+    type_chars(app, reason);
+}
+
+#[test]
+fn the_reason_typed_is_the_one_shown_sent_and_audited() {
+    let mut app = on_a_workflow();
+    app.run("workflow.terminate", None);
+    retype(&mut app, "it's stuck, OPS-12");
+    enter(&mut app);
+
+    let m = app.confirm.clone().expect("confirmed").first().clone();
+    // The request carries this field, and the command shown quotes the same text.
+    assert_eq!(m.reason(), Some("it's stuck, OPS-12"));
+    assert!(
+        m.cli().ends_with(r"--reason 'it'\''s stuck, OPS-12'"),
+        "{}",
+        m.cli()
+    );
+
+    app.handle(Msg::Mutated {
+        mutation: Box::new(m),
+        result: Ok(()),
+        batch: None,
+    });
+    let AuditSink::Captured(lines) = &app.audit_sink else {
+        panic!("a detached app must never write the user's audit log");
+    };
+    assert!(
+        lines[0].contains(r#""reason":"it's stuck, OPS-12""#),
+        "{}",
+        lines[0]
+    );
+}
+
+#[test]
+fn escape_at_the_reason_abandons_the_mutation() {
+    let mut app = on_a_workflow();
+    app.run("workflow.terminate", None);
+    app.handle(Msg::Key(Chord::plain(Key::Esc)));
+
+    assert!(app.prompt.is_none());
+    assert!(app.confirm.is_none(), "nothing was proposed");
+    assert_eq!(app.mode, Mode::Normal);
+}
+
+#[test]
+fn an_emptied_reason_abandons_rather_than_sending_none() {
+    // The audit trail is the point of asking. Enter on an empty line does nothing, as it
+    // does on every other prompt.
+    let mut app = on_a_workflow();
+    app.run("workflow.terminate", None);
+    retype(&mut app, "");
+    enter(&mut app);
+
+    assert!(app.prompt.is_none());
+    assert!(app.confirm.is_none());
+}
+
+#[test]
+fn a_terminate_over_a_selection_asks_once_and_gives_each_row_the_reason() {
+    let mut app = on_four_workflows();
+    select(&mut app, 3);
+    app.run("workflow.terminate", None);
+    retype(&mut app, "bad deploy");
+    enter(&mut app);
+
+    assert!(app.prompt.is_none(), "one prompt, not one per row");
+    let c = app.confirm.clone().expect("confirmed");
+    assert_eq!(c.len(), 3);
+    assert!(c.mutations.iter().all(|m| m.reason() == Some("bad deploy")));
+    assert_eq!(
+        c.typed_word.as_deref(),
+        Some("3"),
+        "and it still owes the count"
+    );
+}
+
+#[test]
+fn a_reset_asks_for_its_reason_once_it_has_somewhere_to_go() {
+    use tmprl_core::history::{Category as C, GroupRef as G, Outcome as O, Role as R};
+    let mut app = on_a_workflow();
+    app.run("nav.open", None);
+    app.handle(Msg::History {
+        generation: app.view.generation,
+        result: Ok((
+            vec![
+                hev(1, G::Workflow, R::Opens, C::Workflow).with_subject("W"),
+                hev(2, G::Opened(2), R::Opens, C::WorkflowTask),
+                hev(3, G::Opened(2), R::Closes, C::WorkflowTask).with_outcome(O::Completed),
+                hev(4, G::Opened(4), R::Opens, C::Activity).with_subject("A"),
+            ],
+            Vec::new(),
+        )),
+    });
+    app.run("motion.bottom", None);
+    app.run("workflow.reset", None);
+    let prompt = app.prompt.clone().expect("a prompt for the reason");
+    assert_eq!(prompt.kind, PromptKind::ResetReason);
+    assert_eq!(prompt.buf, "reset from tmprl");
+
+    retype(&mut app, "replay after the fix");
+    enter(&mut app);
+    let cli = app.confirm.clone().expect("confirmed").first().cli();
+    assert!(
+        cli.ends_with("--event-id 3 --reason 'replay after the fix'"),
+        "{cli}"
+    );
+}
+
+#[test]
+fn a_cancel_is_not_asked_for_a_reason() {
+    // `temporal workflow cancel` takes `--reason` only with `--query`, so a reason here
+    // would be one the command shown could not carry.
+    let mut app = on_a_workflow();
+    app.run("workflow.cancel", None);
+    assert!(app.prompt.is_none());
+    let m = app.confirm.clone().expect("straight to the confirmation");
+    assert_eq!(m.first().reason(), None);
 }
 
 #[test]

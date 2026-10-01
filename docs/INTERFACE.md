@@ -372,10 +372,10 @@ closed is refused with a message instead of polling for events that can never ar
 | `<leader>q` / `<C-c>` | quit | **live** |
 | `<C-q>` | send selection to the quickfix list | planned |
 | `<leader>mc` | cancel this workflow, or the selection | **live** |
-| `<leader>mt` | terminate this workflow, or the selection | **live** |
+| `<leader>mt` | terminate this workflow, or the selection, asking why first | **live** |
 | `<leader>ms` | signal this workflow, or the selection | **live** |
 | `<leader>md` | delete this workflow, or the selection | **live** |
-| `<leader>mr` | reset to the event under the cursor | **live** |
+| `<leader>mr` | reset to the event under the cursor, asking why first | **live** |
 | `<leader>mp` | pause or resume a schedule | **live** |
 | `<leader>mg` | run a schedule now | **live** |
 | `<leader>mD` | delete a schedule | **live** |
@@ -430,6 +430,16 @@ described above is live.
 workflow task*, and those are the rows the outline folds away, so the target resolves backwards
 to the nearest valid point. The confirmation shows the event id it landed on, so the move is
 visible rather than silent.
+
+Terminate and reset ask why before they ask for confirmation. The line at the bottom opens
+holding what tmprl would otherwise send, `terminated from tmprl` or `reset from tmprl`, so
+`Enter` alone keeps that; replace it with the reason an audit trail wants, or `Esc` to abandon
+the action. Emptied, the line abandons it too, rather than sending no reason. What was typed
+is what the confirmation's command shows after `--reason`, what the server records on the
+workflow's own history, and what the audit log keeps in a `reason` field. A batch asks once
+and every row gets the same reason. Cancel is not asked: the request has a reason field, but
+`temporal workflow cancel` takes `--reason` only with `--query`, for the batch job it starts,
+so the command shown for one workflow could not carry it.
 
 Every mutation routes through one confirmation modal, which displays **the equivalent
 `temporal` CLI command**. That teaches the CLI, makes the action auditable at a glance, and

@@ -64,8 +64,8 @@ project testable:
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
 | `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 77 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 344 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 384 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 345 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 391 |
 | `tmprl-ui` | built | Plain unit tests over the layout tree | 37 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -614,7 +614,10 @@ is deliberate:
 
 Built: **cancel, terminate, signal, delete, reset and update** on one workflow, and all but
 reset over a `V` selection, one request per row. Signal and update send a name and no input
-yet.
+yet. Terminate and reset ask for a reason first, on the same one-line prompt a signal's name
+is typed into, and that reason is what the command shows, what is sent, and what the audit
+line records. Cancel sends none: `temporal workflow cancel` takes `--reason` only with
+`--query`, so a reason there would be one the command shown could not carry.
 
 Two of those need more than an execution id, and that shapes where they live:
 

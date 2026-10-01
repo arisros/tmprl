@@ -97,7 +97,9 @@ Terminate 3 workflows
   type `3` to confirm   Esc to cancel
 ```
 
-`V` a range first and the action applies to every selected row, one request each.
+`V` a range first and the action applies to every selected row, one request each. Terminate
+and reset ask for a reason first; it goes into the command, the workflow's history and the
+audit log.
 
 ## Config
 
@@ -161,8 +163,8 @@ flowchart LR
 | Crate | Tests | |
 |---|---|---|
 | `tmprl-client` | 77 | all network IO |
-| `tmprl-core` | 344 | no terminal, no server |
-| `tmprl-tui` | 384 | ratatui |
+| `tmprl-core` | 345 | no terminal, no server |
+| `tmprl-tui` | 391 | ratatui |
 | `tmprl-ui` | 37 | window tree |
 
 ```sh

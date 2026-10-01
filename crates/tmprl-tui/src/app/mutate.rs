@@ -125,11 +125,12 @@ impl App {
         if matches!(kind, MutationKind::Reset) {
             // A reset goes back to an event, which only a history has, and a history is one
             // workflow. There is nothing to batch.
-            let Some(row) = self.target_workflow() else {
+            if self.target_workflow().is_none() {
                 self.note = Some(("no workflow under the cursor".into(), Note::Warn));
                 return;
-            };
-            let Some(event_id) = self.reset_target() else {
+            }
+            // Refused before the reason is asked for, not after it has been typed.
+            if self.reset_target().is_none() {
                 self.note = Some((
                     "reset needs a workflow history with a completed workflow task above \
                      the cursor"
@@ -137,14 +138,8 @@ impl App {
                     Note::Warn,
                 ));
                 return;
-            };
-            self.confirm = Some(Confirm::new(Mutation::Reset {
-                namespace: row.namespace,
-                workflow_id: row.workflow_id,
-                run_id: row.run_id,
-                event_id,
-                reason: "reset from tmprl".into(),
-            }));
+            }
+            self.ask_reason(PromptKind::ResetReason, "reset from tmprl");
             return;
         }
 
@@ -154,19 +149,16 @@ impl App {
             return;
         }
 
+        if matches!(kind, MutationKind::Terminate) {
+            self.ask_reason(PromptKind::TerminateReason, "terminated from tmprl");
+            return;
+        }
+
         let mutations = rows
             .into_iter()
             .map(|row| {
                 let (namespace, workflow_id, run_id) = (row.namespace, row.workflow_id, row.run_id);
                 match kind {
-                    MutationKind::Terminate => Mutation::Terminate {
-                        namespace,
-                        workflow_id,
-                        run_id,
-                        // A reason is required by the API and useful in the history. Editing
-                        // it before confirming is not built; a default beats an empty string.
-                        reason: "terminated from tmprl".into(),
-                    },
                     MutationKind::Delete => Mutation::Delete {
                         namespace,
                         workflow_id,
@@ -179,6 +171,51 @@ impl App {
                         run_id,
                     },
                 }
+            })
+            .collect();
+        self.confirm = Some(Confirm::batch(mutations));
+    }
+
+    /// Ask why, before a terminate or a reset is confirmed.
+    ///
+    /// The line opens holding what tmprl sent before the reason could be typed, so Enter
+    /// alone still sends that. The reason lands in the workflow's own history and in the
+    /// audit log, which is where someone later looks for it.
+    fn ask_reason(&mut self, kind: PromptKind, default: &str) {
+        self.prompt = Some(Prompt {
+            kind,
+            buf: default.into(),
+        });
+        self.mode = Mode::Command;
+    }
+
+    /// Turn a typed reason into a confirmation. One reason for every row a selection
+    /// covers, as a signal's name is.
+    pub(super) fn confirm_reason(&mut self, kind: PromptKind, reason: String) {
+        if kind == PromptKind::ResetReason {
+            let (Some(row), Some(event_id)) = (self.target_workflow(), self.reset_target()) else {
+                return;
+            };
+            self.confirm = Some(Confirm::new(Mutation::Reset {
+                namespace: row.namespace,
+                workflow_id: row.workflow_id,
+                run_id: row.run_id,
+                event_id,
+                reason,
+            }));
+            return;
+        }
+        let rows = self.target_workflows();
+        if rows.is_empty() {
+            return;
+        }
+        let mutations = rows
+            .into_iter()
+            .map(|row| Mutation::Terminate {
+                namespace: row.namespace,
+                workflow_id: row.workflow_id,
+                run_id: row.run_id,
+                reason: reason.clone(),
             })
             .collect();
         self.confirm = Some(Confirm::batch(mutations));

@@ -212,6 +212,22 @@ impl Mutation {
         }
     }
 
+    /// The reason given for it, on the two operations that send one.
+    pub fn reason(&self) -> Option<&str> {
+        match self {
+            Mutation::Terminate { reason, .. } | Mutation::Reset { reason, .. } => Some(reason),
+            Mutation::Cancel { .. }
+            | Mutation::Signal { .. }
+            | Mutation::Delete { .. }
+            | Mutation::Update { .. }
+            | Mutation::PauseSchedule { .. }
+            | Mutation::TriggerSchedule { .. }
+            | Mutation::DeleteSchedule { .. }
+            | Mutation::BackfillSchedule { .. }
+            | Mutation::CreateSchedule { .. } => None,
+        }
+    }
+
     /// Whether the workflow does not survive it.
     ///
     /// A signal is a change but not a loss; a delete removes the history itself and cannot be
@@ -255,6 +271,9 @@ impl Mutation {
             )
         };
         match self {
+            // No `--reason`, although the request has the field: `temporal workflow cancel`
+            // takes one only with `--query`, as the reason for the batch job it starts. A
+            // reason sent here would be one the command shown could not send.
             Mutation::Cancel { .. } => base("cancel", self),
             Mutation::Delete { .. } => base("delete", self),
             Mutation::Terminate { reason, .. } => {
@@ -380,6 +399,11 @@ impl Mutation {
             json_string(self.workflow_id())
         ));
         out.push_str(&format!(r#""runId":{},"#, json_string(self.run_id())));
+        // As typed, beside the command that carries it shell-quoted: "why was this
+        // terminated" should not need a shell to unquote the answer.
+        if let Some(reason) = self.reason() {
+            out.push_str(&format!(r#""reason":{},"#, json_string(reason)));
+        }
         out.push_str(&format!(r#""outcome":{},"#, json_string(outcome)));
         out.push_str(&format!(r#""command":{}"#, json_string(&self.cli())));
         out.push('}');
@@ -887,6 +911,31 @@ mod tests {
             "a JSONL line cannot contain a newline"
         );
         assert!(line.contains(r#"\"quotes\""#), "{line}");
+    }
+
+    #[test]
+    fn an_audit_line_records_the_reason_as_it_was_typed() {
+        // The command has it shell-quoted, which is right for a shell and awkward for
+        // anyone reading the log to find out why.
+        let line = terminate("it's stuck, see OPS-12").audit_line(1, sit(), "ok");
+        assert!(
+            line.contains(r#""reason":"it's stuck, see OPS-12""#),
+            "{line}"
+        );
+        assert!(
+            line.contains(r"--reason 'it'\\''s stuck, see OPS-12'"),
+            "{line}"
+        );
+
+        let cancel = Mutation::Cancel {
+            namespace: "d".into(),
+            workflow_id: "w".into(),
+            run_id: "r".into(),
+        };
+        assert!(
+            !cancel.audit_line(1, sit(), "ok").contains("reason"),
+            "an action that sends no reason records none"
+        );
     }
 
     #[test]

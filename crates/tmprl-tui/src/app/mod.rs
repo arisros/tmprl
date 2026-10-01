@@ -195,6 +195,10 @@ pub enum PromptKind {
     Update,
     /// The window a schedule backfill covers, and optionally its overlap policy.
     Backfill,
+    /// Why a workflow, or every workflow selected, is being terminated.
+    TerminateReason,
+    /// Why a workflow is being reset.
+    ResetReason,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -213,6 +217,8 @@ impl Prompt {
             PromptKind::Signal => "signal:",
             PromptKind::Update => "update:",
             PromptKind::Backfill => "backfill:",
+            PromptKind::TerminateReason => "terminate, reason: ",
+            PromptKind::ResetReason => "reset, reason: ",
         }
     }
 }

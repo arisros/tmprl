@@ -51,6 +51,12 @@ fn type_chars(app: &mut App, s: &str) {
     }
 }
 
+/// Press Enter: on a prompt, accept what it holds. After a terminate or a reset that is the
+/// reason the line opened with.
+fn enter(app: &mut App) {
+    app.handle(Msg::Key(Chord::plain(Key::Enter)));
+}
+
 /// Type a pattern into an open `/` prompt and submit it.
 fn search_for(app: &mut App, pattern: &str) {
     app.run("search.open", None);
