@@ -29,14 +29,14 @@ broken.
 | Large histories | Each arriving page re-merges, regroups and clones every event loaded so far. No benchmark exists. Wanted: incremental paging, and benchmarks at 100k events and with multi-megabyte payloads | M |
 | Paste and line editing | Prompts append and backspace only. Bracketed paste is not handled, so text pasted in Normal mode runs as keys | S |
 | Colours | The palette is compiled in as truecolor RGB and `NO_COLOR` is not read. Wanted: `theme.toml`, `NO_COLOR`, a 16-colour fallback | M |
-| CLI flags | Only `--profile` and `--temporal-config`. Wanted: `--namespace`, `--address`, `--readonly`, `--log`, and opening straight onto a query or a workflow id | S |
+| ✓ CLI flags | Done: `--namespace`, `--query`, `--workflow`, `--address`, `--readonly`. Still wanted: `--log` | S |
 | `:` command line | The completion list cannot be navigated and `<Tab>` does nothing. No history, no `:q` | S |
 | Help that knows the screen | `?` and which-key list every command everywhere; a command that does not apply refuses when run. Wanted: commands declare where they apply | M |
 | Query bar | No cursor movement inside the line, no history, no way to save the current query as a view | S |
 | Schedules | Only the first 50 are fetched, and only from the first namespace in scope | S |
 | Reasons | Terminate and reset send a fixed reason | S |
-| Read-only gaps | The create-schedule form opens on a read-only profile and refuses only after it is filled in | S |
-| Project hygiene | No `CONTRIBUTING.md`, issue templates or `SECURITY.md`. CI tests one server version | S |
+| ✓ Read-only gaps | Done. The create-schedule form refuses before it opens | S |
+| ✓ Project hygiene | Done. `CONTRIBUTING.md`, `SECURITY.md`, issue forms, and CI against two server versions | S |
 
 ## 0.3 · Workflow complete
 
