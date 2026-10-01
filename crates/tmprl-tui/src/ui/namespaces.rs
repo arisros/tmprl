@@ -6,7 +6,7 @@
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
@@ -31,7 +31,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
             "no namespaces"
         };
         frame.render_widget(
-            Paragraph::new(Span::styled(format!("  {msg}"), Style::new().fg(t.faint))),
+            Paragraph::new(Span::styled(format!("  {msg}"), t.faint)),
             area,
         );
         return;
@@ -56,24 +56,18 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
             let gutter = super::gutter(i, view.cursor);
 
             let base = if focused {
-                Style::new().fg(t.fg).bg(t.sel).add_modifier(Modifier::BOLD)
+                t.fg.patch(t.sel).add_modifier(Modifier::BOLD)
             } else if view.is_selected(i) {
-                Style::new().fg(t.fg).bg(t.sel)
+                t.fg.patch(t.sel)
             } else {
-                Style::new().fg(t.fg)
+                t.fg
             };
 
             Line::from(vec![
-                Span::styled(
-                    gutter,
-                    Style::new().fg(if focused { t.warn } else { t.faint }),
-                ),
+                Span::styled(gutter, if focused { t.warn } else { t.faint }),
                 Span::styled(format!("{:<28}", truncate(&ns.name, 28)), base),
-                Span::styled(format!("{:<14}", ns.state), Style::new().fg(t.dim)),
-                Span::styled(
-                    format!("{:>4}d", ns.retention_days),
-                    Style::new().fg(t.faint),
-                ),
+                Span::styled(format!("{:<14}", ns.state), t.dim),
+                Span::styled(format!("{:>4}d", ns.retention_days), t.faint),
             ])
         })
         // Repaint the search pattern last, over the finished row, so it survives

@@ -5,7 +5,7 @@
 //! command that does not exist is impossible.
 
 use ratatui::Frame;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph};
 
@@ -33,7 +33,7 @@ pub fn render(frame: &mut Frame, app: &mut App, t: &Theme) {
     for group in app.registry.groups() {
         lines.push(Line::from(Span::styled(
             group.to_string(),
-            Style::new().fg(t.accent).add_modifier(Modifier::BOLD),
+            t.accent.add_modifier(Modifier::BOLD),
         )));
         for cmd in app.registry.all().iter().filter(|c| c.group == group) {
             let keys = app.keymap.keys_for(cmd.id);
@@ -54,15 +54,15 @@ pub fn render(frame: &mut Frame, app: &mut App, t: &Theme) {
             lines.push(Line::from(vec![
                 Span::styled(
                     format!("  {:<KEYS$}", super::truncate(&rendered, KEYS - 1)),
-                    Style::new().fg(t.warn),
+                    t.warn,
                 ),
                 // Truncated for the same reason as the keys beside it: the id column is
                 // what `:` and keys.toml consume, so it is the one that must stay readable.
                 Span::styled(
                     format!("{:<TITLE$}", super::truncate(cmd.title, TITLE - 1)),
-                    Style::new().fg(t.fg),
+                    t.fg,
                 ),
-                Span::styled(cmd.id.to_string(), Style::new().fg(t.faint)),
+                Span::styled(cmd.id.to_string(), t.faint),
             ]));
         }
         lines.push(Line::raw(""));
@@ -92,8 +92,8 @@ pub fn render(frame: &mut Frame, app: &mut App, t: &Theme) {
     frame.render_widget(
         Paragraph::new(lines).scroll((scroll as u16, 0)).block(
             Block::bordered()
-                .title(Span::styled(title, Style::new().fg(t.accent)))
-                .border_style(Style::new().fg(t.faint)),
+                .title(Span::styled(title, t.accent))
+                .border_style(t.faint),
         ),
         area,
     );

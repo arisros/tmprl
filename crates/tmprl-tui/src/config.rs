@@ -39,7 +39,7 @@ fn resolve_dir(
 }
 
 /// The files tmprl reads out of its config directory.
-pub const CONFIG_FILES: [&str; 3] = ["config.toml", "keys.toml", "views.toml"];
+pub const CONFIG_FILES: [&str; 4] = ["config.toml", "keys.toml", "theme.toml", "views.toml"];
 
 /// What `--config-path` prints.
 ///

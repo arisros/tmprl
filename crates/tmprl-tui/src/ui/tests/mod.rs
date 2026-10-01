@@ -14,6 +14,7 @@ mod detail;
 mod history;
 mod messages;
 mod schedules;
+mod theme;
 mod timeline;
 mod workflows;
 

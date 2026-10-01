@@ -68,7 +68,7 @@ const PREFIX: usize = 7;
 pub fn render(frame: &mut Frame, area: Rect, outline: &Outline, view: &View, app: &App, t: &Theme) {
     let message = |frame: &mut Frame, msg: &str| {
         frame.render_widget(
-            Paragraph::new(Span::styled(format!("  {msg}"), Style::new().fg(t.faint))),
+            Paragraph::new(Span::styled(format!("  {msg}"), t.faint)),
             area,
         )
     };
@@ -123,14 +123,14 @@ pub fn render(frame: &mut Frame, area: Rect, outline: &Outline, view: &View, app
                 let mut spans = vec![
                     Span::styled(
                         super::gutter(index, view.cursor),
-                        Style::new().fg(if focused { t.warn } else { t.faint }),
+                        if focused { t.warn } else { t.faint },
                     ),
-                    Span::styled(marker, Style::new().fg(t.faint)),
+                    Span::styled(marker, t.faint),
                 ];
                 spans.extend(canvas.into_spans());
                 let line = Line::from(spans);
                 if focused || view.is_selected(index) {
-                    line.style(Style::new().bg(t.sel))
+                    line.style(t.sel)
                 } else {
                     line
                 }
@@ -188,13 +188,13 @@ impl Canvas {
 /// The empty row: grid lines under each tick and the fold marks, which every row shares.
 fn base_row(scale: &Scale, t: &Theme) -> Canvas {
     let mut c = Canvas(vec![(' ', Style::new()); scale.width()]);
-    let grid = Style::new().fg(mix(t.faint, BACKGROUND, 0.5));
+    let grid = faded(t.faint, 0.5);
     for tick in scale.ticks() {
         c.put(tick.column, GRID, grid);
     }
     for fold in scale.folds() {
         for col in fold {
-            c.put(col, FOLD, Style::new().fg(t.faint));
+            c.put(col, FOLD, t.faint);
         }
     }
     c
@@ -221,7 +221,7 @@ fn axis(timeline: &Timeline, scale: &Scale, app: &App, t: &Theme) -> Line<'stati
     if text.windows(2).any(|w| w[0] == w[1]) {
         text = labels(true);
     }
-    let label_style = Style::new().fg(t.dim);
+    let label_style = t.dim;
     let mut free_from = 0;
     for (tick, label) in ticks.iter().zip(text) {
         let len = label.chars().count();
@@ -235,7 +235,7 @@ fn axis(timeline: &Timeline, scale: &Scale, app: &App, t: &Theme) -> Line<'stati
     }
     for fold in scale.folds() {
         for col in fold {
-            c.put(col, FOLD, Style::new().fg(t.faint));
+            c.put(col, FOLD, t.faint);
         }
     }
     let mut spans = vec![Span::raw(" ".repeat(PREFIX))];
@@ -273,8 +273,8 @@ fn draw_group(
         let queued = i == 0 && queue_is_first(g, &events);
         let gradient = g.attempts > 1 && g.outcome == Outcome::Completed;
         for col in a..=b {
-            let (ch, color) = if queued {
-                (QUEUED, mix(line, BACKGROUND, 1.0 - QUEUED_OPACITY))
+            let (ch, style) = if queued {
+                (QUEUED, faded(t.paint(line), 1.0 - QUEUED_OPACITY))
             } else if gradient {
                 // A retried activity that got there in the end: the web UI fades each
                 // stretch from failure on the left to success on the right.
@@ -283,15 +283,15 @@ fn draw_group(
                 } else {
                     1.0
                 };
-                (LINE, mix(web::RED_9, web::GREEN_9, at))
+                (LINE, t.paint(mix(web::RED_9, web::GREEN_9, at)))
             } else {
-                (LINE, line)
+                (LINE, t.paint(line))
             };
-            c.put(col, ch, Style::new().fg(color));
+            c.put(col, ch, style);
         }
     }
     if pending {
-        let tail = Style::new().fg(line);
+        let tail = t.paint(line);
         for col in last..c.width() {
             c.put(col, TAIL, tail);
         }
@@ -302,14 +302,14 @@ fn draw_group(
         DOT
     };
     for (e, col) in events.iter().zip(&points) {
-        c.put(*col, dot, Style::new().fg(dot_color(g, e)));
+        c.put(*col, dot, t.paint(dot_color(g, e)));
     }
 
     let label = label(g);
     let style = if focused {
-        Style::new().fg(t.fg).add_modifier(Modifier::BOLD)
+        t.fg.add_modifier(Modifier::BOLD)
     } else {
-        Style::new().fg(t.fg)
+        t.fg
     };
     let len = label.chars().count();
     let at = label_column(&points, c.width(), pending, len);
@@ -324,13 +324,9 @@ fn draw_event(c: &mut Canvas, g: &Group, e: &NormalizedEvent, scale: &Scale, t: 
         return;
     };
     let col = scale.column(time);
-    c.put(col, DOT, Style::new().fg(dot_color(g, e)));
+    c.put(col, DOT, t.paint(dot_color(g, e)));
     let at = label_column(&[col], c.width(), false, e.name.chars().count());
-    c.text(
-        at.saturating_sub(1),
-        &format!(" {} ", e.name),
-        Style::new().fg(t.dim),
-    );
+    c.text(at.saturating_sub(1), &format!(" {} ", e.name), t.dim);
 }
 
 /// Where a label starts, by the web UI's rule (`timelineTextPosition`): before the dots
@@ -433,8 +429,17 @@ fn dot_color(g: &Group, e: &NormalizedEvent) -> Color {
     }
 }
 
+/// `style` receding into the background, `amount` of the way. A truecolor foreground is
+/// blended; a named colour, or none, has nothing to blend and is dimmed instead.
+fn faded(style: Style, amount: f32) -> Style {
+    match style.fg {
+        Some(color @ Color::Rgb(..)) => style.fg(mix(color, BACKGROUND, amount)),
+        _ => style.add_modifier(Modifier::DIM),
+    }
+}
+
 /// `a` blended towards `b`, `amount` of the way. Only RGB blends; anything else is
-/// returned as is, which on a 16-colour terminal is the honest answer.
+/// returned as is.
 fn mix(a: Color, b: Color, amount: f32) -> Color {
     let amount = amount.clamp(0.0, 1.0);
     match (a, b) {

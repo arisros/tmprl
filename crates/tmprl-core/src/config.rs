@@ -1,4 +1,5 @@
-//! `config.toml`, `keys.toml` and `views.toml`.
+//! `config.toml`, `keys.toml` and `views.toml`. `theme.toml` is parsed in [`crate::theme`],
+//! and reports through the same [`ConfigError`].
 //!
 //! Parsing lives here, in the crate with no IO, so a malformed config is a unit test rather
 //! than something you discover by launching the application. `tmprl-tui` reads the bytes off
@@ -42,6 +43,14 @@ pub enum ConfigError {
     #[error("config.toml: `{path}` is `{value}`, which is not a colour ({expected})")]
     BadAccent {
         path: String,
+        value: String,
+        expected: &'static str,
+    },
+    #[error("theme.toml: `{key}` is not a colour slot (expected {expected})")]
+    UnknownThemeSlot { key: String, expected: &'static str },
+    #[error("theme.toml: `{key}` is `{value}`, which is not a colour ({expected})")]
+    BadColor {
+        key: String,
         value: String,
         expected: &'static str,
     },

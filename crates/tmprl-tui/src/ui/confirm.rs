@@ -35,14 +35,8 @@ pub fn render(frame: &mut Frame, confirm: &Confirm, t: &Theme) {
         format!("  {} {}", m.verb(), m.workflow_id())
     };
     let mut lines = vec![
-        Line::from(Span::styled(
-            heading,
-            Style::new().fg(t.fg).add_modifier(Modifier::BOLD),
-        )),
-        Line::from(Span::styled(
-            format!("  in {}", m.namespace()),
-            Style::new().fg(t.dim),
-        )),
+        Line::from(Span::styled(heading, t.fg.add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(format!("  in {}", m.namespace()), t.dim)),
     ];
 
     if confirm.is_batch() {
@@ -52,13 +46,13 @@ pub fn render(frame: &mut Frame, confirm: &Confirm, t: &Theme) {
         for target in confirm.mutations.iter().take(LISTED) {
             lines.push(Line::from(Span::styled(
                 format!("    {}", target.workflow_id()),
-                Style::new().fg(t.dim),
+                t.dim,
             )));
         }
         if confirm.len() > LISTED {
             lines.push(Line::from(Span::styled(
                 format!("    and {} more", confirm.len() - LISTED),
-                Style::new().fg(t.faint),
+                t.faint,
             )));
         }
     }
@@ -70,15 +64,12 @@ pub fn render(frame: &mut Frame, confirm: &Confirm, t: &Theme) {
         } else {
             "  the equivalent command:"
         },
-        Style::new().fg(t.faint),
+        t.faint,
     )));
     // Wrapped rather than truncated: a command you can only see half of is not one you can
     // check, and checking it is the point.
     for chunk in super::wrap(&m.cli(), 66) {
-        lines.push(Line::from(Span::styled(
-            format!("    {chunk}"),
-            Style::new().fg(t.ok),
-        )));
+        lines.push(Line::from(Span::styled(format!("    {chunk}"), t.ok)));
     }
     lines.push(Line::raw(""));
 
@@ -87,20 +78,20 @@ pub fn render(frame: &mut Frame, confirm: &Confirm, t: &Theme) {
             Span::styled("  ", Style::new()),
             Span::styled(
                 format!("{} ", confirm.caution().unwrap_or_default()),
-                Style::new().fg(t.err).add_modifier(Modifier::BOLD),
+                t.err.add_modifier(Modifier::BOLD),
             ),
-            Span::styled(format!("type `{word}`:"), Style::new().fg(t.fg)),
+            Span::styled(format!("type `{word}`:"), t.fg),
         ]));
         lines.push(Line::from(vec![
             Span::styled("    ", Style::new()),
-            Span::styled(confirm.entered.clone(), Style::new().fg(t.fg)),
-            Span::styled("█", Style::new().fg(accent)),
+            Span::styled(confirm.entered.clone(), t.fg),
+            Span::styled("█", accent),
         ]));
         lines.push(Line::raw(""));
     }
     lines.push(Line::from(Span::styled(
         format!("  {}", confirm.prompt()),
-        Style::new().fg(t.faint),
+        t.faint,
     )));
 
     let height = (lines.len() as u16 + 2).min(frame.area().height);
@@ -116,9 +107,9 @@ pub fn render(frame: &mut Frame, confirm: &Confirm, t: &Theme) {
                 .borders(Borders::ALL)
                 .title(Span::styled(
                     format!(" confirm, {} ", m.verb().to_lowercase()),
-                    Style::new().fg(accent).add_modifier(Modifier::BOLD),
+                    accent.add_modifier(Modifier::BOLD),
                 ))
-                .border_style(Style::new().fg(accent)),
+                .border_style(accent),
         ),
         area,
     );

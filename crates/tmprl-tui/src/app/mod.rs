@@ -57,11 +57,13 @@ use tmprl_core::picker::{self, Picker, Target};
 use tmprl_core::search::{self, Search};
 use tmprl_core::timerange::parse_backfill;
 use tmprl_core::{
-    Action, Chord, Keymap, Loadable, Mode, PayloadPart, Pending, PendingEntry, Registry,
-    Resolution, SavedView, StatusCounts, WorkflowList, WorkflowRow, default_keymap,
+    Action, Chord, ColorDepth, Keymap, Loadable, Mode, PayloadPart, Pending, PendingEntry,
+    Registry, Resolution, SavedView, StatusCounts, ThemeOverrides, WorkflowList, WorkflowRow,
+    default_keymap,
 };
 use tokio::sync::mpsc::UnboundedSender;
 
+use crate::theme::Theme;
 use crate::view::View;
 pub use messages::Logged;
 use tmprl_ui::{Axis, Direction, Rect as UiRect, Tabs, ViewId};
@@ -429,6 +431,9 @@ pub struct App {
     pub times: TimeFormat,
     /// The zone wall-clock times are rendered in, from `config.toml`.
     pub clock: Clock,
+    /// The palette every frame is drawn with. Built once, by [`App::apply_theme`]: what the
+    /// terminal can show does not change while tmprl runs.
+    pub theme: Theme,
 
     pub note: Option<(String, Note)>,
     /// Every note this session, newest last, because the note line forgets on the next key.
@@ -527,6 +532,7 @@ impl App {
             search: Search::default(),
             times: TimeFormat::default(),
             clock: Clock::system(),
+            theme: Theme::default(),
             note: None,
             messages: VecDeque::new(),
             note_fault: None,
@@ -587,6 +593,21 @@ impl App {
         {
             self.note = Some((e.to_string(), Note::Error));
         }
+    }
+
+    /// Build the palette for the terminal's colour depth and the user's `theme.toml`.
+    /// Called once at startup. A theme that does not parse is reported and the defaults
+    /// are used whole: half a theme applied would look like a rendering bug.
+    pub fn apply_theme(&mut self, depth: ColorDepth, theme: Option<&str>) {
+        let overrides = match theme.map(tmprl_core::theme::parse_theme) {
+            None => ThemeOverrides::default(),
+            Some(Ok(overrides)) => overrides,
+            Some(Err(e)) => {
+                self.note = Some((e.to_string(), Note::Error));
+                ThemeOverrides::default()
+            }
+        };
+        self.theme = Theme::new(depth, &overrides);
     }
 
     pub fn profile(&self) -> &str {

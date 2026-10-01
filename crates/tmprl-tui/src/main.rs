@@ -61,11 +61,15 @@ async fn main() -> std::process::ExitCode {
             None
         }
     };
-    let (keys, views, config) = (
+    let (keys, views, config, theme) = (
         read_config("keys.toml"),
         read_config("views.toml"),
         read_config("config.toml"),
+        read_config("theme.toml"),
     );
+    // The theme first: both report through the statusline, which holds one message, and a
+    // key that does not work matters more than a colour that is off.
+    app.apply_theme(theme::depth_from_env(), theme.as_deref());
     app.apply_config(keys.as_deref(), views.as_deref(), config.as_deref());
     app.start(startup);
 

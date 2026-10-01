@@ -63,29 +63,24 @@ fn render_prompt(frame: &mut Frame, area: Rect, picker: &Picker, t: &Theme) {
     let line = Line::from(vec![
         Span::styled(
             format!(" {} ", picker.kind.title()),
-            Style::new().fg(t.accent).add_modifier(Modifier::BOLD),
+            t.accent.add_modifier(Modifier::BOLD),
         ),
-        Span::styled("> ", Style::new().fg(t.accent)),
-        Span::styled(picker.prompt.clone(), Style::new().fg(t.fg)),
+        Span::styled("> ", t.accent),
+        Span::styled(picker.prompt.clone(), t.fg),
         // A block caret, since the terminal's own is parked in the statusline.
-        Span::styled("▏", Style::new().fg(t.accent)),
-        Span::styled(format!("  {counts}"), Style::new().fg(t.faint)),
+        Span::styled("▏", t.accent),
+        Span::styled(format!("  {counts}"), t.faint),
     ]);
     frame.render_widget(Paragraph::new(line), area);
 }
 
 fn render_list(frame: &mut Frame, area: Rect, picker: &Picker, t: &Theme) {
-    let block = Block::default()
-        .borders(Borders::TOP)
-        .border_style(Style::new().fg(t.faint));
+    let block = Block::default().borders(Borders::TOP).border_style(t.faint);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
     if picker.is_empty() {
-        frame.render_widget(
-            Paragraph::new(Span::styled("  no matches", Style::new().fg(t.faint))),
-            inner,
-        );
+        frame.render_widget(Paragraph::new(Span::styled("  no matches", t.faint)), inner);
         return;
     }
 
@@ -103,33 +98,23 @@ fn render_list(frame: &mut Frame, area: Rect, picker: &Picker, t: &Theme) {
         .map(|(i, (item, m))| {
             let selected = i == picker.cursor;
             let base = if selected {
-                Style::new().fg(t.fg).add_modifier(Modifier::BOLD)
+                t.fg.add_modifier(Modifier::BOLD)
             } else {
-                Style::new().fg(t.dim)
+                t.dim
             };
-            let mut spans = vec![Span::styled(
-                if selected { "▸ " } else { "  " },
-                Style::new().fg(t.accent),
-            )];
+            let mut spans = vec![Span::styled(if selected { "▸ " } else { "  " }, t.accent)];
             spans.extend(marked(&item.label, &m.positions, base, t));
             if item.lookup {
                 // Nothing in the prompt is underlined on this row, because what matched is
                 // a field the label does not show. Saying where it came from is the
                 // difference between "I had missed it" and "the server was asked".
-                spans.push(Span::styled("  found by id", Style::new().fg(t.accent)));
+                spans.push(Span::styled("  found by id", t.accent));
             }
             if !item.note.is_empty() {
-                spans.push(Span::styled(
-                    format!("  {}", item.note),
-                    Style::new().fg(t.faint),
-                ));
+                spans.push(Span::styled(format!("  {}", item.note), t.faint));
             }
             let line = Line::from(spans);
-            if selected {
-                line.style(Style::new().bg(t.sel))
-            } else {
-                line
-            }
+            if selected { line.style(t.sel) } else { line }
         })
         .collect();
 
@@ -145,7 +130,7 @@ fn marked<'a>(label: &'a str, positions: &[usize], base: Style, t: &Theme) -> Ve
     if positions.is_empty() {
         return vec![Span::styled(label, base)];
     }
-    let hit = base.fg(t.accent).add_modifier(Modifier::BOLD);
+    let hit = t.hit(base);
     let mut spans = Vec::new();
     let mut at = 0;
     for p in positions {
@@ -174,8 +159,8 @@ fn marked<'a>(label: &'a str, positions: &[usize], base: Style, t: &Theme) -> Ve
 fn render_preview(frame: &mut Frame, area: Rect, picker: &Picker, t: &Theme) {
     let block = Block::default()
         .borders(Borders::TOP | Borders::LEFT)
-        .border_style(Style::new().fg(t.faint))
-        .title(Span::styled(" preview ", Style::new().fg(t.faint)));
+        .border_style(t.faint)
+        .title(Span::styled(" preview ", t.faint));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -185,7 +170,7 @@ fn render_preview(frame: &mut Frame, area: Rect, picker: &Picker, t: &Theme) {
     let lines: Vec<Line> = item
         .preview
         .lines()
-        .map(|l| Line::from(Span::styled(format!(" {l}"), Style::new().fg(t.dim))))
+        .map(|l| Line::from(Span::styled(format!(" {l}"), t.dim)))
         .collect();
     frame.render_widget(Paragraph::new(lines), inner);
 }
@@ -216,7 +201,7 @@ mod tests {
         let spans = marked("order-checkout", &[0, 6], Style::new(), &t);
         let lit: Vec<&str> = spans
             .iter()
-            .filter(|s| s.style.fg == Some(t.accent))
+            .filter(|s| s.style.fg == t.accent.fg)
             .map(|s| s.content.as_ref())
             .collect();
         assert_eq!(lit, vec!["o", "c"]);
@@ -248,7 +233,7 @@ mod tests {
         assert_eq!(text(&spans), label);
         let lit: Vec<&str> = spans
             .iter()
-            .filter(|s| s.style.fg == Some(t.accent))
+            .filter(|s| s.style.fg == t.accent.fg)
             .map(|s| s.content.as_ref())
             .collect();
         assert_eq!(lit, vec!["é"]);

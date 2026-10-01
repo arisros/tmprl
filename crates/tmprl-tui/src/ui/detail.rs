@@ -10,7 +10,7 @@
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use tmprl_core::history::{Failure, NormalizedEvent};
@@ -48,10 +48,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
     };
 
     let lines = if lines.is_empty() {
-        vec![Line::from(Span::styled(
-            "  nothing carried here",
-            Style::new().fg(t.faint),
-        ))]
+        vec![Line::from(Span::styled("  nothing carried here", t.faint))]
     } else {
         lines
     };
@@ -87,8 +84,8 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
     };
     let block = Block::default()
         .borders(Borders::TOP)
-        .border_style(Style::new().fg(t.faint))
-        .title(Span::styled(title, Style::new().fg(t.accent)));
+        .border_style(t.faint)
+        .title(Span::styled(title, t.accent));
     let inner = block.inner(area);
     frame.render_widget(block, area);
     // This pane's only border is the rule along its top, so the bar takes a column rather
@@ -112,11 +109,11 @@ fn group_lines<'a>(
     let mut title = vec![
         Span::styled(
             format!("  {} ", g.subject),
-            Style::new().fg(t.fg).add_modifier(Modifier::BOLD),
+            t.fg.add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             format!("{}  {} event(s)", g.outcome.label(), g.events.len()),
-            Style::new().fg(t.dim),
+            t.dim,
         ),
     ];
     // On the title line rather than its own: this pane's height is the payloads' budget,
@@ -128,7 +125,7 @@ fn group_lines<'a>(
         };
         title.push(Span::styled(
             format!("  {}{ended}", app.clock.stamp(g.started_at)),
-            Style::new().fg(t.faint),
+            t.faint,
         ));
     }
     let mut lines = vec![Line::from(title)];
@@ -158,7 +155,7 @@ fn group_lines<'a>(
         // carry no payload, and saying so is the answer to "where is the input".
         lines.push(Line::from(Span::styled(
             "  no payloads on this group",
-            Style::new().fg(t.faint),
+            t.faint,
         )));
     }
     if let Some(f) = failure {
@@ -179,10 +176,7 @@ fn pending_line<'a>(p: &PendingActivity, app: &App, t: &Theme) -> Line<'a> {
     if let Some(w) = &p.last_worker {
         parts.push(format!("worker {w}"));
     }
-    Line::from(Span::styled(
-        format!("  {}", parts.join(" · ")),
-        Style::new().fg(t.warn),
-    ))
+    Line::from(Span::styled(format!("  {}", parts.join(" · ")), t.warn))
 }
 
 /// The failure chain: every link's message, then what it was raised from.
@@ -196,7 +190,7 @@ fn failure_lines<'a>(f: &'a Failure, indent: &str, t: &Theme) -> Vec<Line<'a>> {
         let prefix = if depth == 0 { "" } else { "caused by " };
         lines.push(Line::from(Span::styled(
             format!("{indent}{prefix}{}", link.headline()),
-            Style::new().fg(t.err),
+            t.err,
         )));
 
         let mut tags = Vec::new();
@@ -210,7 +204,7 @@ fn failure_lines<'a>(f: &'a Failure, indent: &str, t: &Theme) -> Vec<Line<'a>> {
         if !tags.is_empty() {
             lines.push(Line::from(Span::styled(
                 format!("{indent}  {}", tags.join(" · ")),
-                Style::new().fg(t.faint),
+                t.faint,
             )));
         }
     }
@@ -229,13 +223,10 @@ fn stack_lines<'a>(f: &'a Failure, indent: &str, t: &Theme) -> Vec<Line<'a>> {
         };
         lines.push(Line::from(Span::styled(
             format!("{indent}stack trace  {}", link.headline()),
-            Style::new().fg(t.warn).add_modifier(Modifier::BOLD),
+            t.warn.add_modifier(Modifier::BOLD),
         )));
         for l in trace.lines() {
-            lines.push(Line::from(Span::styled(
-                format!("{indent}  {l}"),
-                Style::new().fg(t.dim),
-            )));
+            lines.push(Line::from(Span::styled(format!("{indent}  {l}"), t.dim)));
         }
     }
     lines
@@ -243,22 +234,19 @@ fn stack_lines<'a>(f: &'a Failure, indent: &str, t: &Theme) -> Vec<Line<'a>> {
 
 fn event_lines<'a>(e: &'a NormalizedEvent, app: &App, t: &Theme) -> Vec<Line<'a>> {
     let mut lines = vec![Line::from(vec![
-        Span::styled(
-            format!("  {} ", e.name),
-            Style::new().fg(t.fg).add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(format!("event {}", e.id), Style::new().fg(t.dim)),
+        Span::styled(format!("  {} ", e.name), t.fg.add_modifier(Modifier::BOLD)),
+        Span::styled(format!("event {}", e.id), t.dim),
     ])];
     if e.time.is_some() {
         lines.push(Line::from(Span::styled(
             format!("    at {}", app.clock.full(e.time)),
-            Style::new().fg(t.faint),
+            t.faint,
         )));
     }
     for (k, v) in &e.fields {
         lines.push(Line::from(vec![
-            Span::styled(format!("    {k} = "), Style::new().fg(t.faint)),
-            Span::styled(v.clone(), Style::new().fg(t.fg)),
+            Span::styled(format!("    {k} = "), t.faint),
+            Span::styled(v.clone(), t.fg),
         ]));
     }
     if let Some(f) = &e.failure {
@@ -276,26 +264,20 @@ fn payload_lines<'a>(e: &'a NormalizedEvent, app: &App, t: &Theme) -> Vec<Line<'
     for (label, p) in &e.payloads {
         lines.push(Line::from(Span::styled(
             format!("  {label}"),
-            Style::new().fg(t.accent).add_modifier(Modifier::BOLD),
+            t.accent.add_modifier(Modifier::BOLD),
         )));
         match p.render() {
             Rendered::Text(text) => {
                 for l in text.lines() {
-                    lines.push(Line::from(Span::styled(
-                        format!("    {l}"),
-                        Style::new().fg(t.fg),
-                    )));
+                    lines.push(Line::from(Span::styled(format!("    {l}"), t.fg)));
                 }
             }
-            Rendered::Null => lines.push(Line::from(Span::styled(
-                "    null",
-                Style::new().fg(t.faint),
-            ))),
+            Rendered::Null => lines.push(Line::from(Span::styled("    null", t.faint))),
             // Say what it is and how big rather than showing bytes. The value is not lost,
             // it is just not something a terminal should be asked to print.
             Rendered::Opaque { bytes, encoding } => lines.push(Line::from(Span::styled(
                 format!("    {encoding}, {bytes} bytes, not shown"),
-                Style::new().fg(t.faint),
+                t.faint,
             ))),
             // The encoding is named rather than called "encrypted": a codec chooses its own
             // encoding, so seeing the actual one is what tells you whether the codec server
@@ -306,20 +288,17 @@ fn payload_lines<'a>(e: &'a NormalizedEvent, app: &App, t: &Theme) -> Vec<Line<'
                         format!(
                             "    🔒 {encoding}, {bytes} bytes, set a codec endpoint in config.toml"
                         ),
-                        Style::new().fg(t.warn),
+                        t.warn,
                     ),
                     DecodeState::InFlight => (
                         format!("    🔒 {encoding}, {bytes} bytes, decoding…"),
-                        Style::new().fg(t.dim),
+                        t.dim,
                     ),
-                    DecodeState::Idle => (
-                        format!("    🔒 {encoding}, {bytes} bytes"),
-                        Style::new().fg(t.warn),
-                    ),
+                    DecodeState::Idle => (format!("    🔒 {encoding}, {bytes} bytes"), t.warn),
 
                     DecodeState::Failed(why) => (
                         format!("    🔒 {encoding}, {bytes} bytes, codec: {why} (R to retry)"),
-                        Style::new().fg(t.err),
+                        t.err,
                     ),
                 };
                 lines.push(Line::from(Span::styled(what, style)));
@@ -342,14 +321,11 @@ fn render_piped(
     t: &Theme,
 ) -> usize {
     let (body, style, label) = match piped {
-        Ok(out) => (out, Style::new().fg(t.fg), "filtered"),
-        Err(err) => (err, Style::new().fg(t.err), "filter failed"),
+        Ok(out) => (out, t.fg, "filtered"),
+        Err(err) => (err, t.err, "filter failed"),
     };
     let lines: Vec<Line> = if body.trim().is_empty() {
-        vec![Line::from(Span::styled(
-            "  (no output)",
-            Style::new().fg(t.faint),
-        ))]
+        vec![Line::from(Span::styled("  (no output)", t.faint))]
     } else {
         body.lines()
             .map(|l| Line::from(Span::styled(format!("  {l}"), style)))
@@ -371,8 +347,8 @@ fn render_piped(
     };
     let block = Block::default()
         .borders(Borders::TOP)
-        .border_style(Style::new().fg(if piped.is_err() { t.err } else { t.faint }))
-        .title(Span::styled(title, Style::new().fg(t.accent)));
+        .border_style(if piped.is_err() { t.err } else { t.faint })
+        .title(Span::styled(title, t.accent));
     let inner = block.inner(area);
     frame.render_widget(block, area);
     frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, 0)), inner);

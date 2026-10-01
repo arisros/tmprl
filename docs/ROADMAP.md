@@ -28,7 +28,7 @@ broken.
 | ✓ Errors that say what happened | Done. A failure keeps its gRPC code to the UI, names what to try, and `:messages` keeps every note of the session | M |
 | Large histories | Each arriving page re-merges, regroups and clones every event loaded so far. No benchmark exists. Wanted: incremental paging, and benchmarks at 100k events and with multi-megabyte payloads | M |
 | Paste and line editing | Prompts append and backspace only. Bracketed paste is not handled, so text pasted in Normal mode runs as keys | S |
-| Colours | The palette is compiled in as truecolor RGB and `NO_COLOR` is not read. Wanted: `theme.toml`, `NO_COLOR`, a 16-colour fallback | M |
+| ✓ Colours | Done: `theme.toml`, `NO_COLOR`, and a 16-colour palette that follows the terminal's own theme. Still wanted: a key to force the depth where `COLORTERM` is not exported | M |
 | ✓ CLI flags | Done: `--namespace`, `--query`, `--workflow`, `--address`, `--readonly`. Still wanted: `--log` | S |
 | `:` command line | The completion list cannot be navigated and `<Tab>` does nothing. No history, no `:q` | S |
 | Help that knows the screen | `?` and which-key list every command everywhere; a command that does not apply refuses when run. Wanted: commands declare where they apply | M |

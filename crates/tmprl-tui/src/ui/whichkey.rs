@@ -5,7 +5,7 @@
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph};
 
@@ -29,20 +29,17 @@ pub fn render(frame: &mut Frame, app: &App, t: &Theme) {
                         .map(|c| c.title)
                         .unwrap_or(id)
                         .to_string(),
-                    Style::new().fg(t.fg),
+                    t.fg,
                 ),
                 // A prefix that opens more bindings, shown the way which-key shows groups.
                 None => (
                     format!("+{} more", e.bindings),
-                    Style::new().fg(t.dim).add_modifier(Modifier::ITALIC),
+                    t.dim.add_modifier(Modifier::ITALIC),
                 ),
             };
             Line::from(vec![
-                Span::styled(
-                    format!(" {:>7} ", e.next.to_string()),
-                    Style::new().fg(t.warn),
-                ),
-                Span::styled("→ ", Style::new().fg(t.faint)),
+                Span::styled(format!(" {:>7} ", e.next.to_string()), t.warn),
+                Span::styled("→ ", t.faint),
                 Span::styled(label, style),
             ])
         })
@@ -65,9 +62,9 @@ pub fn render(frame: &mut Frame, app: &App, t: &Theme) {
             Block::bordered()
                 .title(Span::styled(
                     format!(" {} ", app.pending.display()),
-                    Style::new().fg(t.accent),
+                    t.accent,
                 ))
-                .border_style(Style::new().fg(t.faint)),
+                .border_style(t.faint),
         ),
         popup,
     );

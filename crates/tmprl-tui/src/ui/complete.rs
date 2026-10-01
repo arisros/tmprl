@@ -7,7 +7,7 @@
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use tmprl_core::complete::Completion;
@@ -42,8 +42,8 @@ pub fn render(frame: &mut Frame, below: Rect, pane: Rect, c: &Completion, t: &Th
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::new().fg(t.faint))
-        .title(Span::styled(" ⇥ accept ", Style::new().fg(t.accent)));
+        .border_style(t.faint)
+        .title(Span::styled(" ⇥ accept ", t.accent));
     let inner = block.inner(area);
 
     let lines: Vec<Line> = items
@@ -53,9 +53,9 @@ pub fn render(frame: &mut Frame, below: Rect, pane: Rect, c: &Completion, t: &Th
         .map(|(i, item)| {
             let selected = i == c.cursor();
             let base = if selected {
-                Style::new().fg(t.fg).bg(t.sel).add_modifier(Modifier::BOLD)
+                t.fg.patch(t.sel).add_modifier(Modifier::BOLD)
             } else {
-                Style::new().fg(t.fg)
+                t.fg
             };
             let room = inner.width as usize;
             let note_width = item.note.chars().count() + 2;
@@ -66,7 +66,7 @@ pub fn render(frame: &mut Frame, below: Rect, pane: Rect, c: &Completion, t: &Th
             Line::from(vec![
                 Span::styled(text, base),
                 Span::styled(" ".repeat(pad), base),
-                Span::styled(item.note.to_string(), Style::new().fg(t.dim)),
+                Span::styled(item.note.to_string(), t.dim),
             ])
         })
         .collect();

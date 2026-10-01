@@ -1,7 +1,7 @@
 //! The `:messages` overlay: everything the note line has said, newest last.
 
 use ratatui::Frame;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph};
 
@@ -32,7 +32,7 @@ pub fn render(frame: &mut Frame, app: &mut App, t: &Theme) {
     if lines.is_empty() {
         lines.push(Line::from(Span::styled(
             "  nothing has been said yet",
-            Style::new().fg(t.faint),
+            t.faint,
         )));
     }
 
@@ -56,8 +56,8 @@ pub fn render(frame: &mut Frame, app: &mut App, t: &Theme) {
     frame.render_widget(
         Paragraph::new(lines).scroll((scroll as u16, 0)).block(
             Block::bordered()
-                .title(Span::styled(title, Style::new().fg(t.accent)))
-                .border_style(Style::new().fg(t.faint)),
+                .title(Span::styled(title, t.accent))
+                .border_style(t.faint),
         ),
         area,
     );
@@ -73,24 +73,12 @@ fn entry(lines: &mut Vec<Line>, m: &Logged, width: usize, app: &App, t: &Theme) 
     let pad = " ".repeat(INDENT);
     let mut text = m.text.lines().flat_map(|l| super::wrap(l, width));
     lines.push(Line::from(vec![
-        Span::styled(
-            format!("  {}  ", app.clock.time_of_day(m.at_ms)),
-            Style::new().fg(t.faint),
-        ),
-        Span::styled(
-            format!("{label:<5}"),
-            Style::new().fg(colour).add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(
-            format!("  {}", text.next().unwrap_or_default()),
-            Style::new().fg(t.fg),
-        ),
+        Span::styled(format!("  {}  ", app.clock.time_of_day(m.at_ms)), t.faint),
+        Span::styled(format!("{label:<5}"), colour.add_modifier(Modifier::BOLD)),
+        Span::styled(format!("  {}", text.next().unwrap_or_default()), t.fg),
     ]));
     for rest in text {
-        lines.push(Line::from(Span::styled(
-            format!("{pad}{rest}"),
-            Style::new().fg(t.fg),
-        )));
+        lines.push(Line::from(Span::styled(format!("{pad}{rest}"), t.fg)));
     }
 
     let Some(fault) = &m.fault else {
@@ -103,9 +91,6 @@ fn entry(lines: &mut Vec<Line>, m: &Logged, width: usize, app: &App, t: &Theme) 
         format!("{} · {}", fault.operation, fault.code.name())
     };
     for detail in std::iter::once(origin).chain(fault.hint().map(str::to_string)) {
-        lines.push(Line::from(Span::styled(
-            format!("{pad}{detail}"),
-            Style::new().fg(t.faint),
-        )));
+        lines.push(Line::from(Span::styled(format!("{pad}{detail}"), t.faint)));
     }
 }

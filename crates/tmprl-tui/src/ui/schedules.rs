@@ -2,7 +2,7 @@
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use tmprl_core::clock::STAMP_WIDTH;
@@ -35,7 +35,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
             "no schedules in this namespace (gw for workflows)".to_string()
         };
         frame.render_widget(
-            Paragraph::new(Span::styled(format!("  {msg}"), Style::new().fg(t.faint))),
+            Paragraph::new(Span::styled(format!("  {msg}"), t.faint)),
             area,
         );
         return;
@@ -63,16 +63,16 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
         .map(|(i, s)| {
             let focused = i == view.cursor;
             let base = if focused {
-                Style::new().fg(t.fg).bg(t.sel).add_modifier(Modifier::BOLD)
+                t.fg.patch(t.sel).add_modifier(Modifier::BOLD)
             } else if view.is_selected(i) {
-                Style::new().fg(t.fg).bg(t.sel)
+                t.fg.patch(t.sel)
             } else {
-                Style::new().fg(t.fg)
+                t.fg
             };
             Line::from(vec![
                 Span::styled(
                     super::gutter(i, view.cursor),
-                    Style::new().fg(if focused { t.warn } else { t.faint }),
+                    if focused { t.warn } else { t.faint },
                 ),
                 Span::styled(
                     format!(
@@ -81,7 +81,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
                         if s.paused { "paused" } else { "running" },
                         width = STATE - 2
                     ),
-                    Style::new().fg(if s.paused { t.warn } else { t.accent }),
+                    if s.paused { t.warn } else { t.accent },
                 ),
                 Span::styled(
                     format!("{:<id_width$}", truncate(&s.schedule_id, id_width)),
@@ -89,12 +89,9 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
                 ),
                 Span::styled(
                     format!("{:<TYPE$}", truncate(&s.workflow_type, TYPE - 1)),
-                    Style::new().fg(t.dim),
+                    t.dim,
                 ),
-                Span::styled(
-                    format!("{:<SPEC$}", truncate(&s.spec, SPEC - 1)),
-                    Style::new().fg(t.ok),
-                ),
+                Span::styled(format!("{:<SPEC$}", truncate(&s.spec, SPEC - 1)), t.ok),
                 Span::styled(
                     // A paused schedule still has future times: the server computes them
                     // from the spec, not from whether it will act on them. Blanking them is
@@ -107,7 +104,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
                             None => format!("{:>NEXT$}", ""),
                         },
                     },
-                    Style::new().fg(t.faint),
+                    t.faint,
                 ),
             ])
         })

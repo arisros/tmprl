@@ -31,9 +31,9 @@ A long option also takes its value as --option=value. With no -n, -q or -w tmprl
 on the namespace list; -q and -w use the profile's namespace unless -n names another.
 
 Connection settings come from the same files and TEMPORAL_* variables the
-`temporal` CLI uses. tmprl's own config (config.toml, keys.toml, views.toml)
-is a different directory; --config-path prints it. Press ? inside the
-application for keybindings.
+`temporal` CLI uses. tmprl's own config (config.toml, keys.toml, theme.toml,
+views.toml) is a different directory; --config-path prints it. NO_COLOR is
+honoured. Press ? inside the application for keybindings.
 ";
 
 /// What the arguments ask for.
