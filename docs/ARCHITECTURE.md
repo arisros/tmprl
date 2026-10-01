@@ -64,8 +64,8 @@ project testable:
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
 | `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 77 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 371 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 400 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 376 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 413 |
 | `tmprl-ui` | built | Plain unit tests over the layout tree | 37 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -121,7 +121,7 @@ Every file opens with a `//!` line saying what it is; this is those lines, gathe
 | `payload.rs` | payloads: bytes plus the metadata saying how to read them |
 | `command.rs` | **the command registry: every action tmprl can take, by id** |
 | `key.rs`, `keymap.rs`, `mode.rs` | keys, the default bindings, modes |
-| `line.rs` | the line editor behind every text input: text, a cursor, the readline keys |
+| `line.rs` | the line editor behind every text input: text, a cursor, the readline keys, a paste made one line |
 | `picker.rs`, `fuzzy.rs`, `form.rs`, `jumplist.rs` | the pickers, their matching, multi-field input, `<C-o>` |
 | `config.rs`, `clock.rs`, `loadable.rs` | config parsing, wall-clock rendering, four-state remote data |
 | `fault.rs` | a failed request: the call, the gRPC code, the server's message, and what to try |
@@ -149,6 +149,7 @@ draws nothing; it is rectangles and focus, and `tmprl-tui` draws into them.
 | `ui/*.rs` | drawing, one file per screen or overlay; pure functions of `&App` |
 | `app/tests/`, `ui/tests/` | behaviour and rendering tests, one file per concern, shared fixtures in `mod.rs` |
 | `config.rs`, `keys.rs`, `clipboard.rs` | files on disk, key conversion, yank |
+| `term.rs` | taking the terminal and giving it back, bracketed paste included |
 | `theme.rs` | the palette as styles, built once for the terminal's colour depth and held on `App` |
 
 `scripts/check-docs.sh`, run by CI, fails when a file has no `//!` header or is missing from
@@ -515,6 +516,12 @@ whatever moves its list, and hands the rest to `LineEdit::key`, which is the one
 editing keys. They are deliberately not `Command`s (rule 3 in §10 is about actions on the
 app): in an input a key is text or an edit to that text, and it has to stay literal under
 any remap.
+
+A paste is a message of its own, `Msg::Paste`, and `App::on_paste` asks the same question
+in the same order. A confirmation refuses it, the other inputs insert it at their cursor,
+and with none open it is dropped with a note. It never becomes keys, which is the point of
+asking the terminal for bracketed paste: `term.rs` switches the mode on with raw mode and
+off on every path that gives the terminal back.
 
 Editing a form lives in `tmprl-core`, not the renderer: field movement, validation and which
 field is missing are all decidable without knowing the terminal size, so they are unit-tested

@@ -82,6 +82,14 @@ impl Form {
             .map_or(Edit::Ignored, |f| f.value.key(chord))
     }
 
+    /// Pasted text, into the focused field at its cursor. A paste never moves to the next
+    /// field: where one value ends and the next begins is not something a clipboard says.
+    pub fn paste(&mut self, pasted: &str) -> bool {
+        self.fields
+            .get_mut(self.cursor)
+            .is_some_and(|f| f.value.paste(pasted))
+    }
+
     /// Whether the focused field has nothing in it, so the caller can decide what a
     /// backspace there means.
     pub fn on_empty_field(&self) -> bool {
@@ -209,6 +217,15 @@ mod tests {
         f.previous();
         f.push('b');
         assert_eq!(f.get("schedule id"), "abc");
+    }
+
+    #[test]
+    fn a_paste_fills_one_field_and_stays_in_it() {
+        let mut f = Form::new_schedule();
+        assert!(f.paste("nightly\nrecon\n"));
+        assert_eq!(f.cursor, 0, "a newline in a paste is not a Tab");
+        assert_eq!(f.get("schedule id"), "nightly recon");
+        assert_eq!(f.get("workflow id"), "");
     }
 
     #[test]

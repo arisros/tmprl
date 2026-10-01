@@ -220,7 +220,7 @@ impl App {
     /// Only for the workflow picker, and only while the loaded rows match nothing: the
     /// local list is the answer whenever it has one, and a picker that fired a visibility
     /// query on every keystroke would put a query per character on a production cluster.
-    fn schedule_picker_search(&mut self) {
+    pub(super) fn schedule_picker_search(&mut self) {
         self.picker_search = self.picker_search.wrapping_add(1);
         if self.conn.is_none() || !self.picker_wants_server() {
             return;

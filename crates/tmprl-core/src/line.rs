@@ -78,6 +78,13 @@ impl LineEdit {
         self.cursor += s.len();
     }
 
+    /// Insert pasted text as one edit. Reports whether anything went in.
+    pub fn paste(&mut self, pasted: &str) -> bool {
+        let line = single_line(pasted);
+        self.insert_str(&line);
+        !line.is_empty()
+    }
+
     /// Delete the character before the cursor. Reports whether there was one, so a caller
     /// can decide what a backspace with nothing behind it means.
     pub fn backspace(&mut self) -> bool {
@@ -245,6 +252,32 @@ impl LineEdit {
 
 fn is_word(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
+}
+
+/// Pasted text, made fit for a one-line input.
+///
+/// A newline must not submit, and a paste copied off a terminal nearly always ends in one,
+/// so trailing newlines go and the ones inside become spaces: two lines of a wrapped query
+/// stay two words rather than fusing. A tab becomes a space for the same reason, and any
+/// other control character is dropped, since an escape sequence smuggled into a prompt is
+/// drawn by nothing and understood by nobody.
+pub fn single_line(pasted: &str) -> String {
+    let body = pasted.trim_end_matches(['\r', '\n']);
+    let mut out = String::with_capacity(body.len());
+    let mut chars = body.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\r' => {
+                // `\r\n` is one line break, not two.
+                chars.next_if_eq(&'\n');
+                out.push(' ');
+            }
+            '\n' | '\t' => out.push(' '),
+            c if c.is_control() => {}
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 /// Reading a line is reading its text. Changing it goes through the methods, which are
@@ -449,6 +482,29 @@ mod tests {
         assert!(l.delete_to_end());
         assert_eq!(show(&l), "abc|");
         assert!(!l.delete_to_end());
+    }
+
+    #[test]
+    fn a_pasted_trailing_newline_is_dropped_and_inner_ones_become_spaces() {
+        assert_eq!(single_line("order-17\n"), "order-17");
+        assert_eq!(single_line("order-17\r\n\r\n"), "order-17");
+        assert_eq!(single_line("a = 1\nAND b = 2"), "a = 1 AND b = 2");
+        assert_eq!(single_line("a\r\nb\rc"), "a b c", "\\r\\n is one break");
+        assert_eq!(single_line("\n"), "");
+    }
+
+    #[test]
+    fn pasted_control_characters_do_not_reach_the_line() {
+        assert_eq!(single_line("a\tb"), "a b");
+        assert_eq!(single_line("a\u{1b}[31mb\u{7}"), "a[31mb");
+    }
+
+    #[test]
+    fn a_paste_lands_at_the_cursor_as_one_edit() {
+        let mut l = line("WorkflowId = '|'");
+        assert!(l.paste("order-17\n"));
+        assert_eq!(show(&l), "WorkflowId = 'order-17|'");
+        assert!(!l.paste("\n"), "a paste of only a newline is nothing");
     }
 
     #[test]

@@ -13,7 +13,7 @@ use ratatui::DefaultTerminal;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::app::{App, Msg};
-use crate::{keys, ui};
+use crate::{keys, term, ui};
 
 /// Redraw cadence while idle. Only needed so relative timestamps stay honest; input and
 /// backend messages drive their own redraws immediately.
@@ -29,8 +29,8 @@ pub async fn run(
     let mut tick = tokio::time::interval(TICK);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-    // A terminated process should still restore the terminal. The panic hook that
-    // `ratatui::init` installs covers panics; this covers SIGTERM.
+    // A terminated process should still restore the terminal. The panic hooks cover
+    // panics; this covers SIGTERM, by quitting the ordinary way.
     #[cfg(unix)]
     {
         let tx = tx.clone();
@@ -50,11 +50,12 @@ pub async fn run(
         if let Some(request) = app.take_edit_request() {
             // Put the terminal back the way we found it, run the editor with stdin, stdout
             // and stderr inherited so it is a normal interactive program, then take the
-            // terminal again. `ratatui::init` reinstalls the panic hook, so a panic after
-            // this still restores.
-            ratatui::restore();
+            // terminal again. Bracketed paste goes and comes back with it: the editor
+            // decides for itself whether it wants the mode. `ratatui::init` reinstalls
+            // the panic hook, so a panic after this still restores.
+            term::give_back();
             let outcome = run_editor(&request.path);
-            terminal = ratatui::init();
+            terminal = term::take();
             terminal.clear()?;
             app.finish_edit(&request, outcome.err().map(|e| e.to_string()));
         }
@@ -74,6 +75,8 @@ pub async fn run(
                     }
                 }
                 Some(Ok(Event::Resize(_, _))) => app.handle(Msg::Redraw),
+                // Only with bracketed paste on, see `term`. Otherwise a paste is keys.
+                Some(Ok(Event::Paste(pasted))) => app.handle(Msg::Paste(pasted)),
                 Some(Ok(_)) => {}
                 Some(Err(e)) => return Err(e.into()),
                 // stdin closed, nothing more can arrive.

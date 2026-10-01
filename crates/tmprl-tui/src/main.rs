@@ -6,6 +6,7 @@ mod clipboard;
 mod config;
 mod event;
 mod keys;
+mod term;
 mod theme;
 mod ui;
 mod view;
@@ -73,9 +74,10 @@ async fn main() -> std::process::ExitCode {
     app.apply_config(keys.as_deref(), views.as_deref(), config.as_deref());
     app.start(startup);
 
-    let terminal = ratatui::init();
+    term::give_back_on_panic();
+    let terminal = term::take();
     let result = event::run(terminal, app, rx, tx).await;
-    ratatui::restore();
+    term::give_back();
 
     match result {
         Ok(()) => std::process::ExitCode::SUCCESS,

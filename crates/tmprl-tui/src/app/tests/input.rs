@@ -1,4 +1,4 @@
-//! Line editing in every input.
+//! Line editing in every input, and pasted text.
 
 use super::*;
 use tmprl_core::Mods;
@@ -20,6 +20,14 @@ fn alt(app: &mut App, c: char) {
             shift: false,
         },
     }));
+}
+
+fn paste(app: &mut App, text: &str) {
+    app.handle(Msg::Paste(text.into()));
+}
+
+fn note(app: &App) -> &str {
+    app.note.as_ref().map_or("", |(msg, _)| msg.as_str())
 }
 
 type Line = for<'a> fn(&'a App) -> &'a LineEdit;
@@ -252,4 +260,149 @@ fn offers_follow_typing_and_a_cursor_move_dismisses_them() {
     assert!(app.completion.is_some());
     key(&mut app, Key::Tab);
     assert_eq!(show(&app.insert_buf), "ExecutionStatus = 'Running'| n");
+}
+
+#[test]
+fn a_paste_lands_at_the_cursor_of_whichever_input_is_open() {
+    for (name, mut app, line) in inputs() {
+        if name == "confirmation" {
+            continue;
+        }
+        type_chars(&mut app, "ad");
+        key(&mut app, Key::Left);
+        paste(&mut app, "bc");
+        assert_eq!(show(line(&app)), "abc|d", "{name}");
+    }
+}
+
+#[test]
+fn a_pasted_newline_never_submits() {
+    // The line being pasted was copied off a terminal, so it ends in a newline. As keys,
+    // that newline was an Enter.
+    let mut app = app();
+    app.run("app.command-line", None);
+    paste(&mut app, "app.quit\n");
+    assert!(!app.should_quit);
+    let prompt = app.prompt.as_ref().expect("still open, still editable");
+    assert_eq!(show(&prompt.buf), "app.quit|");
+
+    let mut app = on_a_workflow();
+    app.run("mode.insert", None);
+    paste(
+        &mut app,
+        "WorkflowType = 'Checkout'\nAND ExecutionStatus = 'Failed'\n",
+    );
+    assert!(app.is_editing_query(), "not applied");
+    assert_eq!(app.view.query, "");
+    assert_eq!(
+        app.insert_buf,
+        "WorkflowType = 'Checkout' AND ExecutionStatus = 'Failed'"
+    );
+
+    let mut app = on_schedules();
+    app.run("schedule.create", None);
+    paste(&mut app, "nightly\n");
+    assert!(app.form.is_some(), "not sent for review");
+    assert!(app.confirm.is_none());
+}
+
+#[test]
+fn a_paste_into_the_picker_narrows_it_and_takes_nothing() {
+    let mut app = on_four_workflows();
+    app.run("find.workflow", None);
+    paste(&mut app, "order-r2\n");
+
+    assert_eq!(picker_labels(&app), ["order-r2"]);
+    assert_eq!(app.view.screen, Screen::Workflows, "nothing was opened");
+}
+
+#[test]
+fn a_paste_never_reaches_a_confirmation() {
+    let mut app = on_a_workflow();
+    app.run("workflow.delete", None);
+    paste(&mut app, "delete\n");
+
+    let confirm = app.confirm.as_ref().expect("still waiting");
+    assert_eq!(confirm.entered, "", "the word has to be typed");
+    assert!(!confirm.is_satisfied());
+    assert!(note(&app).contains("paste ignored"), "{}", note(&app));
+
+    key(&mut app, Key::Enter);
+    assert!(app.confirm.is_some(), "and Enter still does nothing");
+}
+
+#[test]
+fn a_paste_does_not_confirm_an_action_that_owes_no_word() {
+    let mut app = on_a_workflow();
+    app.run("workflow.terminate", None);
+    paste(&mut app, "\n");
+    assert!(app.confirm.is_some(), "a pasted newline is not an Enter");
+}
+
+#[test]
+fn a_paste_with_no_input_open_is_ignored_and_says_so() {
+    // Every character of this is a command in Normal mode: `j` moves, `G` jumps, `:`
+    // opens the command line, and the newline would have run what followed it.
+    let mut app = on_four_workflows();
+    let before = app.view.cursor;
+    paste(&mut app, "jjG:app.quit\n");
+
+    assert_eq!(app.view.cursor, before);
+    assert!(app.prompt.is_none());
+    assert!(!app.should_quit);
+    assert_eq!(app.mode, Mode::Normal);
+    assert_eq!(app.note.as_ref().map(|(_, kind)| *kind), Some(Note::Warn));
+    assert!(note(&app).contains("paste ignored"), "{}", note(&app));
+}
+
+#[test]
+fn a_paste_in_visual_mode_leaves_the_selection_alone() {
+    let mut app = on_four_workflows();
+    app.run("mode.visual", None);
+    app.run("motion.down", None);
+    let selected = app.selection();
+    paste(&mut app, "jj\u{1b}");
+
+    assert_eq!(app.mode, Mode::Visual);
+    assert_eq!(app.selection(), selected);
+}
+
+#[test]
+fn a_paste_behind_an_overlay_is_ignored_too() {
+    let mut app = on_four_workflows();
+    app.run("app.help", None);
+    paste(&mut app, "q");
+    assert!(app.show_help);
+    assert!(!app.should_quit);
+}
+
+#[test]
+fn a_pasted_jk_is_text_not_the_way_out_of_insert_mode() {
+    let mut app = on_a_workflow();
+    app.run("mode.insert", None);
+    paste(&mut app, "WorkflowId = 'jk'");
+    assert_eq!(app.mode, Mode::Insert);
+    assert_eq!(app.insert_buf, "WorkflowId = 'jk'");
+}
+
+#[test]
+fn a_j_held_before_a_paste_goes_in_before_it() {
+    let mut app = on_a_workflow();
+    app.run("mode.insert", None);
+    type_chars(&mut app, "j");
+    paste(&mut app, "kl");
+
+    assert_eq!(app.insert_buf, "jkl");
+    assert_eq!(app.mode, Mode::Insert, "a pasted `k` does not finish `jk`");
+    assert!(app.pending.is_idle());
+}
+
+#[test]
+fn a_paste_into_the_query_bar_brings_the_offers_up_to_date() {
+    let mut app = on_a_workflow();
+    app.run("mode.insert", None);
+    paste(&mut app, "runn");
+    assert!(app.completion.is_some());
+    paste(&mut app, " ");
+    assert!(app.completion.is_none(), "the clause is finished");
 }

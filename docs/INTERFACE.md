@@ -286,6 +286,28 @@ than its room scrolls to keep the cursor in view. It moves by `char`, not by gra
 letter with a combining accent, or an emoji built from several code points, is more than
 one stop and more than one backspace.
 
+### Paste
+
+tmprl asks the terminal for bracketed paste, so pasted text arrives as one piece rather than
+as the keys that would have typed it. That matters most in Normal mode, where every one of
+those keys is a command.
+
+| Where | A paste |
+|---|---|
+| any input above, except a confirmation | goes in at the cursor as one edit |
+| a confirmation | is ignored, and the statusline says so |
+| Normal, Visual, or an overlay | is ignored, and the statusline says so |
+
+Every input is one line, so a pasted newline never submits: trailing newlines are dropped,
+a newline inside the text becomes a space, as does a tab, and other control characters are
+removed. A form takes the whole paste in the focused field. A confirmation never takes one,
+whether or not it asks for a word: what stands between a keypress and a deleted history is
+that `delete` is typed by hand, and a pasted newline must not be the Enter that confirms.
+
+The mode is switched off again wherever the terminal is given back: on exit, on SIGTERM, on
+a panic, and while `$EDITOR` runs. A terminal without bracketed paste ignores the request
+and sends the paste as keys, as before.
+
 ### Windows
 
 | Key | Action | |

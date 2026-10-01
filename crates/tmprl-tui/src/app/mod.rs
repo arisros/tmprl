@@ -18,12 +18,14 @@
 //! | `mutate` | cancel, terminate, signal, reset, schedules |
 //! | `windows` | splits and tabs |
 //! | `prompt` | the `:` and `!` prompts |
+//! | `input` | pasted text, and which input takes it |
 //! | `load` | every request to the server |
 //! | `startup` | where the command line asked to open |
 //! | `messages` | the note line's history, `:messages` |
 
 mod find;
 mod history;
+mod input;
 mod load;
 mod messages;
 mod mutate;
@@ -248,6 +250,8 @@ pub enum InsertTarget {
 #[derive(Debug)]
 pub enum Msg {
     Key(Chord),
+    /// Text the terminal pasted, whole. Never keys: see `App::on_paste`.
+    Paste(String),
     Tick,
     Redraw,
     Quit,
@@ -661,6 +665,7 @@ impl App {
     fn apply(&mut self, msg: Msg) {
         match msg {
             Msg::Key(chord) => self.on_key(chord),
+            Msg::Paste(pasted) => self.on_paste(&pasted),
             Msg::Quit => self.should_quit = true,
             Msg::Tick | Msg::Redraw => {}
             Msg::Mutated {

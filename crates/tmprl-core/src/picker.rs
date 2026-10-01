@@ -137,8 +137,8 @@ impl Kind {
 #[derive(Debug, Clone)]
 pub struct Picker {
     pub kind: Kind,
-    /// What has been typed, verbatim. Read it freely; edit it through [`Picker::key`],
-    /// which is what re-ranks the list.
+    /// What has been typed, verbatim. Read it freely; edit it through [`Picker::key`] and
+    /// [`Picker::paste`], which are what re-rank the list.
     pub prompt: LineEdit,
     /// Every candidate, in the order it was handed over. That order is the tiebreak when
     /// scores are equal, so a workflow picker opens newest-first like the list behind it.
@@ -225,6 +225,15 @@ impl Picker {
             self.prompt_changed();
         }
         edit
+    }
+
+    /// Pasted text, into the prompt at its cursor. Reports whether anything went in.
+    pub fn paste(&mut self, pasted: &str) -> bool {
+        let pasted = self.prompt.paste(pasted);
+        if pasted {
+            self.prompt_changed();
+        }
+        pasted
     }
 
     fn prompt_changed(&mut self) {
@@ -392,6 +401,15 @@ mod tests {
         assert!(p.is_empty());
         p.key(Chord::plain(Key::Backspace));
         assert_eq!(p.shown(), 2);
+    }
+
+    #[test]
+    fn a_paste_narrows_the_list_as_typing_would() {
+        let mut p = picker(&["order-checkout", "order-refund", "shipping"]);
+        assert!(p.paste("order-ref\n"));
+        assert_eq!(p.prompt, "order-ref");
+        assert_eq!(labels(&p), vec!["order-refund"]);
+        assert!(!p.paste("\n"));
     }
 
     #[test]
