@@ -70,9 +70,16 @@ jobs:
 
       - run: cargo test --all-features
 
+  # The dev server is built into the temporal CLI, so the CLI version is what picks the
+  # server version. v1.5.1 carries server 1.29.1; latest moves by itself. An entry here must
+  # be a tag of temporalio/cli, the download 404s on anything else.
   test:
-    name: tests (against a live server)
+    name: tests (live server, temporal CLI ${{ matrix.temporal-cli }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        temporal-cli: [latest, v1.5.1]
     steps:
       - uses: actions/checkout@v5
 
@@ -87,7 +94,7 @@ jobs:
 
       - name: Install Temporal CLI
         run: |
-          curl -sSfL "https://temporal.download/cli/archive/latest?platform=linux&arch=amd64" \
+          curl -sSfL "https://temporal.download/cli/archive/${{ matrix.temporal-cli }}?platform=linux&arch=amd64" \
             -o /tmp/temporal.tar.gz
           mkdir -p /tmp/tcli && tar -xzf /tmp/temporal.tar.gz -C /tmp/tcli
           sudo install -m755 /tmp/tcli/temporal /usr/local/bin/temporal
@@ -118,7 +125,9 @@ jobs:
           TMPRL_REQUIRE_SERVER: "1"
         run: cargo llvm-cov --all-features --lcov --output-path lcov.info
 
+      # One upload is enough; the legs differ only in the server.
       - uses: codecov/codecov-action@v5
+        if: matrix.temporal-cli == 'latest'
         with:
           files: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
