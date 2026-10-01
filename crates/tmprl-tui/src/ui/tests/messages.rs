@@ -127,3 +127,66 @@ fn an_empty_log_says_so() {
     let out = draw(&mut app, 100, 12);
     assert!(out.contains("nothing has been said yet"), "{out}");
 }
+
+#[test]
+fn a_failure_with_no_rpc_behind_it_is_filed_under_its_kind() {
+    // A codec refusal has no call name to show, and an empty one would print as a
+    // dangling separator.
+    let mut app = app_with_rows();
+    app.handle(Msg::Decoded(Err(Fault::codec("codec server returned 502"))));
+    app.run("app.messages", None);
+
+    let out = draw(&mut app, 100, 12);
+    assert!(out.contains("codec server returned 502"), "{out}");
+    assert!(out.contains("Codec"), "the kind is missing:\n{out}");
+    assert!(
+        !out.contains(" · Codec"),
+        "nothing to separate it from:\n{out}"
+    );
+}
+
+#[test]
+fn the_overlay_scrolls_with_the_ordinary_motions() {
+    let mut app = app_with_rows();
+    for i in 0..40 {
+        failed_list(
+            &mut app,
+            Fault::rpc(
+                "ListWorkflowExecutions",
+                Code::Internal,
+                format!("failure {i}"),
+            ),
+        );
+    }
+    app.run("app.messages", None);
+    draw(&mut app, 120, 16);
+    let end = app.overlay_max_scroll;
+    assert!(end > 0);
+    assert_eq!(app.overlay_scroll, end, "it opens at the end");
+
+    app.run("motion.top", None);
+    assert_eq!(app.overlay_scroll, 0);
+    let out = draw(&mut app, 120, 16);
+    assert!(
+        out.contains("failure 0"),
+        "the oldest is at the top:\n{out}"
+    );
+
+    app.run("motion.half-down", None);
+    assert!(app.overlay_scroll > 0 && app.overlay_scroll < end);
+    app.run("motion.half-up", None);
+    assert_eq!(app.overlay_scroll, 0);
+
+    app.run("motion.bottom", None);
+    assert_eq!(app.overlay_scroll, end);
+    app.run("motion.up", None);
+    assert_eq!(app.overlay_scroll, end - 1);
+}
+
+#[test]
+fn a_terminal_too_small_for_the_overlay_draws_without_it() {
+    let mut app = app_with_rows();
+    app.run("app.messages", None);
+    let out = draw(&mut app, 18, 4);
+    assert!(!out.contains("messages"), "{out}");
+}

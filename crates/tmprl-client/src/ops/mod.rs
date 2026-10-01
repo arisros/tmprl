@@ -59,6 +59,37 @@ mod tests {
     }
 
     #[test]
+    fn every_grpc_code_keeps_its_meaning() {
+        use temporalio_client::tonic::Code as T;
+        let pairs = [
+            (T::Cancelled, Code::Cancelled),
+            (T::Unknown, Code::Unknown),
+            (T::InvalidArgument, Code::InvalidArgument),
+            (T::DeadlineExceeded, Code::DeadlineExceeded),
+            (T::NotFound, Code::NotFound),
+            (T::AlreadyExists, Code::AlreadyExists),
+            (T::PermissionDenied, Code::PermissionDenied),
+            (T::ResourceExhausted, Code::ResourceExhausted),
+            (T::FailedPrecondition, Code::FailedPrecondition),
+            (T::Aborted, Code::Aborted),
+            (T::OutOfRange, Code::OutOfRange),
+            (T::Unimplemented, Code::Unimplemented),
+            (T::Internal, Code::Internal),
+            (T::Unavailable, Code::Unavailable),
+            (T::DataLoss, Code::DataLoss),
+            (T::Unauthenticated, Code::Unauthenticated),
+        ];
+        for (grpc, ours) in pairs {
+            assert_eq!(code(grpc), ours);
+            // The names agree too, so a line in `:messages` can be searched for in a
+            // server log as written.
+            assert_eq!(format!("{grpc:?}"), ours.name());
+        }
+        // A failure cannot carry Ok. If one ever does it is not a failure tmprl knows.
+        assert_eq!(code(T::Ok), Code::Unknown);
+    }
+
+    #[test]
     fn a_dropped_connection_is_told_apart_from_a_refusal() {
         // The two call for different things from the reader, which is the reason the code
         // is carried at all.

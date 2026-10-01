@@ -235,30 +235,66 @@ mod tests {
         assert!(!Fault::rpc("ListNamespaces", Code::Unauthenticated, "bad key").is_refusal());
     }
 
+    const ALL: [Code; 19] = [
+        Code::Cancelled,
+        Code::Unknown,
+        Code::InvalidArgument,
+        Code::DeadlineExceeded,
+        Code::NotFound,
+        Code::AlreadyExists,
+        Code::PermissionDenied,
+        Code::ResourceExhausted,
+        Code::FailedPrecondition,
+        Code::Aborted,
+        Code::OutOfRange,
+        Code::Unimplemented,
+        Code::Internal,
+        Code::Unavailable,
+        Code::DataLoss,
+        Code::Unauthenticated,
+        Code::Rejected,
+        Code::Codec,
+        Code::Local,
+    ];
+
     #[test]
     fn every_code_has_a_distinct_name() {
-        let all = [
-            Code::Cancelled,
-            Code::Unknown,
-            Code::InvalidArgument,
-            Code::DeadlineExceeded,
-            Code::NotFound,
-            Code::AlreadyExists,
-            Code::PermissionDenied,
-            Code::ResourceExhausted,
-            Code::FailedPrecondition,
-            Code::Aborted,
-            Code::OutOfRange,
-            Code::Unimplemented,
-            Code::Internal,
-            Code::Unavailable,
-            Code::DataLoss,
-            Code::Unauthenticated,
-            Code::Rejected,
-            Code::Codec,
-            Code::Local,
-        ];
-        let names: std::collections::HashSet<_> = all.iter().map(|c| c.name()).collect();
-        assert_eq!(names.len(), all.len());
+        let names: std::collections::HashSet<_> = ALL.iter().map(|c| c.name()).collect();
+        assert_eq!(names.len(), ALL.len());
+    }
+
+    #[test]
+    fn every_code_reads_as_words_on_the_note_line() {
+        // The label is what lands between the brackets of a failure, so it is lowercase
+        // prose, never the gRPC spelling.
+        for code in ALL {
+            let label = code.label();
+            assert!(!label.is_empty(), "{code:?}");
+            assert_eq!(label, label.to_lowercase(), "{code:?}");
+        }
+        let labels: std::collections::HashSet<_> = ALL.iter().map(|c| c.label()).collect();
+        assert_eq!(labels.len(), ALL.len(), "two codes must not read the same");
+    }
+
+    #[test]
+    fn a_hint_is_only_given_where_there_is_something_to_try() {
+        let hinted: Vec<Code> = ALL.into_iter().filter(|c| c.hint().is_some()).collect();
+        assert_eq!(
+            hinted,
+            [
+                Code::InvalidArgument,
+                Code::DeadlineExceeded,
+                Code::NotFound,
+                Code::PermissionDenied,
+                Code::ResourceExhausted,
+                Code::Unimplemented,
+                Code::Unavailable,
+                Code::Unauthenticated,
+            ]
+        );
+        // A server fault or a workflow's own refusal leaves the reader nothing to do, and a
+        // hint there would only restate the failure.
+        assert!(Code::Internal.hint().is_none());
+        assert!(Code::Rejected.hint().is_none());
     }
 }

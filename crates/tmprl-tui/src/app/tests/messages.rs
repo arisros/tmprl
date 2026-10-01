@@ -142,3 +142,68 @@ fn only_one_overlay_is_open_at_a_time() {
     app.run("app.help", None);
     assert!(app.show_help && !app.show_messages);
 }
+
+#[test]
+fn a_failed_schedule_list_is_logged_with_its_call() {
+    let mut app = app();
+    app.view.screen = Screen::Schedules;
+    app.handle(Msg::Schedules {
+        generation: app.view.generation,
+        result: Err(Fault::rpc(
+            "ListSchedules",
+            Code::Unavailable,
+            "transport error",
+        )),
+    });
+
+    assert!(app.view.schedules.error().is_some());
+    let fault = app.messages.back().unwrap().fault.clone().unwrap();
+    assert_eq!(fault.operation, "ListSchedules");
+}
+
+#[test]
+fn a_warning_worded_by_the_caller_still_keeps_the_failure_behind_it() {
+    // "pending activities: ..." is the note's wording; the log must still know which code
+    // it was, or the wording is all that is left to search a server log with.
+    let mut app = app();
+    app.handle(Msg::Pending {
+        generation: app.view.generation,
+        result: Err(Fault::rpc(
+            "DescribeWorkflowExecution",
+            Code::DeadlineExceeded,
+            "slow",
+        )),
+    });
+
+    let logged = app.messages.back().unwrap();
+    assert_eq!(logged.level, Note::Warn);
+    assert!(
+        logged.text.starts_with("pending activities:"),
+        "{}",
+        logged.text
+    );
+    assert_eq!(logged.fault.as_ref().unwrap().code, Code::DeadlineExceeded);
+}
+
+#[test]
+fn a_failed_mutation_is_logged_as_a_failure() {
+    let mut app = app();
+    four(&mut app);
+    app.handle(Msg::Mutated {
+        mutation: Box::new(Mutation::Cancel {
+            namespace: "default".into(),
+            workflow_id: "order-r1".into(),
+            run_id: "r1".into(),
+        }),
+        result: Err(Fault::rpc(
+            "RequestCancelWorkflowExecution",
+            Code::PermissionDenied,
+            "not allowed",
+        )),
+        batch: None,
+    });
+
+    let logged = app.messages.back().unwrap();
+    assert_eq!(logged.level, Note::Error);
+    assert_eq!(logged.fault.as_ref().unwrap().code, Code::PermissionDenied);
+}
