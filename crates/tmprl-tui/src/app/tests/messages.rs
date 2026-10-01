@@ -149,6 +149,7 @@ fn a_failed_schedule_list_is_logged_with_its_call() {
     app.view.screen = Screen::Schedules;
     app.handle(Msg::Schedules {
         generation: app.view.generation,
+        append: false,
         result: Err(Fault::rpc(
             "ListSchedules",
             Code::Unavailable,

@@ -177,7 +177,17 @@ fn schedule_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
             t.warn.add_modifier(Modifier::BOLD),
         ));
     }
-    spans.push(Span::styled(format!("{} schedules", rows.len()), t.dim));
+    // There is no count call for schedules, so until the last page is in, the number is of
+    // the rows loaded and says it is not the whole.
+    let more = if app.view.schedules_token.is_empty() {
+        ""
+    } else {
+        "+"
+    };
+    spans.push(Span::styled(
+        format!("{}{more} schedules", rows.len()),
+        t.dim,
+    ));
     spans
 }
 

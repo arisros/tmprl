@@ -695,3 +695,159 @@ fn going_up_from_the_top_level_says_so() {
     assert_eq!(app.view.screen, Screen::Namespaces);
     assert!(matches!(app.note, Some((_, Note::Warn))));
 }
+
+fn schedule(id: &str) -> ScheduleRow {
+    ScheduleRow {
+        namespace: "default".into(),
+        schedule_id: id.into(),
+        workflow_type: "Reconcile".into(),
+        paused: false,
+        notes: String::new(),
+        spec: "0 2 * * *".into(),
+        next_run: None,
+        recent_runs: 0,
+    }
+}
+
+fn schedule_page(app: &mut App, append: bool, ids: &[&str], token: &[u8]) {
+    app.handle(Msg::Schedules {
+        generation: app.view.generation,
+        append,
+        result: Ok((ids.iter().map(|id| schedule(id)).collect(), token.to_vec())),
+    });
+}
+
+fn schedule_ids(app: &App) -> Vec<&str> {
+    app.view
+        .schedule_rows()
+        .iter()
+        .map(|r| r.schedule_id.as_str())
+        .collect()
+}
+
+#[test]
+fn scrolling_near_the_end_of_the_schedules_asks_for_the_next_page_once() {
+    let mut app = on_schedules();
+    app.view.page = 2;
+    schedule_page(
+        &mut app,
+        false,
+        &["a", "b", "c", "d", "e", "f", "g", "h"],
+        &[7],
+    );
+    assert!(!app.view.loading_more);
+
+    app.run("motion.bottom", None);
+    assert!(
+        app.view.loading_more,
+        "reaching the end should request the next page"
+    );
+}
+
+#[test]
+fn scrolling_does_not_page_when_every_schedule_is_loaded() {
+    let mut app = on_schedules();
+    app.view.page = 2;
+    schedule_page(&mut app, false, &["a", "b", "c", "d", "e"], &[]);
+    app.run("motion.bottom", None);
+    assert!(
+        !app.view.loading_more,
+        "no token means nothing left to fetch"
+    );
+}
+
+#[test]
+fn a_further_page_of_schedules_keeps_the_cursor_on_its_schedule() {
+    // The page is sorted in among the rows already there, so the index under the cursor
+    // moves. A mutation acts on that row: it must still be the one that was chosen.
+    let mut app = on_schedules();
+    schedule_page(&mut app, false, &["b", "d"], &[7]);
+    app.run("mode.visual-line", None);
+    app.handle(Msg::Key(Chord::ch('j')));
+    assert_eq!(app.view.schedule_rows()[app.view.cursor].schedule_id, "d");
+
+    schedule_page(&mut app, true, &["a", "c"], &[]);
+
+    assert_eq!(schedule_ids(&app), ["a", "b", "c", "d"]);
+    assert_eq!(app.view.schedule_rows()[app.view.cursor].schedule_id, "d");
+    let anchor = app.view.anchor.expect("the selection is still up");
+    assert_eq!(app.view.schedule_rows()[anchor].schedule_id, "b");
+    assert!(
+        app.view.schedules_token.is_empty(),
+        "that was the last page"
+    );
+}
+
+#[test]
+fn a_failed_further_page_keeps_the_schedules_already_on_screen() {
+    let mut app = on_schedules();
+    schedule_page(&mut app, false, &["a", "b"], &[7]);
+    app.handle(Msg::Schedules {
+        generation: app.view.generation,
+        append: true,
+        result: Err(Fault::rpc(
+            "ListSchedules",
+            tmprl_core::fault::Code::Unavailable,
+            "transport error",
+        )),
+    });
+
+    assert_eq!(schedule_ids(&app), ["a", "b"]);
+    assert_eq!(app.note.clone().unwrap().1, Note::Error);
+    let fault = app.messages.back().unwrap().fault.clone().unwrap();
+    assert_eq!(fault.operation, "ListSchedules");
+    assert_eq!(
+        app.view.schedules_token,
+        [7],
+        "the token is kept, so scrolling can ask again"
+    );
+}
+
+#[test]
+fn refresh_reloads_the_schedules_from_the_first_page() {
+    let mut app = on_schedules();
+    schedule_page(&mut app, false, &["a", "b"], &[7]);
+    let before = app.view.generation;
+
+    app.run("app.refresh", None);
+    assert!(
+        app.view.schedules_token.is_empty(),
+        "the first page is asked for with no token"
+    );
+    assert_eq!(schedule_ids(&app), ["a", "b"], "the rows stay up meanwhile");
+
+    // A further page of the list that was replaced must not be merged into the new one.
+    app.handle(Msg::Schedules {
+        generation: before,
+        append: true,
+        result: Ok((vec![schedule("z")], Vec::new())),
+    });
+    assert_eq!(schedule_ids(&app), ["a", "b"]);
+
+    schedule_page(&mut app, false, &["a"], &[]);
+    assert_eq!(
+        schedule_ids(&app),
+        ["a"],
+        "the first page replaces the list"
+    );
+}
+
+#[test]
+fn a_schedule_page_landing_after_going_up_leaves_the_namespace_cursor_alone() {
+    let mut app = on_schedules();
+    let namespace = |name: &str| NamespaceInfo {
+        name: name.into(),
+        state: "Registered".into(),
+        retention_days: 1,
+        description: String::new(),
+    };
+    app.view.namespaces = Loadable::loaded(vec![namespace("default"), namespace("payments")]);
+    schedule_page(&mut app, false, &["b", "d"], &[7]);
+    app.run("nav.up", None);
+    assert_eq!(app.view.cursor, 0);
+
+    // `b` moves from row 0 to row 1, and the cursor is no longer on `b`.
+    schedule_page(&mut app, true, &["a", "c"], &[]);
+    assert_eq!(app.view.cursor, 0);
+    assert_eq!(schedule_ids(&app), ["a", "b", "c", "d"]);
+}

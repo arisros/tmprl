@@ -102,6 +102,14 @@ opens those namespaces as one table, merge-sorted by start time, with each row t
 namespace it came from. Selection is machinery the interface already has, so this needed no
 new concept.
 
+The schedule list, `gs` from a workflow list and `gw` back, is the exception: it is always of
+one namespace, because `ListSchedules` takes one and a list merged across several has no
+ordering that means anything. Over a multi-namespace scope it shows the first namespace's
+schedules and its first line says so, `schedules of payments only, the first of 3 namespaces
+in scope`. Schedules load 50 at a time as the cursor nears the end and are kept sorted by id,
+with the cursor staying on its schedule as rows arrive around it. Until the last page is in,
+the header's count carries a `+`. `R` starts again from the first page.
+
 The same selection drives batch mutations. `V` a range of workflows or schedules and any
 `<leader>m` action applies to every selected row rather than the one under the cursor, one
 request per row, in order. A destructive batch asks for the count to be typed before it

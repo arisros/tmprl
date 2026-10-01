@@ -31,6 +31,18 @@ impl ScheduleRow {
     }
 }
 
+/// Fold a further page into the rows already loaded.
+///
+/// Sorted by id as a whole rather than appended, because ListSchedules pages in no order
+/// that means anything and a list sorted fifty rows at a time reads as a broken sort. A row
+/// both hold is taken from the page: visibility is eventually consistent, so a schedule can
+/// turn up on both sides of a page boundary, and the later answer is the newer one.
+pub fn merge_page(rows: &mut Vec<ScheduleRow>, page: Vec<ScheduleRow>) {
+    rows.retain(|r| !page.iter().any(|p| p.key() == r.key()));
+    rows.extend(page);
+    rows.sort_by(|a, b| a.schedule_id.cmp(&b.schedule_id));
+}
+
 /// One `start..=end` step in a calendar field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Range {
@@ -325,5 +337,37 @@ mod tests {
         };
         assert_ne!(row(true).glyph(), row(false).glyph());
         assert_eq!(row(false).key(), ("d", "s"));
+    }
+
+    fn row(id: &str) -> ScheduleRow {
+        ScheduleRow {
+            namespace: "d".into(),
+            schedule_id: id.into(),
+            workflow_type: "W".into(),
+            paused: false,
+            notes: String::new(),
+            spec: "every 1h".into(),
+            next_run: None,
+            recent_runs: 0,
+        }
+    }
+
+    #[test]
+    fn a_further_page_is_sorted_into_the_rows_already_loaded() {
+        // Each page arrives sorted, but the pages themselves come in the server's order.
+        let mut rows = vec![row("b"), row("d")];
+        merge_page(&mut rows, vec![row("a"), row("c")]);
+        let ids: Vec<&str> = rows.iter().map(|r| r.schedule_id.as_str()).collect();
+        assert_eq!(ids, ["a", "b", "c", "d"]);
+    }
+
+    #[test]
+    fn a_schedule_on_both_sides_of_a_page_boundary_is_listed_once() {
+        let mut rows = vec![row("a"), row("b")];
+        let mut newer = row("b");
+        newer.paused = true;
+        merge_page(&mut rows, vec![newer, row("c")]);
+        assert_eq!(rows.len(), 3);
+        assert!(rows[1].paused, "the later page is the newer answer");
     }
 }

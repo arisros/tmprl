@@ -24,6 +24,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
     if area.height == 0 {
         return;
     }
+    let area = scope_line(frame, area, view, t);
     let rows = view.schedule_rows();
 
     if rows.is_empty() {
@@ -114,4 +115,33 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
         .collect();
 
     frame.render_widget(Paragraph::new(lines), area);
+}
+
+/// On a fan-out, a first line naming the one namespace this list is of, and the area left
+/// under it.
+///
+/// ListSchedules takes a single namespace, so the list is the first in scope whatever the
+/// scope holds. Drawn without this line it reads as every schedule the header's scope
+/// covers.
+fn scope_line(frame: &mut Frame, area: Rect, view: &View, t: &Theme) -> Rect {
+    let Some(namespace) = view.schedule_namespace().filter(|_| view.is_fanned_out()) else {
+        return area;
+    };
+    let line = Line::from(vec![
+        Span::styled("  schedules of ", t.faint),
+        Span::styled(namespace.to_string(), t.accent),
+        Span::styled(
+            format!(
+                " only, the first of {} namespaces in scope",
+                view.scope.len()
+            ),
+            t.faint,
+        ),
+    ]);
+    frame.render_widget(Paragraph::new(line), Rect { height: 1, ..area });
+    Rect {
+        y: area.y + 1,
+        height: area.height - 1,
+        ..area
+    }
 }

@@ -617,6 +617,6 @@ pub(super) fn describe_pane(v: &View) -> String {
             Some(w) => format!("history  {}  {}", w.workflow_id, w.workflow_type),
             None => "history".to_string(),
         },
-        Screen::Schedules => format!("schedules  {}", v.scope.join(", ")),
+        Screen::Schedules => format!("schedules  {}", v.schedule_namespace().unwrap_or_default()),
     }
 }

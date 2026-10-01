@@ -266,9 +266,11 @@ pub enum Msg {
         generation: u64,
         result: Result<StatusCounts, Fault>,
     },
+    /// A page of the schedule list, and the token for the one after it.
     Schedules {
         generation: u64,
-        result: Result<Vec<ScheduleRow>, Fault>,
+        append: bool,
+        result: Result<(Vec<ScheduleRow>, Vec<u8>), Fault>,
     },
     /// Output of an external command a `!` filter ran.
     Piped(Result<String, String>),
@@ -874,18 +876,26 @@ impl App {
                     Err(e) => self.fail_as(format!("pending activities: {e}"), e, Note::Warn),
                 }
             }
-            Msg::Schedules { generation, result } => {
+            Msg::Schedules {
+                generation,
+                append,
+                result,
+            } => {
                 if generation != self.view.generation {
                     return;
                 }
                 self.view.loading_more = false;
-                self.view.schedules = match result {
-                    Ok(rows) => Loadable::loaded(rows),
+                match result {
+                    Ok((page, token)) => self.take_schedule_page(append, page, token),
                     Err(e) => {
                         self.fail(e.clone(), Note::Error);
-                        Loadable::Failed(e)
+                        // As on the workflow list, a failed further page keeps the rows
+                        // already on screen. The token is kept too, so scrolling retries.
+                        if !append {
+                            self.view.schedules = Loadable::Failed(e);
+                        }
                     }
-                };
+                }
                 self.clamp_cursor();
             }
             Msg::Counts { generation, result } => {

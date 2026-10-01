@@ -360,7 +360,52 @@ impl App {
                     self.load_history();
                 }
             }
-            Screen::Namespaces | Screen::Schedules => {}
+            Screen::Schedules => self.load_more_schedules(),
+            Screen::Namespaces => {}
+        }
+    }
+
+    /// Apply a page of the schedule list, keeping the cursor and a selection's anchor on
+    /// the schedules they were on.
+    ///
+    /// By id rather than by index: a further page is sorted in among the rows already
+    /// there, above the cursor as readily as below it, and a mutation acts on whatever the
+    /// cursor is on. An index left alone would pause or delete a different schedule.
+    pub(super) fn take_schedule_page(
+        &mut self,
+        append: bool,
+        page: Vec<ScheduleRow>,
+        token: Vec<u8>,
+    ) {
+        // A pane that has gone up to the namespace list still gets its reply, and that
+        // cursor is not an index into these rows.
+        let on_screen = self.view.screen == Screen::Schedules;
+        let held = |at: usize| {
+            let rows = self.view.schedule_rows();
+            rows.get(at).map(|r| r.schedule_id.clone())
+        };
+        let (cursor, anchor) = (held(self.view.cursor), self.view.anchor.and_then(held));
+
+        self.view.schedules_token = token;
+        match (append, self.view.schedules.value_mut()) {
+            (true, Some(rows)) => tmprl_core::schedule::merge_page(rows, page),
+            _ => self.view.schedules = Loadable::loaded(page),
+        }
+        if !on_screen {
+            return;
+        }
+
+        let rows = self.view.schedule_rows();
+        let find = |id: Option<String>| {
+            rows.iter()
+                .position(|r| Some(&r.schedule_id) == id.as_ref())
+        };
+        let (cursor, anchor) = (find(cursor), find(anchor));
+        if let Some(at) = cursor {
+            self.view.cursor = at;
+        }
+        if anchor.is_some() {
+            self.view.anchor = anchor;
         }
     }
 

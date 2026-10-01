@@ -86,6 +86,8 @@ pub struct View {
     /// The last *non-empty* token seen. Follow resumes from here: an empty token restarts
     /// from event 1, and paging leaves the token empty once it has caught up.
     pub history_resume: Vec<u8>,
+    /// Continuation token for the schedule list. Empty means every schedule is loaded.
+    pub schedules_token: Vec<u8>,
     /// The follow task, so toggling off (or leaving the screen) actually stops the poll.
     pub follow_task: Option<tokio::task::JoinHandle<()>>,
     /// Open activities as the server last described them. A retry in progress shows up
@@ -134,6 +136,7 @@ impl View {
             history_events: Vec::new(),
             history_token: Vec::new(),
             history_resume: Vec::new(),
+            schedules_token: Vec::new(),
             follow_task: None,
             pending: Vec::new(),
             pending_task: None,
@@ -362,6 +365,12 @@ impl View {
     /// need to say which namespace they came from.
     pub fn is_fanned_out(&self) -> bool {
         self.scope.len() > 1
+    }
+
+    /// The one namespace the schedule list is of: the first in scope. ListSchedules takes a
+    /// single namespace, so a fan-out does not widen it, and the screen has to say so.
+    pub fn schedule_namespace(&self) -> Option<&str> {
+        self.scope.first().map(String::as_str)
     }
 
     /// The inclusive row range selected, if a visual mode is active in this pane.

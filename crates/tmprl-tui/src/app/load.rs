@@ -4,13 +4,25 @@
 use super::*;
 
 impl App {
-    /// Schedules for the first namespace in scope.
+    /// Schedules for the first namespace in scope, from the first page.
     ///
     /// One namespace, not the fan-out: ListSchedules takes a single namespace and a schedule
     /// list merged across several has no ordering that means anything.
     pub fn load_schedules(&mut self) {
         self.view.generation = self.view.generation.wrapping_add(1);
         self.view.schedules.begin_refresh();
+        self.view.schedules_token.clear();
+        self.load_schedule_page(false);
+    }
+
+    /// The next page of the schedule list, if the last one said there is one.
+    pub(super) fn load_more_schedules(&mut self) {
+        if !self.view.schedules_token.is_empty() {
+            self.load_schedule_page(true);
+        }
+    }
+
+    fn load_schedule_page(&mut self, append: bool) {
         self.view.loading_more = true;
 
         let Some(conn) = self.conn.clone() else {
@@ -18,17 +30,24 @@ impl App {
         };
         let namespace = self
             .view
-            .scope
-            .first()
-            .cloned()
-            .unwrap_or_else(|| self.namespace.clone());
-        let (tx, generation) = (self.tx.clone(), self.view.generation);
+            .schedule_namespace()
+            .unwrap_or(&self.namespace)
+            .to_string();
+        let (tx, generation, token) = (
+            self.tx.clone(),
+            self.view.generation,
+            self.view.schedules_token.clone(),
+        );
         tokio::spawn(async move {
             let result = conn
-                .list_schedules(&namespace, PAGE_SIZE, Vec::new())
+                .list_schedules(&namespace, PAGE_SIZE, token)
                 .await
-                .map(|p| p.rows);
-            let _ = tx.send(Msg::Schedules { generation, result });
+                .map(|p| (p.rows, p.next_page_token));
+            let _ = tx.send(Msg::Schedules {
+                generation,
+                append,
+                result,
+            });
         });
     }
 
