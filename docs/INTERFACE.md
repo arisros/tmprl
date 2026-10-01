@@ -7,7 +7,7 @@
 > yet (marks, macros, `.`, and the quickfix list) are **specified here but deliberately
 > not bound**, a key
 > that opens an empty screen is worse than a key that does nothing at all. The keymap
-> tables below mark which is which.
+> tables below mark which is which, and [ROADMAP.md](ROADMAP.md) says when the rest is due.
 >
 > Run `?` in the application for the bindings that are actually live; that overlay is
 > generated from the keymap, so it is never out of date, and it scrolls.
@@ -21,23 +21,24 @@ grounds that the people who want a Temporal client in their terminal are overwhe
 people who already have those motions in their fingers, and that a second, nearly-identical
 set of bindings to learn is a cost with no return.
 
-Modes: **Normal**, **Insert** (query bar, payload editors, forms), **Visual** and
-**V-Line** (selecting rows for batch operations), **Command** (`:`), and
-**Operator-Pending**.
+Modes: **Normal**, **Insert** (the query bar), **Visual** and **V-Line** (selecting rows for
+batch operations, and the same thing today, since a row is the only unit there is to select),
+and **Command** (`:`). There is no Operator-Pending mode: `y` is a command, not an operator.
 
 Consequences that follow from taking the model seriously rather than decoratively:
 
-- **Counts work.** `7j`, `10G`, `3<C-d>`. Lists render a hybrid relative/absolute gutter, so
-  a count is something you can read off the screen rather than estimate.
+- **Counts work** on `j` and `k`: `7j`. Lists render a hybrid relative/absolute gutter, so a
+  count is something you can read off the screen rather than estimate. `G` and `<C-d>` do not
+  take one yet, so `10G` goes to the last row.
 - **`jk` leaves Insert**: everywhere, in addition to `Esc`.
 - **Yank goes to the system clipboard by default**: `clipboard=unnamedplus` semantics, not a
   private register nobody can paste out of.
-- **Marks and a jumplist** (`m{a-z}`, `` `{a-z} ``, `<C-o>`, `<C-i>`) that work *across*
-  workflows and namespaces, not just within one view.
-- **Macros** (`q{reg}`, `@{reg}`, `@@`) and `.` to repeat.
+- **A jumplist** (`<C-o>`, `<C-i>`) that works *across* workflows and namespaces, not just
+  within one view. **Marks** (`m{a-z}`, `` `{a-z} ``) are planned on the same footing.
+- **Macros** (`q{reg}`, `@{reg}`, `@@`) and `.` to repeat are planned.
 
-Macros record command ids, not keystrokes. A recorded macro is therefore readable text that
-survives a remap. See [the command registry](ARCHITECTURE.md#4-the-command-registry--built).
+Macros will record command ids, not keystrokes. A recorded macro is therefore readable text
+that survives a remap. See [the command registry](ARCHITECTURE.md#4-the-command-registry--built).
 
 ## Two constraints imposed by tmux
 
@@ -80,13 +81,13 @@ set -ga terminal-overrides ',*:Ms=\E]52;%p1%s;%p2%s\7'
 
 ## Keymap
 
-Leader is `Space`. A which-key-style popup appears after 500ms on an incomplete prefix.
+Leader is `Space`. A which-key-style popup appears as soon as a prefix is incomplete.
 
 ### Navigation
 
 | Key | Action | |
 |---|---|---|
-| `j` `k` `gg` `G` `<C-d>` `<C-u>` | move, with counts | **live** |
+| `j` `k` `gg` `G` `<C-d>` `<C-u>` | move; `j` and `k` take a count | **live** |
 | `<Down>` `<Up>` | move | **live** |
 | `Enter` | open the focused item, namespace → workflows → history | **live** |
 | `Enter` (in Visual) | open every selected namespace as one merged list | **live** |
@@ -177,8 +178,8 @@ lists them by name.
 
 The visibility query is always on screen and always the raw string. Anything that filters the
 list writes *into* that text rather than replacing it with a structure you cannot see: a
-saved view fills the bar and leaves it editable, and the filter builder, when it lands, will
-do the same. This is the one piece of the web UI's design being deliberately rejected rather
+saved view fills the bar and leaves it editable, and the filter builder on `<leader>fg` does
+the same. This is the one piece of the web UI's design being deliberately rejected rather
 than ported, a lossy abstraction over the query is what makes that filter widget
 frustrating to use.
 
@@ -242,7 +243,7 @@ column of its own rather than painting over a value.
 | `<leader>r{h,j,k,l}` | resize by 10 | **live** |
 | `<leader>t{o,x,n,p}` | tab open / close / next / previous | **live** |
 
-Two workflow-detail views in a split *is* the diff feature. There is no separate diff screen.
+Two histories in a split will be the diff feature. There is no separate diff screen.
 
 A split forks where you are, not what you have loaded: the new pane opens on the same screen,
 scope and query and fetches its own copy. Splitting is almost always "show me this again so I
@@ -376,10 +377,14 @@ closed is refused with a message instead of polling for events that can never ar
 | `<leader>xx` | problem list, failed / timed out / terminated | **live** |
 | `<leader>xQ` | open the quickfix list | planned |
 
-The quickfix list is how batch operations are staged. Select rows, `<C-q>` to stage them,
-then run an operation over the staged set. Staging is a visible, editable list rather than an
-invisible selection, because *"which four thousand workflows am I about to terminate?"*
-should be a question with an answer on screen.
+The quickfix list, when it exists, is how larger batches will be staged. Select rows, `<C-q>`
+to stage them, then run an operation over the staged set. Staging is a visible, editable list
+rather than an invisible selection, because *"which four thousand workflows am I about to
+terminate?"* should be a question with an answer on screen. Until then a batch is a `V`
+selection.
+
+Signal and update ask for a name and send no input; a payload for either is planned, along
+with the query on `<leader>cq`.
 
 Every binding is a lookup into the command registry, so all of it **is** remappable through
 `~/.config/tmprl/keys.toml`:
@@ -402,7 +407,7 @@ that is silently dropped is a key that does nothing, with no way to find out why
 
 **Live for one workflow at a time**: cancel, terminate, signal, delete, reset and update,
 under `<leader>m`, clear of bare `m`, which marks reserve. A batch over a *query*, which is
-Temporal's own server-side batch API, is planned for 0.2.0; the batch over a selection of rows
+Temporal's own server-side batch API, is planned for 0.3; the batch over a selection of rows
 described above is live.
 
 `<leader>mr` resets to the event under the cursor. Temporal only resets to a *completed
@@ -443,8 +448,8 @@ palette is currently compiled in. What *is* live is the part that matters most: 
 encoded in shape as well as hue. Every execution status has its own glyph, `●` running,
 `✓` completed, `✗` failed, `■` terminated, `⊘` cancelled, `◔` timed out, `↻` continued-as-new,
 `‖` paused, used identically in the table and in the header tallies. Colour only reinforces
-it, so the workflow list stays readable in a 16-colour terminal and for a colour-blind
-reader.
+it, so the workflow list stays readable for a colour-blind reader. The palette itself is
+truecolor and `NO_COLOR` is not read yet; both arrive with `theme.toml`.
 
 ## Configuration files
 

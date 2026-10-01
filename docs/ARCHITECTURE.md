@@ -1,9 +1,10 @@
 # Architecture
 
 > **Read this first.** This document mixes built code with design that is not written yet,
-> and every section says which it is. §§2 to 9 are implemented and tested, except for the
-> batch flow at the end of §9, which is written down in advance so the shape is agreed
-> before there is code sitting on top of it.
+> and every section says which it is. §§2 to 9 are implemented and tested, with three
+> exceptions marked where they occur: macros and headless mode in §4, diff in §§6 and 7, and
+> the query-driven batch at the end of §9. Those are written down in advance so the shape is
+> agreed before there is code sitting on top of it. [ROADMAP.md](ROADMAP.md) says when.
 >
 > | Marker | Meaning |
 > |---|---|
@@ -193,7 +194,7 @@ enum Loadable<T> {
     NotAsked,
     Loading,
     Loaded(T, Instant),   // with the time it was fetched, for staleness display
-    Failed(Error),
+    Failed(String),
 }
 ```
 
@@ -223,24 +224,33 @@ Every user-visible action is registered exactly once:
 ```rust
 Command {
     id:    "workflow.terminate",
-    title: "Terminate workflow",
-    args:  &[Arg::Reason],
-    run:   fn(&mut App, Args) -> Outcome,
+    title: "Terminate this workflow",
+    group: "Mutate",
+    action: Action::TerminateWorkflow,
 }
 ```
 
-Five separate features resolve through that one table:
+`App::run(id, count)` is the one place an `Action` is carried out, an exhaustive `match`. A
+command takes a count and nothing else: there are no arguments yet, so anything a command
+needs beyond the cursor it asks for in a prompt or a form.
+
+Four features resolve through that one table today:
 
 1. **Key bindings**: `keys.toml` maps a chord to a command id
-2. **The `:` command line**: resolves a typed name to a command id
+2. **The `:` command line and the command picker**: resolve a typed name to a command id
 3. **The which-key popup**: enumerates commands reachable from the current prefix
-4. **Macro replay**: a macro is a recorded list of command ids and arguments
-5. **Headless mode**: `tmprl --exec workflow.terminate --id=…` for scripting
+4. **The `?` overlay**: lists every command with the keys bound to it
+
+Two more are designed to and not written:
+
+5. **Macro replay** · planned: a macro is a recorded list of command ids
+6. **Headless mode** · planned: `tmprl --exec workflow.terminate --id=…` for scripting, which
+   is also what forces commands to grow arguments
 
 This is the highest-leverage decision in the codebase. The alternative, a `match` on
-`KeyEvent` in the input handler, makes all five of those features separate, divergent
-implementations, and makes remapping impossible. Here, adding a command gets you all five for
-free, and macros are portable text rather than replayed keystrokes.
+`KeyEvent` in the input handler, makes each of those features a separate, divergent
+implementation, and makes remapping impossible. Here, adding a command gets you all of them
+for free, and macros will be portable text rather than replayed keystrokes.
 
 It also means the answer to "what can this program do?" is a list you can print, rather than
 something you infer from reading the input handler.
@@ -287,8 +297,8 @@ welcome.
 ### The raw query is the interface
 
 The visibility query is always on screen and always the literal string sent to the server.
-Saved views fill it and leave it editable; the filter builder, when it lands, will compile
-into it. Nothing holds a structured filter that renders down to a query the user cannot see
+Saved views fill it and leave it editable; the filter picker `AND`s a clause onto it and
+leaves it editable too. Nothing holds a structured filter that renders down to a query the user cannot see
 or correct, that abstraction is the most irritating thing about the web UI's filter bar, and
 it is being deliberately rejected rather than ported.
 
@@ -450,10 +460,11 @@ Splits and tabs behave like vim's, with vim's bindings. This buys two things.
 
 The obvious one is that it feels right to anyone with vim in their fingers.
 
-The less obvious one: **diff falls out of it for free.** Comparing a good run against a bad
-run is just two workflow-detail views in a vertical split with linked scrolling, aligned by
-compact-group key. There is no separate diff screen to build, and the comparison works for any
-two views, not just the pair someone anticipated.
+The less obvious one: **diff will fall out of it.** Comparing a good run against a bad run is
+two histories in a vertical split with linked scrolling, aligned by compact-group key. There
+is no separate diff screen to build, and the comparison works for any two views, not just the
+pair someone anticipated. The split is built; the linked scrolling and the alignment are
+planned.
 
 ### Wiring it in
 
@@ -581,18 +592,19 @@ Two failure modes are refused rather than guessed around:
 
 ## 9. Mutations · BUILT (single workflows, and a batch over selected rows)
 
-`tmprl` can terminate workflows and run batch operations across thousands of them. The
-safety design is deliberate:
+`tmprl` can terminate a workflow, or every workflow in a selection of rows. The safety design
+is deliberate:
 
 - Every destructive action routes through **one** confirmation modal.
 - That modal shows **the equivalent `temporal` CLI command**. This teaches the CLI, makes the
   action auditable at a glance, and gives the user a way to run it elsewhere if they would
   rather not trust the TUI.
-- Batch operations show a `CountWorkflowExecutions` **dry run** first: how many workflows the
-  query actually matches, and require typing that count to proceed.
+- A destructive batch requires typing the number of rows it covers.
 - Every mutation appends to `~/.local/state/tmprl/audit.jsonl`.
 
-Built: **cancel, terminate, signal, delete, reset and update**, on one workflow at a time.
+Built: **cancel, terminate, signal, delete, reset and update** on one workflow, and all but
+reset over a `V` selection, one request per row. Signal and update send a name and no input
+yet.
 
 Two of those need more than an execution id, and that shapes where they live:
 
@@ -623,10 +635,17 @@ The audit log is appended to, never rewritten, and **failures go in too**, the q
 answers is what was *attempted*. A failed write to it is surfaced rather than swallowed,
 because that log is the record that an irreversible thing happened.
 
-The batch flow is reached through the quickfix list: select workflows in the table, `<C-q>` to
-stage them, then run an operation over the staged set. Staging is a visible, editable list
-rather than an invisible selection, because "which 4,000 workflows am I about to terminate?"
-should be a question with an answer on screen.
+### Larger batches · PLANNED
+
+Two things are designed and not built:
+
+- **A batch over a query**, Temporal's server-side batch API. It will show a
+  `CountWorkflowExecutions` dry run first, how many workflows the query matches, and require
+  typing that count to proceed.
+- **Staging through the quickfix list**: select workflows in the table, `<C-q>` to stage them,
+  then run an operation over the staged set. Staging is a visible, editable list rather than
+  an invisible selection, because "which 4,000 workflows am I about to terminate?" should be a
+  question with an answer on screen.
 
 ---
 
