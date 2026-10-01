@@ -1,27 +1,34 @@
 //! Connecting to a Temporal frontend.
 //!
-//! Profile resolution is delegated to `ClientOptions::load_from_config`, which is
-//! Temporal's own loader: it reads `~/.config/temporalio/temporal.toml`, applies the
-//! `TEMPORAL_*` environment variables over it, and resolves TLS material (including
-//! reading cert/key files off disk). Reimplementing that would only drift from what
-//! the `temporal` CLI does, so we don't.
+//! Profile resolution is delegated to Temporal's own loader, the two steps behind
+//! `ClientOptions::load_from_config`: it reads `~/.config/temporalio/temporal.toml`,
+//! applies the `TEMPORAL_*` environment variables over it, and resolves TLS material
+//! (including reading cert/key files off disk). Reimplementing that would only drift from
+//! what the `temporal` CLI does, so we don't. The command line's `--address` and
+//! `--namespace` are set on the loaded profile between those two steps.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use temporalio_client::{
-    Client, ClientOptions,
-    envconfig::{DataSource, LoadClientConfigProfileOptions},
+    Client, ClientOptions, ConnectionOptions,
+    envconfig::{ClientConfigProfile, DataSource, LoadClientConfigProfileOptions},
     grpc::{CloudService, OperatorService, WorkflowService},
 };
+use temporalio_common::envconfig::load_client_config_profile;
 
-/// Which profile to connect as.
-#[derive(Debug, Clone, Default)]
+/// Which profile to connect as, and what the command line overrides in it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ProfileRef {
     /// Profile name from the TOML config. `None` uses `TEMPORAL_PROFILE`, else `default`.
     pub name: Option<String>,
     /// Override the config file path. `None` uses `TEMPORAL_CONFIG_FILE`, else the OS default.
     pub config_file: Option<String>,
+    /// Override the profile's server address, `host:port` or a URL. Everything else the
+    /// profile says about the connection, TLS and the API key included, still applies.
+    pub address: Option<String>,
+    /// Override the profile's namespace.
+    pub namespace: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -122,6 +129,35 @@ pub struct Conn {
     address: Arc<str>,
 }
 
+/// The namespace Temporal's loader falls back to when a profile names none.
+const DEFAULT_NAMESPACE: &str = "default";
+
+/// Turn a loaded profile into connection options, with the command line applied over it.
+///
+/// This is `ClientOptions::load_from_config` taken in its two halves, so the overrides can
+/// land between them, on the profile and before Temporal's own conversion. An address set
+/// here therefore gets the same treatment as one in the file: a bare `host:port` takes
+/// `https` when the profile has TLS or an API key, and both are kept. Patching the built
+/// options instead would mean choosing the scheme a second time, differently.
+fn options_from(
+    mut loaded: ClientConfigProfile,
+    profile: &ProfileRef,
+) -> Result<(ConnectionOptions, ClientOptions), ConnectError> {
+    if let Some(address) = &profile.address {
+        loaded.address = Some(address.clone());
+    }
+    if let Some(namespace) = &profile.namespace {
+        loaded.namespace = Some(namespace.clone());
+    }
+    let namespace = loaded
+        .namespace
+        .clone()
+        .unwrap_or_else(|| DEFAULT_NAMESPACE.to_owned());
+    let conn_opts =
+        ConnectionOptions::try_from(loaded).map_err(|e| ConnectError::Config(e.to_string()))?;
+    Ok((conn_opts, ClientOptions::new(namespace).build()))
+}
+
 impl Conn {
     pub async fn connect(profile: &ProfileRef) -> Result<Self, ConnectError> {
         let load = LoadClientConfigProfileOptions::builder()
@@ -129,8 +165,11 @@ impl Conn {
             .maybe_config_source(config_source(profile.config_file.as_deref()))
             .build();
 
-        let (conn_opts, client_opts) = ClientOptions::load_from_config(load)
+        // The loader applies the environment, so a flag outranks `TEMPORAL_ADDRESS` and
+        // `TEMPORAL_NAMESPACE`, which outrank the file.
+        let loaded = load_client_config_profile(load, None)
             .map_err(|e| ConnectError::Config(e.to_string()))?;
+        let (conn_opts, client_opts) = options_from(loaded, profile)?;
         let namespace: Arc<str> = client_opts.namespace.as_str().into();
         // Read before `connect` consumes the options. A namespace name is not unique
         // across clusters, so the audit log needs the target to be readable later.
@@ -219,6 +258,81 @@ mod tests {
         // ~/.config on a Mac is found rather than silently ignored.
         let path = xdg_config_file().expect("HOME is set in a test run");
         assert!(path.ends_with("temporalio/temporal.toml"), "{path:?}");
+    }
+
+    fn cloud_profile() -> ClientConfigProfile {
+        ClientConfigProfile {
+            address: Some("my-ns.a1b2c.tmprl.cloud:7233".into()),
+            namespace: Some("my-ns.a1b2c".into()),
+            api_key: Some("secret".into()),
+            ..Default::default()
+        }
+    }
+
+    fn overriding(address: Option<&str>, namespace: Option<&str>) -> ProfileRef {
+        ProfileRef {
+            address: address.map(str::to_string),
+            namespace: namespace.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_profile_with_no_overrides_connects_as_written() {
+        let (conn, client) = options_from(cloud_profile(), &ProfileRef::default()).unwrap();
+        assert_eq!(
+            conn.target.as_str(),
+            "https://my-ns.a1b2c.tmprl.cloud:7233/"
+        );
+        assert_eq!(client.namespace, "my-ns.a1b2c");
+    }
+
+    #[test]
+    fn an_address_override_keeps_the_profiles_tls_and_api_key() {
+        // `--address` moves the target and nothing else: a port-forward to a cluster that
+        // wants the profile's key must still send it, over TLS.
+        let over = overriding(Some("localhost:7233"), None);
+        let (conn, client) = options_from(cloud_profile(), &over).unwrap();
+        assert_eq!(conn.target.as_str(), "https://localhost:7233/");
+        assert_eq!(conn.api_key.as_deref(), Some("secret"));
+        assert!(conn.tls_options.is_some(), "TLS came from the profile");
+        assert_eq!(
+            client.namespace, "my-ns.a1b2c",
+            "the namespace is untouched"
+        );
+    }
+
+    #[test]
+    fn an_address_override_on_a_plain_profile_stays_plain() {
+        let over = overriding(Some("temporal.internal:7233"), None);
+        let (conn, _) = options_from(ClientConfigProfile::default(), &over).unwrap();
+        assert_eq!(conn.target.as_str(), "http://temporal.internal:7233/");
+        assert!(conn.tls_options.is_none());
+    }
+
+    #[test]
+    fn an_address_with_a_scheme_is_taken_as_written() {
+        let over = overriding(Some("http://localhost:7233"), None);
+        let (conn, _) = options_from(cloud_profile(), &over).unwrap();
+        assert_eq!(conn.target.as_str(), "http://localhost:7233/");
+    }
+
+    #[test]
+    fn a_namespace_override_replaces_the_profiles() {
+        let over = overriding(None, Some("orders"));
+        let (conn, client) = options_from(cloud_profile(), &over).unwrap();
+        assert_eq!(client.namespace, "orders");
+        assert_eq!(
+            conn.target.as_str(),
+            "https://my-ns.a1b2c.tmprl.cloud:7233/"
+        );
+    }
+
+    #[test]
+    fn a_profile_naming_no_namespace_falls_back_to_default() {
+        let (_, client) =
+            options_from(ClientConfigProfile::default(), &ProfileRef::default()).unwrap();
+        assert_eq!(client.namespace, "default");
     }
 
     #[test]

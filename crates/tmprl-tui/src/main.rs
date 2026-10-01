@@ -1,6 +1,7 @@
 //! tmprl, a terminal client for Temporal.
 
 mod app;
+mod cli;
 mod clipboard;
 mod config;
 mod event;
@@ -9,64 +10,26 @@ mod theme;
 mod ui;
 mod view;
 
-use tmprl_client::{Conn, ProfileRef};
+use cli::Cli;
+use tmprl_client::Conn;
 use tokio::sync::mpsc::unbounded_channel;
-
-const USAGE: &str = "\
-tmprl, a terminal client for Temporal
-
-USAGE:
-    tmprl [OPTIONS]
-
-OPTIONS:
-    -p, --profile <NAME>        Profile from ~/.config/temporalio/temporal.toml
-        --temporal-config <P>   Override that file's path (alias: --config)
-        --config-path           Print where tmprl reads its own config, and exit
-    -h, --help                  Print this message
-    -V, --version               Print version
-
-Connection settings come from the same files and TEMPORAL_* variables the
-`temporal` CLI uses. tmprl's own config (config.toml, keys.toml, views.toml)
-is a different directory; --config-path prints it. Press ? inside the
-application for keybindings.
-";
-
-fn parse_args() -> Result<ProfileRef, String> {
-    let mut profile = ProfileRef::default();
-    let mut args = std::env::args().skip(1);
-    while let Some(a) = args.next() {
-        match a.as_str() {
-            "-h" | "--help" => {
-                print!("{USAGE}");
-                std::process::exit(0);
-            }
-            "-V" | "--version" => {
-                println!("tmprl {}", env!("CARGO_PKG_VERSION"));
-                std::process::exit(0);
-            }
-            "-p" | "--profile" => {
-                profile.name = Some(args.next().ok_or("--profile needs a value")?);
-            }
-            // `--config` predates tmprl having a config of its own and names the
-            // *Temporal* profile file. Kept as an alias so existing wrappers keep working.
-            "--temporal-config" | "--config" => {
-                profile.config_file = Some(args.next().ok_or("--temporal-config needs a value")?);
-            }
-            "--config-path" => {
-                // Parsed in order, so a --temporal-config before it is reflected.
-                print!("{}", config::describe_paths(profile.config_file.as_deref()));
-                std::process::exit(0);
-            }
-            other => return Err(format!("unknown argument `{other}`\n\n{USAGE}")),
-        }
-    }
-    Ok(profile)
-}
 
 #[tokio::main]
 async fn main() -> std::process::ExitCode {
-    let profile = match parse_args() {
-        Ok(p) => p,
+    let (profile, startup) = match cli::parse(std::env::args().skip(1)) {
+        Ok(Cli::Run { profile, startup }) => (profile, startup),
+        Ok(Cli::Help) => {
+            print!("{}", cli::USAGE);
+            return std::process::ExitCode::SUCCESS;
+        }
+        Ok(Cli::Version) => {
+            println!("tmprl {}", env!("CARGO_PKG_VERSION"));
+            return std::process::ExitCode::SUCCESS;
+        }
+        Ok(Cli::ConfigPath(temporal_config)) => {
+            print!("{}", config::describe_paths(temporal_config.as_deref()));
+            return std::process::ExitCode::SUCCESS;
+        }
         Err(e) => {
             eprintln!("tmprl: {e}");
             return std::process::ExitCode::from(2);
@@ -80,7 +43,7 @@ async fn main() -> std::process::ExitCode {
         Err(e) => {
             eprintln!("tmprl: {e}");
             eprintln!("\nIs a server reachable? Try `temporal server start-dev`,");
-            eprintln!("or select a profile with `tmprl --profile <name>`.");
+            eprintln!("or point tmprl at one with `--profile <name>` or `--address <host:port>`.");
             return std::process::ExitCode::FAILURE;
         }
     };
@@ -104,6 +67,7 @@ async fn main() -> std::process::ExitCode {
         read_config("config.toml"),
     );
     app.apply_config(keys.as_deref(), views.as_deref(), config.as_deref());
+    app.start(startup);
 
     let terminal = ratatui::init();
     let result = event::run(terminal, app, rx, tx).await;

@@ -45,8 +45,6 @@ pub async fn run(
     #[cfg(not(unix))]
     let _ = &tx;
 
-    app.load_namespaces();
-
     loop {
         // Before drawing, because the editor wants the screen this draw would paint over.
         if let Some(request) = app.take_edit_request() {
