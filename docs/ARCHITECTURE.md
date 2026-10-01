@@ -63,9 +63,9 @@ project testable:
 
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
-| `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 71 |
+| `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 77 |
 | `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 342 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 338 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 375 |
 | `tmprl-ui` | built | Plain unit tests over the layout tree | 37 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -141,6 +141,7 @@ draws nothing; it is rectangles and focus, and `tmprl-tui` draws into them.
 | Path | |
 |---|---|
 | `main.rs`, `event.rs` | startup, and the event loop that feeds `App::handle` |
+| `cli.rs` | the command line, parsed by a pure function into what `main` should do |
 | `app/mod.rs` | **the state, `App::handle` (every message) and `App::run` (every command)** |
 | `app/*.rs` | what the commands do, one file per concern; `app/mod.rs` lists them |
 | `view.rs` | what one pane owns: its screen, cursor, loaded data |

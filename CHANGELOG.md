@@ -12,6 +12,14 @@
   rather than by the wording of its refusal.
 - **`:messages`**, also `<leader>xm`: every note the status line has shown this session, with
   the gRPC code and the call behind each failure. The note line still clears on the next key.
+- **Command line**: `-n` opens a namespace's workflows, `-q` opens the list with a query
+  applied, `-w` opens the history of a workflow id or run id, `--address` overrides the
+  profile's server while keeping its TLS and API key, and `--readonly` refuses every mutation
+  for the run. A long option also takes `--option=value`.
+- An option that needs a value no longer takes a following argument that starts with `-`, so
+  `tmprl -n --readonly` is an error rather than a namespace called `--readonly`.
+- **Fixed**: the create-schedule form opened on a read-only profile and refused only after
+  it was filled in. It now refuses before it opens.
 
 ## 0.1.3 — 2026-09-29
 

@@ -449,6 +449,44 @@ A query-driven batch will additionally show a `CountWorkflowExecutions` dry run 
 typing the affected count. Every mutation appends to `~/.local/state/tmprl/audit.jsonl`, failures
 included, the question that log answers is what was *attempted*.
 
+## Command line
+
+Everything is optional. With no arguments `tmprl` connects as the default profile and opens
+on the namespace list.
+
+| Flag | |
+|---|---|
+| `-p`, `--profile <NAME>` | connect as this profile from `temporal.toml` |
+| `-n`, `--namespace <NAME>` | open on that namespace's workflow list, overriding the profile's namespace |
+| `-q`, `--query <QUERY>` | open on the workflow list with this visibility query in the bar, applied |
+| `-w`, `--workflow <ID>` | open the history of this workflow id or run id |
+| `--address <HOST:PORT>` | connect to this server instead of the profile's address |
+| `--readonly` | refuse every mutation for this run |
+| `--temporal-config <PATH>` | read connection profiles from this file (alias: `--config`) |
+| `--config-path` | print every file `tmprl` reads and whether it exists, then exit |
+| `-h`, `--help` / `-V`, `--version` | print the usage, or the version, then exit |
+
+A long flag also takes its value as `--flag=value`, which is the way to pass a value that
+starts with a dash. A flag given twice takes the last value, and an argument `tmprl` does not
+know exits with status 2 before anything connects.
+
+`-q` and `-w` use the profile's namespace unless `-n` names another, and `-` from wherever
+they land still goes up a level, so the namespace list is one key away.
+
+`-w` asks the server for an exact match on either id, the same lookup `<leader>ff` falls back
+to, without that picker's prefix search: it opens what it finds, so it must not guess. When a
+workflow id has several runs the newest opens and the statusline says how many matched. When
+nothing matches, `tmprl` lands on the workflow list (with the `-q` query if one was given) and
+says so, rather than exiting.
+
+`--address` replaces the address and nothing else. TLS, the API key and gRPC metadata still
+come from the profile, and a bare `host:port` is dialled with TLS exactly when the profile
+would have used it. It outranks `TEMPORAL_ADDRESS`, as `-n` outranks `TEMPORAL_NAMESPACE`.
+
+`--readonly` is `readonly = true` from `config.toml` for one run: the header reads
+`prod [ro]`, and a mutation is refused before its prompt, form or confirmation opens. The flag
+can only add the restriction; nothing on the command line lifts a profile's own.
+
 ## Theming
 
 Status is encoded in shape as well as hue. Every execution status has its own glyph, `●`

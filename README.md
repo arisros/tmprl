@@ -36,8 +36,12 @@ tmprl
 ```
 
 ```sh
-tmprl --profile prod     # a profile from temporal.toml
-tmprl --config-path      # every file tmprl reads, and whether it exists
+tmprl --profile prod                        # a profile from temporal.toml
+tmprl --address localhost:7233 -n orders    # another server, straight to a namespace
+tmprl -q "ExecutionStatus = 'Failed'"       # the workflow list, query applied
+tmprl -w order-42                           # a workflow's history, by workflow or run id
+tmprl -p prod --readonly                    # no mutations this run, shown as prod [ro]
+tmprl --config-path                         # every file tmprl reads, and whether it exists
 ```
 
 ## Keys
@@ -117,7 +121,7 @@ accent = "green"
 
 [profile.prod]
 accent   = "red"          # colours the profile name, bold too
-readonly = true           # refuses every mutation, shown as prod [ro]
+readonly = true           # refuses every mutation, shown as prod [ro]; --readonly does it for one run
 
 [profile.prod.codec]
 endpoint = "https://codec.internal"
@@ -156,9 +160,9 @@ flowchart LR
 
 | Crate | Tests | |
 |---|---|---|
-| `tmprl-client` | 71 | all network IO |
+| `tmprl-client` | 77 | all network IO |
 | `tmprl-core` | 342 | no terminal, no server |
-| `tmprl-tui` | 338 | ratatui |
+| `tmprl-tui` | 375 | ratatui |
 | `tmprl-ui` | 37 | window tree |
 
 ```sh
