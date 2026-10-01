@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Colours**: `NO_COLOR` is honoured, a terminal that does not announce truecolor through
+  `COLORTERM` gets its own sixteen named colours, which follow a light or dark terminal theme,
+  and `theme.toml` repaints individual slots with `#rrggbb` or a colour name. A truecolor
+  terminal that does not export `COLORTERM`, usual over SSH, now gets sixteen colours.
 - **Errors**: a failed request says which call failed and why in words, `ListWorkflowExecutions
   failed (unavailable): transport error`, and an empty list whose load failed adds what to
   try. A key scoped to one namespace is now recognised by the server's `PermissionDenied`
