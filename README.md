@@ -154,7 +154,7 @@ cargo test                       # integration tests skip with no server
 TMPRL_REQUIRE_SERVER=1 cargo test  # what CI runs
 ```
 
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/INTERFACE.md](docs/INTERFACE.md) · [docs/ROADMAP.md](docs/ROADMAP.md) · [docs/RELEASING.md](docs/RELEASING.md) · [CHANGELOG.md](CHANGELOG.md)
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/INTERFACE.md](docs/INTERFACE.md) · [docs/ROADMAP.md](docs/ROADMAP.md) · [docs/RELEASING.md](docs/RELEASING.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [CHANGELOG.md](CHANGELOG.md)
 
 ## Roadmap
 
