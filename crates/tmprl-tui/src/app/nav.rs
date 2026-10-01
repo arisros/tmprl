@@ -272,9 +272,11 @@ impl App {
         }
     }
 
-    pub(super) fn scroll_help(&mut self, delta: isize) {
-        let next = (self.help_scroll as isize + delta).clamp(0, self.help_max_scroll as isize);
-        self.help_scroll = next as usize;
+    pub(super) fn scroll_overlay(&mut self, delta: isize) {
+        // Clamped first: an overlay opened at its end holds a sentinel until it is drawn.
+        let at = self.overlay_scroll.min(self.overlay_max_scroll);
+        let next = (at as isize + delta).clamp(0, self.overlay_max_scroll as isize);
+        self.overlay_scroll = next as usize;
     }
 
     pub(super) fn move_cursor(&mut self, delta: isize) {

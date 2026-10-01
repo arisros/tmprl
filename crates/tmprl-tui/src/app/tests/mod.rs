@@ -9,6 +9,7 @@ use tokio::sync::mpsc::unbounded_channel;
 mod config;
 mod find;
 mod history;
+mod messages;
 mod mutate;
 mod nav;
 mod payload;

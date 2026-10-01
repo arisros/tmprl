@@ -340,7 +340,14 @@ fn a_failed_first_page_shows_the_error_state() {
         append: false,
         result: Err("permission denied".into()),
     });
-    assert_eq!(app.view.workflows.error(), Some("permission denied"));
+    assert_eq!(
+        app.view
+            .workflows
+            .error()
+            .map(ToString::to_string)
+            .as_deref(),
+        Some("permission denied")
+    );
 }
 
 #[test]

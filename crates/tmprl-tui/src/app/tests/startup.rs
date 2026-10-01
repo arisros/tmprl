@@ -16,7 +16,7 @@ fn looking_up() -> App {
     })
 }
 
-fn found(app: &mut App, result: Result<Vec<WorkflowRow>, String>) {
+fn found(app: &mut App, result: Result<Vec<WorkflowRow>, Fault>) {
     app.handle(Msg::StartupWorkflow {
         generation: app.view.generation,
         id: "order-r1".into(),

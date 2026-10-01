@@ -171,7 +171,7 @@ fn the_help_overlay_scrolls_instead_of_clipping_silently() {
 
     let out = draw(&mut app, 90, 16);
     assert!(
-        app.help_max_scroll > 0,
+        app.overlay_max_scroll > 0,
         "the overlay should overflow at 16 rows"
     );
     assert!(
@@ -227,7 +227,7 @@ fn a_help_overlay_that_fits_says_nothing_about_scrolling() {
     // Tall enough that the whole registry fits, the overlay has grown with every
     // milestone, so the height here is "definitely more than enough", not a magic number.
     let out = draw(&mut app, 90, 200);
-    assert_eq!(app.help_max_scroll, 0);
+    assert_eq!(app.overlay_max_scroll, 0);
     assert!(!out.contains("j/k to scroll"), "{out}");
     assert!(
         out.contains("nav.open") && out.contains("yank.record"),
@@ -248,7 +248,7 @@ fn motions_move_the_cursor_again_once_help_is_closed() {
     app.run("app.cancel", None);
     app.run("motion.down", None);
     assert_eq!(app.view.cursor, 1);
-    assert_eq!(app.help_scroll, 0, "closing help resets its scroll");
+    assert_eq!(app.overlay_scroll, 0, "closing help resets its scroll");
 }
 
 #[test]

@@ -83,8 +83,7 @@ impl App {
             let result = conn
                 .list_workflows_across(&scope, &query, PICKER_SEARCH_LIMIT)
                 .await
-                .map(|(rows, _)| rows)
-                .map_err(|e| e.to_string());
+                .map(|(rows, _)| rows);
             let _ = tx.send(Msg::StartupWorkflow {
                 generation,
                 id,
@@ -98,7 +97,7 @@ impl App {
         &mut self,
         generation: u64,
         id: String,
-        result: Result<Vec<WorkflowRow>, String>,
+        result: Result<Vec<WorkflowRow>, Fault>,
     ) {
         // The reader got there first: another fetch, or `-` up to the namespaces. Opening a
         // history over wherever they went would be the stale reply painted, not dropped.
@@ -109,7 +108,7 @@ impl App {
             Ok(rows) => rows,
             Err(e) => {
                 self.load_workflows(false);
-                self.note = Some((format!("workflow {id}: {e}"), Note::Error));
+                self.fail_as(format!("workflow {id}: {e}"), e, Note::Error);
                 return;
             }
         };

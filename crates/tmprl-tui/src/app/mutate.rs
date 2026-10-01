@@ -387,7 +387,7 @@ impl App {
         let tx = self.tx.clone();
         tokio::spawn(async move {
             for (i, mutation) in mutations.into_iter().enumerate() {
-                let result = conn.mutate(&mutation).await.map_err(|e| e.to_string());
+                let result = conn.mutate(&mutation).await;
                 let _ = tx.send(Msg::Mutated {
                     mutation: Box::new(mutation),
                     result,

@@ -25,7 +25,7 @@ broken.
 | Item | Today | Effort |
 |---|---|---|
 | Request deadlines and reconnect | No timeout on any RPC or on the codec HTTP client. One connection, made at startup, never re-made. The pending-activity poll stops at its first error | M |
-| Errors that say what happened | The gRPC code is captured and then dropped from the message. Errors cross the task boundary as strings, and the note vanishes on the next key. Wanted: the code kept to the UI, a hint per code, `:messages`, raw detail on demand | M |
+| ✓ Errors that say what happened | Done. A failure keeps its gRPC code to the UI, names what to try, and `:messages` keeps every note of the session | M |
 | Large histories | Each arriving page re-merges, regroups and clones every event loaded so far. No benchmark exists. Wanted: incremental paging, and benchmarks at 100k events and with multi-megabyte payloads | M |
 | Paste and line editing | Prompts append and backspace only. Bracketed paste is not handled, so text pasted in Normal mode runs as keys | S |
 | Colours | The palette is compiled in as truecolor RGB and `NO_COLOR` is not read. Wanted: `theme.toml`, `NO_COLOR`, a 16-colour fallback | M |

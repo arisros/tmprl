@@ -9,6 +9,7 @@ mod form;
 mod help;
 mod highlight;
 mod history;
+mod messages;
 mod namespaces;
 mod picker;
 mod query;
@@ -116,6 +117,9 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     }
     if app.show_help {
         help::render(frame, app, &theme);
+    }
+    if app.show_messages {
+        messages::render(frame, app, &theme);
     }
     if let Some(f) = &app.form {
         form::render(frame, f, &theme);
@@ -330,6 +334,37 @@ fn truncate(s: &str, max: usize) -> String {
 }
 
 /// A centred box `w` x `h`, clamped to the frame.
+/// What an empty list says when its load failed: the failure, and what to do about it.
+///
+/// A hint that already names `R` stands alone; otherwise the retry is spelled out, since
+/// on an empty screen nothing else says the key exists.
+fn failed(fault: &tmprl_core::fault::Fault) -> String {
+    match fault.hint() {
+        Some(hint) if hint.contains(" R") => format!("{fault}. {hint}"),
+        Some(hint) => format!("{fault}. {hint} (R to retry)"),
+        None => format!("{fault} (R to retry)"),
+    }
+}
+
+/// Break long text on spaces so it can be read across several lines.
+fn wrap(s: &str, width: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut line = String::new();
+    for word in s.split(' ') {
+        if !line.is_empty() && line.chars().count() + 1 + word.chars().count() > width {
+            out.push(std::mem::take(&mut line));
+        }
+        if !line.is_empty() {
+            line.push(' ');
+        }
+        line.push_str(word);
+    }
+    if !line.is_empty() {
+        out.push(line);
+    }
+    out
+}
+
 fn centered(area: ratatui::layout::Rect, w: u16, h: u16) -> ratatui::layout::Rect {
     let w = w.min(area.width);
     let h = h.min(area.height);
