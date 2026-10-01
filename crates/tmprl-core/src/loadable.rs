@@ -6,13 +6,15 @@
 
 use std::time::Instant;
 
+use crate::fault::Fault;
+
 #[derive(Debug, Clone, Default)]
 pub enum Loadable<T> {
     #[default]
     NotAsked,
     Loading,
     Loaded(T, Instant),
-    Failed(String),
+    Failed(Fault),
 }
 
 impl<T> Loadable<T> {
@@ -36,7 +38,7 @@ impl<T> Loadable<T> {
         matches!(self, Loadable::Loading)
     }
 
-    pub fn error(&self) -> Option<&str> {
+    pub fn error(&self) -> Option<&Fault> {
         match self {
             Loadable::Failed(e) => Some(e),
             _ => None,
@@ -78,7 +80,7 @@ mod tests {
         assert!(l.age().is_some());
 
         let f: Loadable<u8> = Loadable::Failed("boom".into());
-        assert_eq!(f.error(), Some("boom"));
+        assert_eq!(f.error().map(Fault::to_string).as_deref(), Some("boom"));
     }
 
     #[test]

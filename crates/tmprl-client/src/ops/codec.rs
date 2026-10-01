@@ -73,8 +73,8 @@ impl Codec {
             req = req.header("Authorization", auth);
         }
 
-        let resp = req.send().await.map_err(|e| OpError::Codec {
-            message: format!("could not reach the codec server at {url}: {e}"),
+        let resp = req.send().await.map_err(|e| {
+            OpError::codec(format!("could not reach the codec server at {url}: {e}"))
         })?;
 
         let status = resp.status();
@@ -83,33 +83,27 @@ impl Codec {
             // credential, so it is shown rather than just the status code.
             let detail = resp.text().await.unwrap_or_default();
             let detail = detail.trim();
-            return Err(OpError::Codec {
-                message: if detail.is_empty() {
-                    format!("codec server returned {status}")
-                } else {
-                    format!("codec server returned {status}: {detail}")
-                },
-            });
+            return Err(OpError::codec(if detail.is_empty() {
+                format!("codec server returned {status}")
+            } else {
+                format!("codec server returned {status}: {detail}")
+            }));
         }
 
-        let value: serde_json::Value = resp.json().await.map_err(|e| OpError::Codec {
-            message: format!("codec server sent a body that is not JSON: {e}"),
+        let value: serde_json::Value = resp.json().await.map_err(|e| {
+            OpError::codec(format!("codec server sent a body that is not JSON: {e}"))
         })?;
         let out = value
             .get("payloads")
             .and_then(|p| p.as_array())
-            .ok_or_else(|| OpError::Codec {
-                message: "codec server sent no `payloads` array".into(),
-            })?;
+            .ok_or_else(|| OpError::codec("codec server sent no `payloads` array"))?;
 
         if out.len() != payloads.len() {
-            return Err(OpError::Codec {
-                message: format!(
-                    "codec server returned {} payload(s) for {} sent; they cannot be paired up",
-                    out.len(),
-                    payloads.len()
-                ),
-            });
+            return Err(OpError::codec(format!(
+                "codec server returned {} payload(s) for {} sent; they cannot be paired up",
+                out.len(),
+                payloads.len()
+            )));
         }
         out.iter().map(from_wire).collect()
     }
@@ -141,8 +135,8 @@ fn to_wire(p: &Payload) -> serde_json::Value {
 /// default, so a decoded empty value legitimately arrives with no `data` key at all.
 fn from_wire(v: &serde_json::Value) -> Result<Payload, OpError> {
     let decode_b64 = |s: &str| -> Result<Vec<u8>, OpError> {
-        B64.decode(s).map_err(|e| OpError::Codec {
-            message: format!("codec server sent a field that is not base64: {e}"),
+        B64.decode(s).map_err(|e| {
+            OpError::codec(format!("codec server sent a field that is not base64: {e}"))
         })
     };
 

@@ -375,6 +375,7 @@ closed is refused with a message instead of polling for events that can never ar
 | `<leader>mn` | create a schedule, in a form | **live** |
 | `<leader>mu` | send an update and wait for its outcome | **live** |
 | `<leader>xx` | problem list, failed / timed out / terminated | **live** |
+| `<leader>xm` or `:messages` | everything the note line has said | **live** |
 | `<leader>xQ` | open the quickfix list | planned |
 
 The quickfix list, when it exists, is how larger batches will be staged. Select rows, `<C-q>`
@@ -385,6 +386,13 @@ selection.
 
 Signal and update ask for a name and send no input; a payload for either is planned, along
 with the query on `<leader>cq`.
+
+A note on the status line is gone at the next key, which suits "yanked 3 rows" and does not
+suit a failure. `:messages` keeps the session's notes, newest last. A failed request reads as
+the call, the reason in words and the server's own message, `ListWorkflowExecutions failed
+(unavailable): transport error`, and under it the log adds the name gRPC uses for the code,
+since that is what a server log says, and what to try when there is something to try. An
+empty list whose load failed says the same on the spot.
 
 Every binding is a lookup into the command registry, so all of it **is** remappable through
 `~/.config/tmprl/keys.toml`:

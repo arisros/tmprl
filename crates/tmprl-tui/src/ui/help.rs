@@ -71,11 +71,11 @@ pub fn render(frame: &mut Frame, app: &mut App, t: &Theme) {
     // The overlay is taller than most terminals, so it scrolls. The reducer owns the
     // offset; the renderer is the only thing that knows how far it can usefully go.
     let visible = area.height.saturating_sub(2) as usize;
-    app.help_max_scroll = lines.len().saturating_sub(visible);
-    let scroll = app.help_scroll.min(app.help_max_scroll);
-    app.help_scroll = scroll;
+    app.overlay_max_scroll = lines.len().saturating_sub(visible);
+    let scroll = app.overlay_scroll.min(app.overlay_max_scroll);
+    app.overlay_scroll = scroll;
 
-    let title = if app.help_max_scroll == 0 {
+    let title = if app.overlay_max_scroll == 0 {
         " help (Esc to close) ".to_string()
     } else {
         // Say that there is more, and how to get to it. A silently clipped list is how a
@@ -83,7 +83,7 @@ pub fn render(frame: &mut Frame, app: &mut App, t: &Theme) {
         format!(
             " help (j/k to scroll, {}/{}, Esc to close) ",
             scroll + 1,
-            app.help_max_scroll + 1
+            app.overlay_max_scroll + 1
         )
     };
 
