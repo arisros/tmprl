@@ -74,8 +74,7 @@ impl App {
             let result = codec
                 .decode(&namespace, &wanted)
                 .await
-                .map(|out| keys.into_iter().zip(out).collect::<Vec<_>>())
-                .map_err(|e| e.to_string());
+                .map(|out| keys.into_iter().zip(out).collect::<Vec<_>>());
             let _ = tx.send(Msg::Decoded(result));
         });
     }

@@ -135,7 +135,7 @@ impl Conn {
                 skip_archival: false,
             }))
             .await
-            .map_err(|s| OpError::rpc("GetWorkflowExecutionHistory", s))?
+            .map_err(|s| super::rpc("GetWorkflowExecutionHistory", s))?
             .into_inner();
 
         Ok(HistoryPage {

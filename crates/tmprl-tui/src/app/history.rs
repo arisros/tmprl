@@ -121,7 +121,7 @@ impl App {
                     Err(e) => {
                         let _ = tx.send(Msg::History {
                             generation,
-                            result: Err(e.to_string()),
+                            result: Err(e),
                         });
                         return;
                     }

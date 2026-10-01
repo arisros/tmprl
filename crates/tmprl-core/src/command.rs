@@ -25,6 +25,7 @@ pub enum Action {
     // Application
     Quit,
     ToggleHelp,
+    ToggleMessages,
     OpenCommandLine,
     Cancel,
     Refresh,
@@ -159,6 +160,7 @@ impl Registry {
         let commands = commands! {
             "app.quit",           "Application", "Quit"                      => Quit;
             "app.help",           "Application", "Toggle help"               => ToggleHelp;
+            "app.messages",       "Application", "Everything the note line has said" => ToggleMessages;
             "app.command-line",   "Application", "Open the command line"     => OpenCommandLine;
             "app.cancel",         "Application", "Cancel pending input"      => Cancel;
             "app.refresh",        "Application", "Reload from the server"    => Refresh;

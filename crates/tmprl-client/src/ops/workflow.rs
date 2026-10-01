@@ -62,7 +62,7 @@ impl Conn {
                 query: query.to_string(),
             }))
             .await
-            .map_err(|s| OpError::rpc("ListWorkflowExecutions", s))?
+            .map_err(|s| super::rpc("ListWorkflowExecutions", s))?
             .into_inner();
 
         Ok(WorkflowPage {
@@ -155,7 +155,7 @@ impl Conn {
                 query: count_query(query),
             }))
             .await
-            .map_err(|s| OpError::rpc("CountWorkflowExecutions", s))?
+            .map_err(|s| super::rpc("CountWorkflowExecutions", s))?
             .into_inner();
 
         let counts = resp.groups.into_iter().filter_map(|g| {

@@ -275,8 +275,7 @@ impl App {
             let mut result = conn
                 .list_workflows_across(&scope, &exact, PICKER_SEARCH_LIMIT)
                 .await
-                .map(|(rows, _)| rows)
-                .map_err(|e| e.to_string());
+                .map(|(rows, _)| rows);
             // An id nobody has in full is still a prefix worth trying, but only when the
             // exact lookup came back with nothing: a hit there is the answer.
             if let (Ok(rows), Some(prefix)) = (&result, prefix)
@@ -285,8 +284,7 @@ impl App {
                 result = conn
                     .list_workflows_across(&scope, &prefix, PICKER_SEARCH_LIMIT)
                     .await
-                    .map(|(rows, _)| rows)
-                    .map_err(|e| e.to_string());
+                    .map(|(rows, _)| rows);
             }
             let _ = tx.send(Msg::PickerFound { search, result });
         });

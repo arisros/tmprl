@@ -19,10 +19,12 @@
 //! | `windows` | splits and tabs |
 //! | `prompt` | the `:` and `!` prompts |
 //! | `load` | every request to the server |
+//! | `messages` | the note line's history, `:messages` |
 
 mod find;
 mod history;
 mod load;
+mod messages;
 mod mutate;
 mod nav;
 mod payload;
@@ -31,13 +33,14 @@ mod query;
 mod windows;
 mod yank;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 use tmprl_client::{Codec, Conn, NamespaceInfo};
 use tmprl_core::ScheduleRow;
 use tmprl_core::clock::{Clock, TimeFormat};
 use tmprl_core::complete::{self, Completion};
+use tmprl_core::fault::Fault;
 use tmprl_core::filter::{self, SearchAttribute};
 use tmprl_core::form::Form;
 use tmprl_core::history::{NormalizedEvent, group_events, merge_events};
@@ -56,6 +59,7 @@ use tmprl_core::{
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::view::View;
+pub use messages::Logged;
 use tmprl_ui::{Axis, Direction, Rect as UiRect, Tabs, ViewId};
 
 /// Rows fetched per namespace per page. Large enough that scrolling rarely waits, small
@@ -239,43 +243,43 @@ pub enum Msg {
     Tick,
     Redraw,
     Quit,
-    Namespaces(Result<Vec<NamespaceInfo>, String>),
+    Namespaces(Result<Vec<NamespaceInfo>, Fault>),
     /// What the cluster lets you filter on, for the namespace named.
     SearchAttributes {
         namespace: String,
-        result: Result<Vec<SearchAttribute>, String>,
+        result: Result<Vec<SearchAttribute>, Fault>,
     },
     /// A page of the workflow list. `generation` is the query this was issued for; a reply
     /// for a superseded query is dropped rather than pasted over the current one.
     Workflows {
         generation: u64,
         append: bool,
-        result: Result<(Vec<WorkflowRow>, Tokens), String>,
+        result: Result<(Vec<WorkflowRow>, Tokens), Fault>,
     },
     Counts {
         generation: u64,
-        result: Result<StatusCounts, String>,
+        result: Result<StatusCounts, Fault>,
     },
     Schedules {
         generation: u64,
-        result: Result<Vec<ScheduleRow>, String>,
+        result: Result<Vec<ScheduleRow>, Fault>,
     },
     /// Output of an external command a `!` filter ran.
     Piped(Result<String, String>),
     /// A mutation finished, one way or the other.
     Mutated {
         mutation: Box<Mutation>,
-        result: Result<(), String>,
+        result: Result<(), Fault>,
         /// `Some((done, total))` when this is one row of a batch, so the status line can
         /// count up rather than flashing each row's name in turn.
         batch: Option<(usize, usize)>,
     },
     /// Payloads a codec server decoded, paired with the hash of what was sent.
-    Decoded(Result<Vec<(u64, Payload)>, String>),
+    Decoded(Result<Vec<(u64, Payload)>, Fault>),
     /// A page of a workflow's history, already normalised by the client.
     History {
         generation: u64,
-        result: Result<(Vec<NormalizedEvent>, Vec<u8>), String>,
+        result: Result<(Vec<NormalizedEvent>, Vec<u8>), Fault>,
     },
     /// A picker's debounce expired: search the server for this prompt if it is still the
     /// one on screen and the loaded rows still do not match it.
@@ -285,12 +289,12 @@ pub enum Msg {
     /// Workflows fetched for a picker prompt.
     PickerFound {
         search: u64,
-        result: Result<Vec<WorkflowRow>, String>,
+        result: Result<Vec<WorkflowRow>, Fault>,
     },
     /// The open activities of the run on screen, from describe.
     Pending {
         generation: u64,
-        result: Result<Vec<PendingActivity>, String>,
+        result: Result<Vec<PendingActivity>, Fault>,
     },
 }
 
@@ -367,11 +371,13 @@ pub struct App {
 
     pub which_key: Vec<PendingEntry>,
     pub show_help: bool,
-    /// First visible line of the help overlay, and the largest useful value for it. The
-    /// overlay is taller than most terminals now, so it scrolls with the ordinary motions
-    /// rather than silently clipping the last groups.
-    pub help_scroll: usize,
-    pub help_max_scroll: usize,
+    /// `:messages`. Only one of this and the help overlay is open at a time.
+    pub show_messages: bool,
+    /// First visible line of whichever overlay is open, and the largest useful value for
+    /// it. Both are taller than most terminals, so they scroll with the ordinary motions
+    /// rather than silently clipping what is below the fold.
+    pub overlay_scroll: usize,
+    pub overlay_max_scroll: usize,
     /// `Some` while a `:` or `!` prompt is open.
     pub prompt: Option<Prompt>,
     /// `Some` while a destructive action is waiting to be confirmed. Nothing has happened to
@@ -415,6 +421,12 @@ pub struct App {
     pub clock: Clock,
 
     pub note: Option<(String, Note)>,
+    /// Every note this session, newest last, because the note line forgets on the next key.
+    pub messages: VecDeque<Logged>,
+    /// The failure behind the note being set, so the log can keep its code and operation.
+    note_fault: Option<Fault>,
+    /// Cleared by a key that reaches the keymap: the note has been read, let it go.
+    keep_note: bool,
     pub should_quit: bool,
     pub dirty: bool,
 
@@ -485,8 +497,9 @@ impl App {
             attributes_for: None,
             which_key: Vec::new(),
             show_help: false,
-            help_scroll: 0,
-            help_max_scroll: 0,
+            show_messages: false,
+            overlay_scroll: 0,
+            overlay_max_scroll: 0,
             prompt: None,
             confirm: None,
             form: None,
@@ -502,6 +515,9 @@ impl App {
             times: TimeFormat::default(),
             clock: Clock::system(),
             note: None,
+            messages: VecDeque::new(),
+            note_fault: None,
+            keep_note: true,
             should_quit: false,
             dirty: true,
             profile,
@@ -593,6 +609,19 @@ impl App {
 
     pub fn handle(&mut self, msg: Msg) {
         self.dirty = true;
+        // Taken out for the duration, so that a note present afterwards is known to have
+        // been set by this message: that is the one moment it can be logged exactly once.
+        let before = self.note.take();
+        self.keep_note = true;
+        self.apply(msg);
+        if self.note.is_some() {
+            self.log_note();
+        } else if self.keep_note {
+            self.note = before;
+        }
+    }
+
+    fn apply(&mut self, msg: Msg) {
         match msg {
             Msg::Key(chord) => self.on_key(chord),
             Msg::Quit => self.should_quit = true,
@@ -638,7 +667,7 @@ impl App {
                         // The list is now out of date about the thing just changed.
                         self.refresh();
                     }
-                    Err(e) => self.note = Some((e, Note::Error)),
+                    Err(e) => self.fail(e, Note::Error),
                 }
             }
             Msg::Piped(result) => {
@@ -657,9 +686,9 @@ impl App {
                 // why instead of looking exactly like one nothing was ever asked about. The
                 // in-flight set is still emptied, which is what lets a retry happen at all.
                 for key in std::mem::take(&mut self.decoding) {
-                    self.decode_failed.insert(key, e.clone());
+                    self.decode_failed.insert(key, e.to_string());
                 }
-                self.note = Some((e, Note::Error));
+                self.fail(e, Note::Error);
             }
             Msg::SearchAttributes { namespace, result } => {
                 // Checked against the namespace on screen, not against the one the fetch
@@ -685,7 +714,7 @@ impl App {
                 // Failing here would strand the reader on the opening screen with a key that
                 // can do everything they actually came for, so fall back to the namespace
                 // the profile already names.
-                if is_permission_denied(&e) {
+                if e.is_refusal() {
                     self.view.namespaces = Loadable::loaded(vec![NamespaceInfo {
                         name: self.namespace.clone(),
                         state: "Registered".into(),
@@ -701,7 +730,7 @@ impl App {
                         Note::Info,
                     ));
                 } else {
-                    self.note = Some((e.clone(), Note::Error));
+                    self.fail(e.clone(), Note::Error);
                     self.view.namespaces = Loadable::Failed(e);
                 }
             }
@@ -730,7 +759,7 @@ impl App {
                         self.restore_cursor();
                     }
                     Err(e) => {
-                        self.note = Some((e.clone(), Note::Error));
+                        self.fail(e.clone(), Note::Error);
                         // Keep whatever is already on screen when a *further* page fails;
                         // only a failed first page leaves the list with nothing to show.
                         if !append {
@@ -777,7 +806,7 @@ impl App {
                     }
                     Err(e) => {
                         self.scan = None;
-                        self.note = Some((e.clone(), Note::Error));
+                        self.fail(e.clone(), Note::Error);
                         if self.view.history_events.is_empty() {
                             self.view.history = Loadable::Failed(e);
                         }
@@ -791,7 +820,7 @@ impl App {
                 }
                 match result {
                     Ok(rows) => self.picker_takes(rows),
-                    Err(e) => self.note = Some((format!("workflow search: {e}"), Note::Warn)),
+                    Err(e) => self.fail_as(format!("workflow search: {e}"), e, Note::Warn),
                 }
             }
             Msg::Pending { generation, result } => {
@@ -802,7 +831,7 @@ impl App {
                     Ok(pending) => self.view.pending = pending,
                     // The history is still right without this, so a failed describe
                     // warns and keeps whatever was known rather than clearing it.
-                    Err(e) => self.note = Some((format!("pending activities: {e}"), Note::Warn)),
+                    Err(e) => self.fail_as(format!("pending activities: {e}"), e, Note::Warn),
                 }
             }
             Msg::Schedules { generation, result } => {
@@ -813,7 +842,7 @@ impl App {
                 self.view.schedules = match result {
                     Ok(rows) => Loadable::loaded(rows),
                     Err(e) => {
-                        self.note = Some((e.clone(), Note::Error));
+                        self.fail(e.clone(), Note::Error);
                         Loadable::Failed(e)
                     }
                 };
@@ -851,7 +880,7 @@ impl App {
             return;
         }
 
-        self.note = None;
+        self.keep_note = false;
         match self.keymap.resolve(self.mode, &mut self.pending, chord) {
             Resolution::Count(_) => {
                 self.which_key.clear();
@@ -886,7 +915,14 @@ impl App {
             Action::Quit => self.should_quit = true,
             Action::ToggleHelp => {
                 self.show_help = !self.show_help;
-                self.help_scroll = 0;
+                self.show_messages = false;
+                self.overlay_scroll = 0;
+            }
+            Action::ToggleMessages => {
+                self.show_messages = !self.show_messages;
+                self.show_help = false;
+                // Opened at the end: the newest message is the one that was just missed.
+                self.overlay_scroll = usize::MAX;
             }
             Action::OpenCommandLine => {
                 self.prompt = Some(Prompt {
@@ -898,9 +934,10 @@ impl App {
             Action::Cancel => {
                 if self.scan.is_some() {
                     self.stop_scan();
-                } else if self.show_help {
+                } else if self.overlay_open() {
                     self.show_help = false;
-                    self.help_scroll = 0;
+                    self.show_messages = false;
+                    self.overlay_scroll = 0;
                 } else {
                     self.view.anchor = None;
                     self.mode = Mode::Normal;
@@ -917,17 +954,19 @@ impl App {
                 ));
             }
 
-            // While the help overlay is open the motions scroll it. It is the frontmost
-            // thing on screen, so moving a cursor hidden behind it would be surprising.
-            Action::MoveDown if self.show_help => self.scroll_help(n as isize),
-            Action::MoveUp if self.show_help => self.scroll_help(-(n as isize)),
-            Action::MoveTop if self.show_help => self.help_scroll = 0,
-            Action::MoveBottom if self.show_help => self.help_scroll = self.help_max_scroll,
-            Action::HalfPageDown if self.show_help => {
-                self.scroll_help((self.view.page / 2).max(1) as isize)
+            // While an overlay is open the motions scroll it. It is the frontmost thing on
+            // screen, so moving a cursor hidden behind it would be surprising.
+            Action::MoveDown if self.overlay_open() => self.scroll_overlay(n as isize),
+            Action::MoveUp if self.overlay_open() => self.scroll_overlay(-(n as isize)),
+            Action::MoveTop if self.overlay_open() => self.overlay_scroll = 0,
+            Action::MoveBottom if self.overlay_open() => {
+                self.overlay_scroll = self.overlay_max_scroll
             }
-            Action::HalfPageUp if self.show_help => {
-                self.scroll_help(-((self.view.page / 2).max(1) as isize))
+            Action::HalfPageDown if self.overlay_open() => {
+                self.scroll_overlay((self.view.page / 2).max(1) as isize)
+            }
+            Action::HalfPageUp if self.overlay_open() => {
+                self.scroll_overlay(-((self.view.page / 2).max(1) as isize))
             }
 
             Action::MoveDown => self.move_cursor(n as isize),
@@ -1166,19 +1205,6 @@ async fn pipe_through(command: &str, input: Vec<u8>) -> Result<String, String> {
             stderr
         })
     }
-}
-
-/// Whether a failure is the server refusing the operation rather than the call going wrong.
-///
-/// Matched on the message because the error has already been flattened to a `String` by the
-/// time it crosses the task boundary. Both spellings appear: gRPC's status name, and the
-/// sentence Temporal Cloud returns.
-fn is_permission_denied(e: &str) -> bool {
-    let e = e.to_ascii_lowercase();
-    e.contains("permissiondenied")
-        || e.contains("permission denied")
-        || e.contains("does not have permission")
-        || e.contains("request unauthorized")
 }
 
 #[cfg(test)]
