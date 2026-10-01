@@ -12,6 +12,8 @@
 //! * This module folds those into [`Group`]s. It is pure, so the grouping rules, the part
 //!   that is actually easy to get wrong, are tested with hand-built events and no server.
 
+use std::collections::HashMap;
+
 use crate::payload::Payload;
 
 /// What kind of thing an event is about. Drives icons, filtering and the outline.
@@ -304,15 +306,64 @@ impl Group {
 /// a group of their own, so a truncated history renders as a partial group rather than as
 /// nothing at all.
 pub fn group_events(events: &[NormalizedEvent]) -> Vec<Group> {
-    let mut groups: Vec<Group> = Vec::new();
-    // Parallel to `groups`, so a lookup is by key without hashing a small collection.
-    let mut index: Vec<GroupRef> = Vec::new();
-
+    let mut grouping = Grouping::default();
     for ev in events {
-        let at = match index.iter().position(|k| *k == ev.group) {
-            Some(at) => at,
+        grouping.push(ev);
+    }
+    grouping.into_groups()
+}
+
+/// The fold behind [`group_events`], held so that it can go on.
+///
+/// A history arrives a page at a time and a page boundary routinely falls inside a group,
+/// so the next page has to add to a group this one left open, or to one opened many pages
+/// back: a signal joins the workflow's own group from anywhere in the run. Keeping the
+/// groups together with where each key sits is what lets a page cost what the page holds
+/// rather than what the whole history does.
+#[derive(Debug, Clone, Default)]
+pub struct Grouping {
+    groups: Vec<Group>,
+    /// Where each key's group sits in `groups`. A map rather than a scan: a long run has
+    /// tens of thousands of groups, and every event has to find its own.
+    index: HashMap<GroupRef, usize>,
+}
+
+impl Grouping {
+    /// Pick up from groups that were folded elsewhere.
+    pub fn from_groups(groups: Vec<Group>) -> Self {
+        let mut index = HashMap::with_capacity(groups.len());
+        for (at, g) in groups.iter().enumerate() {
+            // The first group with a key is the one a fold would have kept adding to.
+            index.entry(g.key).or_insert(at);
+        }
+        Self { groups, index }
+    }
+
+    pub fn groups(&self) -> &[Group] {
+        &self.groups
+    }
+
+    pub fn into_groups(self) -> Vec<Group> {
+        self.groups
+    }
+
+    pub fn len(&self) -> usize {
+        self.groups.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.groups.is_empty()
+    }
+
+    /// Fold one more event in, and say which group it joined.
+    ///
+    /// Events must arrive in history order and once each. A page that replays events is
+    /// the caller's to filter, see [`merge_events`].
+    pub fn push(&mut self, ev: &NormalizedEvent) -> usize {
+        let at = match self.index.get(&ev.group) {
+            Some(at) => *at,
             None => {
-                groups.push(Group {
+                self.groups.push(Group {
                     key: ev.group,
                     category: ev.category,
                     subject: ev.subject.clone(),
@@ -323,11 +374,11 @@ pub fn group_events(events: &[NormalizedEvent]) -> Vec<Group> {
                     attempts: 1,
                     failure: None,
                 });
-                index.push(ev.group);
-                groups.len() - 1
+                self.index.insert(ev.group, self.groups.len() - 1);
+                self.groups.len() - 1
             }
         };
-        let g = &mut groups[at];
+        let g = &mut self.groups[at];
 
         g.events.push(ev.id);
         if let Some(n) = ev.attempt {
@@ -345,9 +396,8 @@ pub fn group_events(events: &[NormalizedEvent]) -> Vec<Group> {
             g.ended_at = ev.time;
             g.outcome = ev.outcome;
         }
+        at
     }
-
-    groups
 }
 
 /// Append only the events we do not already hold.
@@ -391,8 +441,125 @@ pub fn failures(groups: &[Group]) -> Vec<&Group> {
     groups.iter().filter(|g| g.outcome.is_failure()).collect()
 }
 
+/// Arbitrary histories, and the grouping they must come out as, for the tests that pin a
+/// history read in pages against the same history read whole.
+#[cfg(test)]
+pub(crate) mod fixtures {
+    use super::*;
+
+    /// xorshift64: the tests need arbitrary input that is the same on every run, not
+    /// randomness.
+    pub(crate) struct Rng(pub u64);
+
+    impl Rng {
+        pub(crate) fn below(&mut self, n: usize) -> usize {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            (self.0 % n as u64) as usize
+        }
+    }
+
+    /// A history that exercises every grouping rule at once: groups left open, closed late,
+    /// closed twice, joined from far away, never opened at all, and named late.
+    pub(crate) fn arbitrary_history(rng: &mut Rng, len: usize) -> Vec<NormalizedEvent> {
+        const CATEGORIES: [Category; 4] = [
+            Category::Activity,
+            Category::WorkflowTask,
+            Category::Timer,
+            Category::ChildWorkflow,
+        ];
+        let mut out: Vec<NormalizedEvent> = Vec::with_capacity(len);
+        let mut opened: Vec<i64> = Vec::new();
+        let mut id = 0i64;
+        for _ in 0..len {
+            // Ids only ever ascend, and a page that starts mid-run leaves gaps.
+            id += 1 + (rng.below(8) == 0) as i64 * rng.below(5) as i64;
+            let category = CATEGORIES[rng.below(CATEGORIES.len())];
+            let (group, role) = match rng.below(10) {
+                0 => (GroupRef::Workflow, Role::Continues),
+                // A back-reference to an event this history never held.
+                1 => (GroupRef::Opened(id - 1_000_000), Role::Closes),
+                2..=4 => {
+                    opened.push(id);
+                    (GroupRef::Opened(id), Role::Opens)
+                }
+                // Any group opened so far, however long ago and whether or not it closed.
+                _ if !opened.is_empty() => {
+                    let key = opened[rng.below(opened.len())];
+                    let role = match rng.below(3) {
+                        0 => Role::Opens,
+                        1 => Role::Continues,
+                        _ => Role::Closes,
+                    };
+                    (GroupRef::Opened(key), role)
+                }
+                _ => (GroupRef::Workflow, Role::Opens),
+            };
+            let mut ev = NormalizedEvent::new(id, "E", category, group, role)
+                .with_time((rng.below(6) > 0).then_some(id * 10));
+            if rng.below(3) == 0 {
+                ev.subject = format!("subject-{id}");
+            }
+            if rng.below(4) == 0 {
+                ev.attempt = Some(rng.below(5) as i32);
+            }
+            if rng.below(6) == 0 {
+                ev.failure = Some(Failure::new(format!("failure-{id}")));
+            }
+            if role == Role::Closes {
+                ev.outcome = [Outcome::Completed, Outcome::Failed, Outcome::TimedOut][rng.below(3)];
+            }
+            out.push(ev);
+        }
+        out
+    }
+
+    /// The fold as it was first written, a scan for the group on every event. Slow, and
+    /// plainly right, which is what the indexed one is checked against.
+    pub(crate) fn groups_by_scan(events: &[NormalizedEvent]) -> Vec<Group> {
+        let mut groups: Vec<Group> = Vec::new();
+        for ev in events {
+            let at = match groups.iter().position(|g| g.key == ev.group) {
+                Some(at) => at,
+                None => {
+                    groups.push(Group {
+                        key: ev.group,
+                        category: ev.category,
+                        subject: ev.subject.clone(),
+                        events: Vec::new(),
+                        started_at: ev.time,
+                        ended_at: None,
+                        outcome: Outcome::Pending,
+                        attempts: 1,
+                        failure: None,
+                    });
+                    groups.len() - 1
+                }
+            };
+            let g = &mut groups[at];
+            g.events.push(ev.id);
+            if let Some(n) = ev.attempt {
+                g.attempts = g.attempts.max(n);
+            }
+            if ev.role == Role::Opens && !ev.subject.is_empty() && g.subject.is_empty() {
+                g.subject = ev.subject.clone();
+            }
+            if ev.failure.is_some() {
+                g.failure = ev.failure.clone();
+            }
+            if ev.role == Role::Closes {
+                g.ended_at = ev.time;
+                g.outcome = ev.outcome;
+            }
+        }
+        groups
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::fixtures::{Rng, arbitrary_history, groups_by_scan};
     use super::*;
 
     #[test]
@@ -786,6 +953,76 @@ mod tests {
         assert_eq!(merge_events(&mut held, incoming), 2);
         let ids: Vec<i64> = held.iter().map(|e| e.id).collect();
         assert_eq!(ids, [5, 6, 7, 8, 9]);
+    }
+
+    #[test]
+    fn grouping_by_index_agrees_with_grouping_by_scan() {
+        let mut rng = Rng(0x5eed_1234_abcd_ef01);
+        for round in 0..200 {
+            let len = rng.below(120);
+            let events = arbitrary_history(&mut rng, len);
+            assert_eq!(
+                group_events(&events),
+                groups_by_scan(&events),
+                "round {round}, {len} events"
+            );
+        }
+    }
+
+    #[test]
+    fn a_fold_resumed_at_any_point_ends_up_the_same() {
+        // The property paging rests on: wherever the pages happen to be cut, the groups are
+        // the ones the whole history folds to.
+        let mut rng = Rng(0x0dd_ba11_f00d_cafe);
+        for round in 0..200 {
+            let len = 1 + rng.below(150);
+            let events = arbitrary_history(&mut rng, len);
+
+            let mut grouping = Grouping::default();
+            let mut rest = events.as_slice();
+            while !rest.is_empty() {
+                let (page, later) = rest.split_at(1 + rng.below(rest.len()));
+                // Each page resumes from groups handed over, not from a fold kept alive.
+                grouping = Grouping::from_groups(grouping.into_groups());
+                for ev in page {
+                    grouping.push(ev);
+                }
+                rest = later;
+            }
+            assert_eq!(
+                grouping.groups(),
+                groups_by_scan(&events),
+                "round {round}, {len} events"
+            );
+        }
+    }
+
+    #[test]
+    fn a_later_page_closes_a_group_an_earlier_one_opened() {
+        let events = retried_activity();
+        let mut grouping = Grouping::default();
+        assert_eq!(grouping.push(&events[0]), 0);
+        assert!(grouping.groups()[0].is_open());
+
+        // Something else opens in between, as it would over several pages.
+        let timer = ev(8, "TimerStarted", GroupRef::Opened(8), Role::Opens, 3_000);
+        assert_eq!(grouping.push(&timer), 1);
+
+        assert_eq!(grouping.push(&events[1]), 0, "joins the group it names");
+        assert_eq!(grouping.push(&events[2]), 0);
+        assert_eq!(grouping.len(), 2);
+        assert_eq!(grouping.groups()[0], group_events(&events)[0]);
+    }
+
+    #[test]
+    fn resuming_from_groups_that_share_a_key_adds_to_the_first() {
+        // Hand-built groups can repeat a key. A fold only ever adds to the first group it
+        // made for one, so a resumed fold has to as well.
+        let twice = group_events(&retried_activity()[..1]);
+        let mut grouping = Grouping::from_groups([twice.clone(), twice].concat());
+        assert_eq!(grouping.push(&retried_activity()[1]), 0);
+        assert_eq!(grouping.groups()[0].events, [5, 6]);
+        assert_eq!(grouping.groups()[1].events, [5]);
     }
 
     #[test]

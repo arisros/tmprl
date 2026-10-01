@@ -17,19 +17,20 @@ use std::hint::black_box;
 use std::time::{Duration, Instant};
 
 use tmprl_core::history::{
-    Category, Failure, GroupRef, NormalizedEvent, Outcome, Role, group_events, merge_events,
+    Category, Failure, GroupRef, NormalizedEvent, Outcome, Role, group_events,
 };
 use tmprl_core::outline::{Outline, Row};
-use tmprl_core::payload::{FlatCache, Payload, Rendered};
+use tmprl_core::payload::{FlatCache, Payload, RenderCache};
 use tmprl_core::search::{self, Search};
 
 /// `HISTORY_PAGE_SIZE` in the reducer.
 const PAGE: usize = 500;
 
-/// The largest history the baseline loads page by page unless `TMPRL_BENCH_FULL` is set.
-/// Re-grouping everything on every page is cubic in the length over a whole load, and half a
-/// million events is hours of it.
-const LOAD_LIMIT: usize = 100_000;
+/// Pages appended in a row when timing one.
+const PAGES: usize = 20;
+
+/// Lines the payload pane has room for on a tall terminal.
+const PANE: usize = 50;
 
 fn main() {
     // `cargo test --all-targets` runs a harness-less bench as a test, without this flag.
@@ -48,23 +49,29 @@ fn main() {
         .split(',')
         .filter_map(|s| s.trim().parse().ok())
         .collect();
-    let full = std::env::var_os("TMPRL_BENCH_FULL").is_some();
 
     let mut table = Table::new(sizes.iter().map(|n| format!("{n} events")).collect());
     for (col, &n) in sizes.iter().enumerate() {
         eprintln!("building a history of {n} events");
-        let events = history(n + PAGE);
+        let events = history(n + PAGES * PAGE);
 
         if wanted("page") {
-            table.set("append one 500 event page", col, append_page(&events, n));
+            let (median, slowest) = append_page(&events, n, false);
+            table.set("append one 500 event page", col, median);
+            table.set("the slowest of 20 such pages", col, slowest);
+            let (median, _) = append_page(&events, n, true);
+            table.set(
+                "append one 500 event page, oldest group unfolded",
+                col,
+                median,
+            );
         }
         if wanted("load") {
-            let cell = if n > LOAD_LIMIT && !full {
-                "not run".to_string()
-            } else {
-                load_whole(&events[..n])
-            };
-            table.set("load the whole history, 500 a page", col, cell);
+            table.set(
+                "load the whole history, 500 a page",
+                col,
+                load_whole(&events[..n]),
+            );
         }
 
         let needs_outline = ["row", "slice", "failure", "search"]
@@ -112,63 +119,70 @@ fn main() {
         );
         for (col, &bytes) in sizes.iter().enumerate() {
             let p = big_payload(bytes);
-            let (frame, lines) = payload_frame(&p);
-            table.set("one frame of the K pane", col, frame);
+            let (first, frame, seek, lines) = payload_frames(&p);
+            table.set("the first frame of the K pane", col, first);
+            table.set("each frame after it", col, frame);
+            table.set("the frame a search lands on", col, seek);
             table.set("lines in the pane", col, lines.to_string());
         }
         table.print();
     }
 }
 
-/// What the `Msg::History` arm of the reducer keeps and does when a page lands.
-struct Pane {
-    events: Vec<NormalizedEvent>,
-    outline: Option<Outline>,
-}
-
-impl Pane {
-    fn page(&mut self, page: Vec<NormalizedEvent>) {
-        merge_events(&mut self.events, page);
-        let groups = group_events(&self.events);
-        let events = self.events.clone();
-        match &mut self.outline {
-            Some(outline) => outline.replace(events, groups),
-            None => self.outline = Some(Outline::new(events, groups)),
+/// What the `Msg::History` arm of the reducer does when a page lands.
+fn page_lands(outline: &mut Option<Outline>, page: Vec<NormalizedEvent>) {
+    match outline {
+        Some(outline) => {
+            outline.append(page);
+        }
+        None => {
+            let groups = group_events(&page);
+            *outline = Some(Outline::new(page, groups));
         }
     }
 }
 
 /// One page landing on a pane that already holds `n` events.
-fn append_page(events: &[NormalizedEvent], n: usize) -> String {
+///
+/// `unfolded` opens the workflow's own group first, the oldest there is. The page carries
+/// signals, which join that group, so every row below it moves: the one case where a page
+/// costs more than what it holds.
+///
+/// Several pages in a row, reported as the median and the slowest. The slowest is the page
+/// on which the vector of events outgrew its allocation and was moved: paid once per
+/// doubling, so it does not show in a whole load, but it is the longest any one page takes.
+fn append_page(events: &[NormalizedEvent], n: usize, unfolded: bool) -> (String, String) {
     let held = events[..n].to_vec();
     let groups = group_events(&held);
-    let mut pane = Pane {
-        outline: Some(Outline::new(held.clone(), groups)),
-        events: held,
-    };
-    sample(|| {
-        let page = events[n..n + PAGE].to_vec();
-        let t = Instant::now();
-        pane.page(page);
-        let took = t.elapsed();
-        pane.events.truncate(n);
-        took
-    })
+    let mut outline = Outline::new(held, groups);
+    if unfolded {
+        outline.toggle(0);
+    }
+    let mut outline = Some(outline);
+    let mut runs: Vec<Duration> = events[n..]
+        .chunks(PAGE)
+        .map(|page| {
+            let page = page.to_vec();
+            let t = Instant::now();
+            page_lands(&mut outline, page);
+            t.elapsed()
+        })
+        .collect();
+    black_box(&outline);
+    runs.sort();
+    (fmt(runs[runs.len() / 2]), fmt(runs[runs.len() - 1]))
 }
 
 /// Every page of a history, first to last, the way scrolling to the end reads it.
 fn load_whole(events: &[NormalizedEvent]) -> String {
     sample(|| {
         let pages: Vec<Vec<NormalizedEvent>> = events.chunks(PAGE).map(<[_]>::to_vec).collect();
-        let mut pane = Pane {
-            events: Vec::new(),
-            outline: None,
-        };
+        let mut outline = None;
         let t = Instant::now();
         for page in pages {
-            pane.page(page);
+            page_lands(&mut outline, page);
         }
-        black_box(&pane.outline);
+        black_box(&outline);
         t.elapsed()
     })
 }
@@ -318,23 +332,52 @@ fn category_label(c: Category) -> &'static str {
     }
 }
 
-/// What the payload pane does with one payload on every frame it is open: render it, then
-/// build an indented line for each line of the result.
-fn payload_frame(p: &Payload) -> (String, usize) {
-    let mut count = 0;
-    let frame = sample(|| {
-        let t = Instant::now();
-        let mut lines: Vec<String> = Vec::new();
-        if let Rendered::Text(text) = p.render() {
-            for l in text.lines() {
-                lines.push(format!("    {l}"));
-            }
+/// What the payload pane does with one payload: on the frame it first draws it, on every
+/// frame after that, and on the frame after a `/` landed, when it looks through every line
+/// for the match to scroll to. The window is cut from near the end of the payload.
+fn payload_frames(p: &Payload) -> (String, String, String, usize) {
+    let window = |cache: &mut RenderCache| {
+        let mut drawn: Vec<String> = Vec::with_capacity(PANE);
+        if let Some(lines) = cache.text(p) {
+            let first = lines.len().saturating_sub(PANE * 2);
+            drawn.extend(
+                (first..first + PANE).filter_map(|i| Some(format!("    {}", lines.get(i)?))),
+            );
         }
-        count = lines.len();
-        black_box(&lines);
+        cache.sweep();
+        drawn
+    };
+
+    let first = sample(|| {
+        let mut cache = RenderCache::default();
+        let t = Instant::now();
+        black_box(window(&mut cache));
         t.elapsed()
     });
-    (frame, count)
+
+    let mut cache = RenderCache::default();
+    let frame = sample(|| {
+        let t = Instant::now();
+        black_box(window(&mut cache));
+        t.elapsed()
+    });
+
+    let pattern = Search::new("no-such-value");
+    let seek = sample(|| {
+        let t = Instant::now();
+        if let Some(lines) = cache.text(p) {
+            black_box(
+                lines
+                    .iter()
+                    .position(|l| pattern.matches(&format!("    {l}"))),
+            );
+        }
+        black_box(window(&mut cache));
+        t.elapsed()
+    });
+
+    let count = cache.text(p).map_or(0, |lines| lines.len());
+    (first, frame, seek, count)
 }
 
 /// A JSON document of about `bytes` bytes: an array of orders, the kind of value a batch

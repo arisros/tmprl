@@ -314,3 +314,71 @@ fn a_search_that_lands_scrolls_the_pane_to_the_match_once() {
         "later draws leave the scroll alone"
     );
 }
+
+/// The payload fixture with the ChargeCard input swapped for an array of `n` numbers, which
+/// pretty-prints to one line each, and the pane open on it.
+fn app_with_tall_payload(n: usize) -> App {
+    use tmprl_core::payload::Payload;
+    let mut app = app_with_payloads();
+    let body: Vec<String> = (0..n).map(|i| format!("{}", 1_000_000 + i)).collect();
+    if let Some(o) = app.view.history.value_mut() {
+        let mut events = o.events().to_vec();
+        events[1].payloads = vec![(
+            "input".into(),
+            Payload::new("json/plain", format!("[{}]", body.join(",")).into_bytes()),
+        )];
+        let groups = tmprl_core::history::group_events(&events);
+        o.replace(events, groups);
+    }
+    app.run("motion.down", None);
+    app.run("history.detail", None);
+    app
+}
+
+#[test]
+fn a_payload_is_drawn_from_the_line_it_is_scrolled_to() {
+    // 70,000 lines is past what a 16-bit scroll offset can address, which is how the pane
+    // used to be scrolled.
+    let mut app = app_with_tall_payload(70_000);
+    let out = draw(&mut app, 110, 20);
+    assert!(out.contains("1000000"), "starts at the top:\n{out}");
+
+    app.view.detail_scroll = 69_000;
+    let out = draw(&mut app, 110, 20);
+    assert_eq!(app.view.detail_scroll, 69_000, "within reach");
+    // Title, label and the opening bracket are three lines above the first number.
+    assert!(out.contains("1068997"), "the line scrolled to:\n{out}");
+    assert!(
+        !out.contains("1003461"),
+        "not the line 65,536 above it:\n{out}"
+    );
+    assert!(out.contains("69001/"), "and the title says where:\n{out}");
+}
+
+#[test]
+fn a_search_finds_its_line_deep_in_a_payload() {
+    let mut app = app_with_tall_payload(5_000);
+    app.search = tmprl_core::search::Search::new("1004321");
+    app.view.detail_seek = true;
+    let out = draw(&mut app, 110, 20);
+    // The number's own line, less the one line of context kept above a match.
+    assert_eq!(app.view.detail_scroll, 4321 + 3 - 1);
+    assert!(out.contains("1004321"), "{out}");
+}
+
+#[test]
+fn a_payload_is_rendered_once_and_dropped_when_the_cursor_leaves_it() {
+    let mut app = app_with_tall_payload(200);
+    draw(&mut app, 110, 20);
+    assert_eq!(app.view.rendered_payloads(), 2, "the input and the result");
+    draw(&mut app, 110, 20);
+    assert_eq!(app.view.rendered_payloads(), 2, "kept across frames");
+
+    app.run("motion.top", None);
+    draw(&mut app, 110, 20);
+    assert_eq!(
+        app.view.rendered_payloads(),
+        0,
+        "the workflow row carries none"
+    );
+}

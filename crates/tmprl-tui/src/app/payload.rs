@@ -89,26 +89,16 @@ impl App {
         if self.decoded.is_empty() {
             return;
         }
-        let mut changed = false;
-        for event in &mut self.view.history_events {
-            for (_, p) in &mut event.payloads {
-                if !p.needs_codec() {
-                    continue;
-                }
-                if let Some(plain) = self.decoded.get(&Self::payload_key(p)) {
-                    *p = plain.clone();
-                    changed = true;
-                }
-            }
-        }
-        if !changed {
+        let Some(outline) = self.view.history.value_mut() else {
             return;
-        }
-        let groups = group_events(&self.view.history_events);
-        let events = self.view.history_events.clone();
-        match self.view.history.value_mut() {
-            Some(outline) => outline.replace(events, groups),
-            None => self.view.history = Loadable::loaded(Outline::new(events, groups)),
+        };
+        for p in outline.payloads_mut() {
+            if !p.needs_codec() {
+                continue;
+            }
+            if let Some(plain) = self.decoded.get(&Self::payload_key(p)) {
+                *p = plain.clone();
+            }
         }
     }
 
@@ -131,7 +121,7 @@ impl App {
                 };
                 let mut out = Vec::new();
                 for id in [g.events.first(), g.events.last()].into_iter().flatten() {
-                    if let Some(e) = outline.events().iter().find(|e| e.id == *id) {
+                    if let Some(e) = outline.event_by_id(*id) {
                         out.extend(e.payloads.iter().cloned());
                     }
                 }

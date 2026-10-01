@@ -132,8 +132,8 @@ impl App {
 
     /// Fetch a page of the focused workflow's history.
     ///
-    /// Called for the first page and for each continuation; the accumulated events are
-    /// re-grouped whenever one lands, because a page boundary routinely falls inside a
+    /// Called for the first page and for each continuation; each one is folded into the
+    /// groups already held when it lands, because a page boundary routinely falls inside a
     /// group.
     pub fn load_history(&mut self) {
         self.load_history_page(HISTORY_PAGE_SIZE);

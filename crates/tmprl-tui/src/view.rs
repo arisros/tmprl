@@ -11,11 +11,12 @@
 //! show.
 
 use std::cell::RefCell;
+use std::rc::Rc;
 
 use tmprl_client::NamespaceInfo;
 use tmprl_core::history::NormalizedEvent;
 use tmprl_core::outline::{Outline, Row};
-use tmprl_core::payload::FlatCache;
+use tmprl_core::payload::{FlatCache, Lines, Payload, RenderCache};
 use tmprl_core::pending::PendingActivity;
 use tmprl_core::search::Search;
 use tmprl_core::{Loadable, ScheduleRow, StatusCounts, WorkflowList, WorkflowRow};
@@ -79,8 +80,9 @@ pub struct View {
     /// Per-pane, and that matters: two panes fetching at once must not invalidate each
     /// other's replies.
     pub generation: u64,
-    /// Every history event loaded so far, for re-grouping when a page arrives.
-    pub history_events: Vec<NormalizedEvent>,
+    /// How many events of the history being read have arrived. The events themselves are
+    /// held once, by the outline.
+    pub history_events: EventCount,
     /// Continuation token for the history being read. Empty means fully loaded.
     pub history_token: Vec<u8>,
     /// The last *non-empty* token seen. Follow resumes from here: an empty token restarts
@@ -102,6 +104,36 @@ pub struct View {
     /// Payloads flattened for `/`. A `RefCell` because labels are built from `&self`, and
     /// per pane because what it holds is this pane's history.
     flat: RefCell<FlatCache>,
+    /// The payloads the pane under the list drew last frame, rendered. A `RefCell` because
+    /// drawing has `&self`.
+    rendered: RefCell<RenderCache>,
+}
+
+/// How far the read of a history has got.
+///
+/// A count and not the events: those live in the [`Outline`], once. It is kept apart from
+/// the outline because `R` starts the read again while the outline it will replace stays
+/// on screen, so "nothing read yet" and "nothing to show" are different questions.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct EventCount(usize);
+
+impl EventCount {
+    pub fn len(&self) -> usize {
+        self.0
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0 == 0
+    }
+
+    /// Start over: the next page to land is a first page.
+    pub fn clear(&mut self) {
+        self.0 = 0;
+    }
+
+    pub fn set(&mut self, loaded: usize) {
+        self.0 = loaded;
+    }
 }
 
 impl View {
@@ -131,7 +163,7 @@ impl View {
             namespace_cursor: 0,
             workflow_cursor: 0,
             generation: 0,
-            history_events: Vec::new(),
+            history_events: EventCount::default(),
             history_token: Vec::new(),
             history_resume: Vec::new(),
             follow_task: None,
@@ -140,6 +172,7 @@ impl View {
             loading_more: false,
             detail_seek: false,
             flat: RefCell::default(),
+            rendered: RefCell::default(),
         }
     }
 
@@ -341,11 +374,30 @@ impl View {
 
     /// Payloads in the loaded history still waiting on the codec, which `/` cannot see.
     pub fn undecoded_payloads(&self) -> usize {
-        self.history_events
+        self.history
+            .value()
+            .map(Outline::events)
+            .unwrap_or(&[])
             .iter()
             .flat_map(|e| &e.payloads)
             .filter(|(_, p)| p.needs_codec())
             .count()
+    }
+
+    /// The text a payload renders to, as lines, rendered once and kept while it is drawn.
+    /// `None` for a payload that does not render as text.
+    pub fn payload_text(&self, p: &Payload) -> Option<Rc<Lines>> {
+        self.rendered.borrow_mut().text(p)
+    }
+
+    /// The payload pane has drawn: keep what it asked for and drop the rest.
+    pub fn payloads_drawn(&self) {
+        self.rendered.borrow_mut().sweep();
+    }
+
+    #[cfg(test)]
+    pub fn rendered_payloads(&self) -> usize {
+        self.rendered.borrow().len()
     }
 
     /// How many rows this pane's screen has.

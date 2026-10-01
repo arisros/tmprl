@@ -47,7 +47,7 @@ use tmprl_core::complete::{self, Completion};
 use tmprl_core::fault::Fault;
 use tmprl_core::filter::{self, SearchAttribute};
 use tmprl_core::form::Form;
-use tmprl_core::history::{NormalizedEvent, group_events, merge_events};
+use tmprl_core::history::{NormalizedEvent, group_events};
 use tmprl_core::jumplist::Jumplist;
 use tmprl_core::mutation::{Confirm, Mutation};
 use tmprl_core::outline::{Outline, Row};
@@ -822,20 +822,27 @@ impl App {
                                 Some(("workflow closed, follow stopped".into(), Note::Info));
                         }
                         self.view.history_token = token;
-                        // Merged, not appended: a resumed follow replays the page its token
-                        // sat in, and listing those events twice would inflate every group.
-                        merge_events(&mut self.view.history_events, events);
-                        // Re-group the whole accumulated history rather than patching: a
-                        // page boundary can land in the middle of a group, so the last
-                        // group of a page is routinely completed by the next one.
-                        let groups = group_events(&self.view.history_events);
-                        let events = self.view.history_events.clone();
+                        let first_page = self.view.history_events.is_empty();
                         match self.view.history.value_mut() {
-                            Some(outline) => outline.replace(events, groups),
+                            // The outline folds the page into the groups it holds: a page
+                            // boundary can land in the middle of a group, and a resumed
+                            // follow replays the page its token sat in, which it drops.
+                            Some(outline) if !first_page => {
+                                outline.append(events);
+                            }
+                            // The first page of a re-read. What is on screen is the
+                            // previous read, to be replaced, not added to.
+                            Some(outline) => {
+                                let groups = group_events(&events);
+                                outline.replace(events, groups);
+                            }
                             None => {
+                                let groups = group_events(&events);
                                 self.view.history = Loadable::loaded(Outline::new(events, groups))
                             }
                         }
+                        let loaded = self.view.history.value().map_or(0, |o| o.events().len());
+                        self.view.history_events.set(loaded);
                         self.clamp_cursor();
                         self.continue_scan(generation);
                     }

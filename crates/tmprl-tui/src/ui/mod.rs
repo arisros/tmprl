@@ -83,6 +83,9 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             pane.focused,
             panes.len() > 1,
         );
+        // Whether or not this pane drew any: a payload pane that has closed, or moved to
+        // another row, must not keep megabytes of rendered text behind it.
+        view.payloads_drawn();
         if pane.focused {
             focused_detail_max = max;
         }

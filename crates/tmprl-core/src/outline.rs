@@ -9,8 +9,13 @@
 //! The trick is one cumulative-offset table, rebuilt only when the shape changes, a group
 //! expanded, plumbing toggled, and never per frame. Looking a row up is then a binary
 //! search over that table.
+//!
+//! The outline also holds the history itself, the one copy of it, and the fold that groups
+//! it. A page of events is appended to both, so reading a long history costs what each page
+//! holds, not what has been read so far.
 
-use crate::history::{Category, Group, NormalizedEvent, Outcome};
+use crate::history::{Category, Group, Grouping, NormalizedEvent, Outcome, merge_events};
+use crate::payload::Payload;
 
 /// One line on screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,8 +37,9 @@ pub enum Row {
 /// A grouped history, with expansion and filtering, addressable by row.
 pub struct Outline {
     events: Vec<NormalizedEvent>,
-    groups: Vec<Group>,
-    /// Parallel to `groups`.
+    /// The groups, with the index that lets the next page add to them.
+    grouping: Grouping,
+    /// Parallel to the groups.
     expanded: Vec<bool>,
     /// Indices into `groups`, in display order, after filtering.
     visible: Vec<usize>,
@@ -50,7 +56,7 @@ impl Outline {
         let expanded = vec![false; groups.len()];
         let mut o = Self {
             events,
-            groups,
+            grouping: Grouping::from_groups(groups),
             expanded,
             visible: Vec::new(),
             offsets: Vec::new(),
@@ -60,27 +66,61 @@ impl Outline {
         o
     }
 
-    /// Swap in a re-grouped history after another page arrived, keeping what the reader
-    /// has set up.
+    /// Swap in a history read again from the start, keeping what the reader has set up.
     ///
-    /// History is append-only, so re-grouping the accumulated events yields the same groups
-    /// in the same order plus new ones on the end, which is why expansion can be carried
-    /// over by index. Rebuilding the outline from scratch on every page would silently fold
-    /// shut whatever the reader had just opened.
+    /// History is append-only, so re-reading a run yields the same groups in the same order
+    /// plus new ones on the end, which is why expansion can be carried over by index.
+    /// Rebuilding the outline from scratch on a refresh would silently fold shut whatever
+    /// the reader had just opened.
     pub fn replace(&mut self, events: Vec<NormalizedEvent>, groups: Vec<Group>) {
         self.expanded.resize(groups.len(), false);
         self.expanded.truncate(groups.len());
         self.events = events;
-        self.groups = groups;
+        self.grouping = Grouping::from_groups(groups);
         self.reindex();
     }
 
+    /// Take the next page of the history being read. Returns how many events were new.
+    ///
+    /// The cost is the page's, not the history's. Events already held are dropped, see
+    /// [`merge_events`], the rest are folded into the groups as they stand, and the offset
+    /// table is rebuilt only from the first row that moved. That is normally the end of
+    /// it: a group folded shut is one row however many events it holds, so a page adding
+    /// to old groups moves nothing unless the reader has one of them open.
+    pub fn append(&mut self, page: Vec<NormalizedEvent>) -> usize {
+        let held = self.events.len();
+        let known = self.grouping.len();
+        let added = merge_events(&mut self.events, page);
+
+        let mut moved = known;
+        for ev in &self.events[held..] {
+            let group = self.grouping.push(ev);
+            if group < known && self.expanded[group] {
+                moved = moved.min(group);
+            }
+        }
+        self.expanded.resize(self.grouping.len(), false);
+        self.reindex_from(moved);
+        added
+    }
+
     pub fn groups(&self) -> &[Group] {
-        &self.groups
+        self.grouping.groups()
     }
 
     pub fn events(&self) -> &[NormalizedEvent] {
         &self.events
+    }
+
+    /// Every payload in the history, to be swapped for what a codec made of it.
+    ///
+    /// Payloads and nothing else: a group is folded from everything about an event except
+    /// what it carries, so this is the one part of the history that can change under the
+    /// outline without the groups going stale.
+    pub fn payloads_mut(&mut self) -> impl Iterator<Item = &mut Payload> {
+        self.events
+            .iter_mut()
+            .flat_map(|e| e.payloads.iter_mut().map(|(_, p)| p))
     }
 
     pub fn show_plumbing(&self) -> bool {
@@ -114,7 +154,7 @@ impl Outline {
                 expanded: self.expanded[group],
             }
         } else {
-            let event_id = self.groups[group].events[local - 1];
+            let event_id = self.groups()[group].events[local - 1];
             Row::Event {
                 group,
                 event: self.event_index(event_id).unwrap_or(0),
@@ -130,7 +170,7 @@ impl Outline {
     }
 
     pub fn group(&self, index: usize) -> Option<&Group> {
-        self.groups.get(index)
+        self.groups().get(index)
     }
 
     pub fn event(&self, index: usize) -> Option<&NormalizedEvent> {
@@ -146,7 +186,7 @@ impl Outline {
     /// caller can keep the cursor on it.
     pub fn toggle(&mut self, group: usize) -> Option<usize> {
         *self.expanded.get_mut(group)? = !self.expanded[group];
-        self.reindex();
+        self.reindex_from(group);
         self.row_of_group(group)
     }
 
@@ -172,7 +212,8 @@ impl Outline {
 
     /// Which row a group's own line is on, if it is visible.
     pub fn row_of_group(&self, group: usize) -> Option<usize> {
-        let slot = self.visible.iter().position(|g| *g == group)?;
+        // `visible` is in group order, so this is a binary search too.
+        let slot = self.visible.binary_search(&group).ok()?;
         Some(self.offsets[slot])
     }
 
@@ -183,7 +224,7 @@ impl Outline {
         self.visible
             .iter()
             .copied()
-            .filter(|g| self.groups[*g].outcome.is_failure())
+            .filter(|g| self.groups()[*g].outcome.is_failure())
             .find(|g| self.row_of_group(*g).is_some_and(|r| r > from))
             .and_then(|g| self.row_of_group(g))
     }
@@ -193,7 +234,7 @@ impl Outline {
         self.visible
             .iter()
             .copied()
-            .filter(|g| self.groups[*g].outcome.is_failure())
+            .filter(|g| self.groups()[*g].outcome.is_failure())
             .filter_map(|g| self.row_of_group(g))
             .rfind(|r| *r < from)
     }
@@ -203,9 +244,18 @@ impl Outline {
     fn reindex(&mut self) {
         self.visible.clear();
         self.offsets.clear();
+        self.reindex_from(0);
+    }
 
-        let mut total = 0usize;
-        for (i, g) in self.groups.iter().enumerate() {
+    /// Rebuild the tables for `first` and every group after it, for a change that left the
+    /// groups before it, and so the rows before it, where they were.
+    fn reindex_from(&mut self, first: usize) {
+        let slot = self.visible.partition_point(|g| *g < first);
+        let mut total = self.offsets.get(slot).copied().unwrap_or(0);
+        self.visible.truncate(slot);
+        self.offsets.truncate(slot);
+
+        for (i, g) in self.grouping.groups().iter().enumerate().skip(first) {
             if !self.show_plumbing && g.category.is_plumbing() {
                 continue;
             }
@@ -269,6 +319,7 @@ pub struct Summary {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::history::fixtures::{Rng, arbitrary_history, groups_by_scan};
     use crate::history::{GroupRef, Role, group_events};
 
     fn ev(id: i64, group: GroupRef, role: Role, cat: Category) -> NormalizedEvent {
@@ -441,6 +492,117 @@ mod tests {
         assert!(o.is_expanded(2), "expansion must survive a new page");
         assert_eq!(o.len(), rows_before + 1, "one new collapsed group");
         assert_eq!(o.groups().len(), 5);
+    }
+
+    #[test]
+    fn a_page_appended_groups_the_way_the_whole_history_does() {
+        // The same events, cut into pages anywhere, with the reader folding and unfolding
+        // between them and the server replaying the tail of the page before: the outline
+        // must end up exactly where reading the whole history at once puts it.
+        let mut rng = Rng(0x00c0_ffee_1234_5678);
+        for round in 0..150 {
+            let len = 1 + rng.below(200);
+            let events = arbitrary_history(&mut rng, len);
+
+            let mut paged = Outline::new(Vec::new(), Vec::new());
+            let mut read = 0;
+            while read < events.len() {
+                let next = read + 1 + rng.below(events.len() - read);
+                let replayed = read - rng.below(read + 1);
+                let added = paged.append(events[replayed..next].to_vec());
+                assert_eq!(
+                    added,
+                    next - read,
+                    "round {round}: only the new events count"
+                );
+                read = next;
+
+                match rng.below(4) {
+                    0 => {
+                        paged.toggle(rng.below(paged.groups().len()));
+                    }
+                    1 => paged.set_show_plumbing(!paged.show_plumbing()),
+                    _ => {}
+                }
+            }
+
+            let mut whole = Outline::new(events.clone(), groups_by_scan(&events));
+            whole.set_show_plumbing(paged.show_plumbing());
+            for group in 0..whole.groups().len() {
+                if paged.is_expanded(group) {
+                    whole.toggle(group);
+                }
+            }
+            assert_eq!(paged.events(), whole.events(), "round {round}");
+            assert_eq!(paged.groups(), whole.groups(), "round {round}");
+            assert_eq!(paged.len(), whole.len(), "round {round}");
+            assert_eq!(
+                paged.slice(0, paged.len()),
+                whole.slice(0, whole.len()),
+                "round {round}: every row"
+            );
+            for group in 0..whole.groups().len() {
+                assert_eq!(paged.row_of_group(group), whole.row_of_group(group));
+            }
+        }
+    }
+
+    #[test]
+    fn a_page_that_grows_an_open_group_moves_the_rows_below_it() {
+        let mut o = outline();
+        // "Charge" and "Ship" below it are both unfolded, and a later page adds to Charge.
+        o.toggle(2);
+        o.toggle(3);
+        let ship = o.row_of_group(3).unwrap();
+        let rows = o.len();
+
+        let added = o.append(vec![
+            ev(9, GroupRef::Opened(4), Role::Continues, Category::Activity),
+            ev(10, GroupRef::Opened(10), Role::Opens, Category::Timer),
+        ]);
+        assert_eq!(added, 2);
+        assert_eq!(o.group(2).unwrap().events, [4, 5, 6, 9]);
+        assert_eq!(
+            o.row_of_group(3),
+            Some(ship + 1),
+            "pushed down by one event"
+        );
+        assert_eq!(o.len(), rows + 2, "one event row, one new group");
+        assert!(o.is_expanded(2) && o.is_expanded(3) && !o.is_expanded(4));
+        let Some(Row::Event { event, .. }) = o.row_at(ship) else {
+            panic!("the new event should sit where Ship was");
+        };
+        assert_eq!(o.event(event).unwrap().id, 9);
+    }
+
+    #[test]
+    fn a_replayed_page_adds_nothing() {
+        let mut o = outline();
+        let rows = o.len();
+        assert_eq!(o.append(o.events().to_vec()), 0);
+        assert_eq!(o.len(), rows);
+        assert_eq!(o.events().len(), 8);
+        assert_eq!(o.group(2).unwrap().events, [4, 5, 6]);
+    }
+
+    #[test]
+    fn a_decoded_payload_is_swapped_in_without_touching_the_groups() {
+        let mut o = outline();
+        o.append(vec![{
+            let mut e = ev(9, GroupRef::Opened(9), Role::Opens, Category::Activity);
+            e.payloads
+                .push(("input".into(), Payload::new("binary/encrypted", vec![1])));
+            e
+        }]);
+        let groups = o.groups().to_vec();
+        for p in o.payloads_mut() {
+            *p = Payload::new("json/plain", b"1".to_vec());
+        }
+        assert_eq!(
+            o.event_by_id(9).unwrap().payloads[0].1.encoding,
+            "json/plain"
+        );
+        assert_eq!(o.groups(), groups);
     }
 
     #[test]

@@ -75,6 +75,25 @@ impl Search {
         if self.pattern.is_empty() {
             return false;
         }
+        // A search reads every row of the outline, twice, so the two cases that cover
+        // nearly all of them skip the char-by-char walk. Both answer exactly what it would.
+        if self.case_sensitive {
+            return haystack.contains(&self.pattern);
+        }
+        // Folding ASCII is a byte for a byte. Anything else is left to the walk: a Kelvin
+        // sign folds to `k`, and `İ` to two chars.
+        if self.pattern.is_ascii() && haystack.is_ascii() {
+            let pattern = self.pattern.as_bytes();
+            return haystack
+                .as_bytes()
+                .windows(pattern.len())
+                .any(|w| w.eq_ignore_ascii_case(pattern));
+        }
+        self.matches_by_char(haystack)
+    }
+
+    /// The definition of a match, which the shortcuts in [`Search::matches`] must agree with.
+    fn matches_by_char(&self, haystack: &str) -> bool {
         haystack
             .char_indices()
             .any(|(at, _)| self.match_at(haystack, at).is_some())
@@ -227,6 +246,43 @@ mod tests {
         let s = Search::new("Charge");
         assert!(s.matches("ChargeCard"));
         assert!(!s.matches("chargecard"));
+    }
+
+    #[test]
+    fn the_shortcuts_agree_with_the_walk() {
+        // Every pattern and haystack over a small alphabet chosen for what breaks byte
+        // comparison: both cases, a Kelvin sign that folds to an ASCII `k`, an `İ` that
+        // folds to two chars, and a letter that is neither upper nor lower case.
+        let alphabet = ['a', 'A', 'k', 'K', '\u{212a}', 'İ', 'ǅ', 'é', '=', '1'];
+        let mut seed = 0x2545_f491_4f6c_dd1du64;
+        let mut text = |max: usize| -> String {
+            let mut next = || {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                seed as usize
+            };
+            (0..next() % (max + 1))
+                .map(|_| alphabet[next() % alphabet.len()])
+                .collect()
+        };
+        for _ in 0..20_000 {
+            let search = Search::new(text(3));
+            let haystack = text(8);
+            assert_eq!(
+                search.matches(&haystack),
+                !search.is_empty() && search.matches_by_char(&haystack),
+                "/{}/ in {haystack:?}",
+                search.pattern()
+            );
+            let pane = search.for_pane();
+            assert_eq!(
+                pane.matches(&haystack),
+                !pane.is_empty() && pane.matches_by_char(&haystack),
+                "/{}/ for the pane, in {haystack:?}",
+                pane.pattern()
+            );
+        }
     }
 
     #[test]

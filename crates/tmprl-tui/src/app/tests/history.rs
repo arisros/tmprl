@@ -297,3 +297,92 @@ fn a_failed_describe_warns_and_keeps_what_was_known() {
     assert_eq!(level, Note::Warn);
     assert!(note.contains("permission denied"), "{note}");
 }
+
+#[test]
+fn a_page_adds_to_a_group_opened_pages_earlier_and_keeps_the_fold() {
+    use tmprl_core::history::{Category as C, GroupRef as G, Outcome as O, Role as R};
+    let mut app = app();
+    loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
+    app.run("nav.open", None);
+    let page = |app: &mut App, events: Vec<NormalizedEvent>, token: &[u8]| {
+        app.handle(Msg::History {
+            generation: app.view.generation,
+            result: Ok((events, token.to_vec())),
+        });
+    };
+
+    // "Ship" opens on the first page and is still open two pages later.
+    page(&mut app, history_events()[..7].to_vec(), b"2");
+    app.run("motion.bottom", None);
+    app.run("history.fold", None);
+    assert_eq!(app.row_count(), 4, "three groups and Ship's one event");
+
+    page(
+        &mut app,
+        vec![
+            hev(9, G::Opened(9), R::Opens, C::Timer).with_subject("wait"),
+            hev(10, G::Opened(9), R::Closes, C::Timer).with_outcome(O::Completed),
+        ],
+        b"3",
+    );
+    // The last page replays the one before it, then closes Ship and signals the workflow.
+    page(
+        &mut app,
+        vec![
+            hev(9, G::Opened(9), R::Opens, C::Timer).with_subject("wait"),
+            hev(10, G::Opened(9), R::Closes, C::Timer).with_outcome(O::Completed),
+            hev(11, G::Opened(7), R::Closes, C::Activity).with_outcome(O::Failed),
+            hev(12, G::Workflow, R::Continues, C::Workflow),
+        ],
+        b"",
+    );
+
+    let outline = app.view.history.value().unwrap();
+    assert_eq!(app.view.history_events.len(), 11);
+    assert_eq!(outline.events().len(), 11, "the replay was dropped");
+    assert_eq!(
+        outline.groups(),
+        tmprl_core::history::group_events(outline.events()),
+        "page by page is the same as all at once"
+    );
+    assert_eq!(outline.group(3).unwrap().events, [7, 11]);
+    assert_eq!(outline.group(0).unwrap().events, [1, 12]);
+    assert!(outline.is_expanded(3), "what the reader opened stays open");
+    assert_eq!(
+        app.row_count(),
+        6,
+        "four groups and Ship's two events, the timer under them"
+    );
+}
+
+#[test]
+fn a_refresh_replaces_the_history_instead_of_adding_to_it() {
+    let mut app = viewing_history();
+    app.run("history.fold", None);
+    assert_eq!(app.view.history_events.len(), 8);
+
+    app.run("app.refresh", None);
+    assert!(app.view.history_events.is_empty(), "the read starts over");
+    assert_eq!(
+        app.view.history.value().map(|o| o.events().len()),
+        Some(8),
+        "and what was read stays on screen until it has"
+    );
+
+    // The re-read comes back in smaller pages than the first read did.
+    app.handle(Msg::History {
+        generation: app.view.generation,
+        result: Ok((history_events()[..5].to_vec(), b"more".to_vec())),
+    });
+    let outline = app.view.history.value().unwrap();
+    assert_eq!(outline.events().len(), 5, "the old read is gone");
+    assert_eq!(app.view.history_events.len(), 5);
+    assert!(outline.is_expanded(0), "the fold survives the refresh");
+
+    app.handle(Msg::History {
+        generation: app.view.generation,
+        result: Ok((history_events()[5..].to_vec(), Vec::new())),
+    });
+    assert_eq!(app.view.history.value().unwrap().events().len(), 8);
+    assert_eq!(app.view.history_events.len(), 8);
+}

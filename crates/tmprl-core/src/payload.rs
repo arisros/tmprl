@@ -294,6 +294,114 @@ impl FlatCache {
     }
 }
 
+/// A payload's rendered text, cut into lines once.
+///
+/// One string and where each line sits in it, rather than a string per line: a payload of
+/// a few megabytes pretty-prints to several hundred thousand lines, and the pane only ever
+/// asks for the few dozen in view.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Lines {
+    text: String,
+    /// The byte range of each line, without its line ending.
+    spans: Vec<(usize, usize)>,
+}
+
+impl Lines {
+    /// Cut where [`str::lines`] would: at `\n`, with a `\r` before it dropped, and no empty
+    /// line for a trailing ending.
+    pub fn new(text: String) -> Self {
+        let mut spans = Vec::new();
+        let mut start = 0;
+        for piece in text.split_inclusive('\n') {
+            let line = match piece.strip_suffix('\n') {
+                Some(line) => line.strip_suffix('\r').unwrap_or(line),
+                None => piece,
+            };
+            spans.push((start, start + line.len()));
+            start += piece.len();
+        }
+        Self { text, spans }
+    }
+
+    pub fn len(&self) -> usize {
+        self.spans.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.spans.is_empty()
+    }
+
+    pub fn get(&self, line: usize) -> Option<&str> {
+        let (start, end) = *self.spans.get(line)?;
+        Some(&self.text[start..end])
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &str> {
+        self.spans
+            .iter()
+            .map(|(start, end)| &self.text[*start..*end])
+    }
+}
+
+/// Rendered payloads, kept between frames.
+///
+/// The payload pane is redrawn on every key and every tick, and rendering a `json/plain`
+/// payload means parsing it and printing it again: a tenth of a second for a few megabytes,
+/// on every frame, for a value that has not changed. Keyed by content, like [`FlatCache`]
+/// and for the same reason: a payload the codec answers is new bytes and so a new entry.
+/// What a frame still pays for a payload on screen is one hash of its bytes.
+///
+/// Bounded by [`RenderCache::sweep`]: what survives a frame is what that frame drew.
+#[derive(Debug, Default)]
+pub struct RenderCache {
+    /// `None` for a payload that claimed to be text and was not.
+    entries: std::collections::HashMap<u64, (u64, Option<std::rc::Rc<Lines>>)>,
+    pass: u64,
+}
+
+impl RenderCache {
+    /// The lines of [`Payload::render`]'s text, rendered once per distinct payload.
+    ///
+    /// `None` when the payload does not render as text. Those cost nothing to render, so
+    /// they are not hashed and the caller asks [`Payload::render`] what to say instead.
+    pub fn text(&mut self, p: &Payload) -> Option<std::rc::Rc<Lines>> {
+        p.pipeable()?;
+        let pass = self.pass;
+        let entry = self.entries.entry(Self::key(p)).or_insert_with(|| {
+            let lines = match p.render() {
+                Rendered::Text(text) => Some(std::rc::Rc::new(Lines::new(text))),
+                Rendered::Null | Rendered::Opaque { .. } | Rendered::Encrypted { .. } => None,
+            };
+            (pass, lines)
+        });
+        entry.0 = pass;
+        entry.1.clone()
+    }
+
+    fn key(p: &Payload) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        p.encoding.hash(&mut h);
+        p.data.hash(&mut h);
+        h.finish()
+    }
+
+    /// End a frame: forget every payload it did not draw.
+    pub fn sweep(&mut self) {
+        let pass = self.pass;
+        self.entries.retain(|_, (used, _)| *used == pass);
+        self.pass += 1;
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+}
+
 fn flatten_value(path: &str, v: &serde_json::Value, out: &mut Vec<String>) {
     use serde_json::Value;
     match v {
@@ -524,6 +632,87 @@ mod tests {
         cache.sweep();
         assert_eq!(cache.len(), 1, "a payload no longer on screen is forgotten");
         assert_eq!(cache.lines("input", &kept), [".input=1"]);
+    }
+
+    #[test]
+    fn lines_are_cut_where_str_lines_cuts_them() {
+        for text in [
+            "",
+            "one",
+            "one\n",
+            "one\ntwo",
+            "one\r\ntwo\r\n",
+            "\n\nthree\n\n",
+            "bare\rreturn\r",
+            "{\n  \"a\": 1\n}",
+        ] {
+            let lines = Lines::new(text.to_string());
+            assert_eq!(
+                lines.iter().collect::<Vec<_>>(),
+                text.lines().collect::<Vec<_>>(),
+                "{text:?}"
+            );
+            assert_eq!(lines.len(), text.lines().count());
+            assert_eq!(lines.get(0), text.lines().next());
+            assert_eq!(lines.get(lines.len()), None);
+        }
+    }
+
+    #[test]
+    fn a_cached_render_is_the_render() {
+        let mut cache = RenderCache::default();
+        for p in [
+            json(r#"{"amount":100,"items":[1,2]}"#),
+            json("{not json"),
+            Payload::new("text/plain", b"two\nlines".to_vec()),
+        ] {
+            let Rendered::Text(text) = p.render() else {
+                panic!("{} should render as text", p.encoding)
+            };
+            let lines = cache.text(&p).expect("text");
+            assert_eq!(
+                lines.iter().collect::<Vec<_>>(),
+                text.lines().collect::<Vec<_>>()
+            );
+            assert!(
+                std::rc::Rc::ptr_eq(&lines, &cache.text(&p).unwrap()),
+                "the second ask is the first answer"
+            );
+        }
+        assert_eq!(cache.len(), 3);
+    }
+
+    #[test]
+    fn what_does_not_render_as_text_is_left_to_render() {
+        let mut cache = RenderCache::default();
+        assert!(
+            cache
+                .text(&Payload::new("binary/encrypted", vec![1, 2]))
+                .is_none()
+        );
+        assert!(cache.text(&Payload::new("binary/null", vec![])).is_none());
+        assert!(cache.is_empty(), "nothing to keep for a badge");
+        // Declared JSON, not UTF-8: remembered as not text, so it is not re-read each frame.
+        assert!(
+            cache
+                .text(&Payload::new("json/plain", vec![0xff, 0xff]))
+                .is_none()
+        );
+        assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
+    fn a_render_not_drawn_last_frame_is_forgotten() {
+        let mut cache = RenderCache::default();
+        let (kept, dropped) = (json("1"), json("2"));
+        cache.text(&kept);
+        cache.text(&dropped);
+        cache.sweep();
+        cache.text(&kept);
+        cache.sweep();
+        assert_eq!(cache.len(), 1, "the cursor moved off the other payload");
+        cache.sweep();
+        assert!(cache.is_empty(), "and a frame that drew none keeps none");
     }
 
     #[test]

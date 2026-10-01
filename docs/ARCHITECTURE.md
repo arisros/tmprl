@@ -64,8 +64,8 @@ project testable:
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
 | `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 77 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 342 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 375 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 355 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 380 |
 | `tmprl-ui` | built | Plain unit tests over the layout tree | 37 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -125,6 +125,7 @@ Every file opens with a `//!` line saying what it is; this is those lines, gathe
 | `config.rs`, `clock.rs`, `loadable.rs` | config parsing, wall-clock rendering, four-state remote data |
 | `fault.rs` | a failed request: the call, the gRPC code, the server's message, and what to try |
 | `theme.rs` | colour depth from the environment, `theme.toml`, hex to the nearest of 16 |
+| `benches/history.rs` | timings for paging, the outline, `/` and large payloads; beside `src/`, run by `cargo bench -p tmprl-core` |
 
 **`tmprl-client`**, all network IO: `conn.rs` connects; `ops/` has one file per area of the
 API (`workflow`, `history`, `schedule`, `namespace`, `mutate`, `codec`, `describe`,
@@ -403,6 +404,26 @@ back-reference in the protocol actually points at. Two properties are worth stat
   not contain. Dropping those would render the page empty and look like a bug in tmprl, so an
   unmatched event opens a partial group instead.
 
+**The fold is resumable.** A history arrives 500 events at a time, and a page boundary lands
+wherever it lands: inside a group, or before an event that closes a group opened many pages
+back, or before a signal, which joins the workflow's own group from anywhere in the run. So
+the fold is a value, `Grouping`, holding the groups and a map from each key to its group, and
+the next page is folded into it rather than everything read so far being folded again.
+`group_events` is the same fold run over a whole history at once, and a property test cuts
+arbitrary histories into arbitrary pages to pin the two against each other.
+
+The outline owns the fold and the one copy of the events. A page landing is
+`Outline::append`: it drops whatever the page replays (follow mode re-reads the page its token
+sat in; ids only ascend, so "new" is "higher than the highest held"), folds the rest in, and
+rebuilds the offset table from the first row that moved. Folded shut, a group is one row
+however many events it holds, so a page that adds to old groups moves nothing and the cost
+is the page's. The exception is a page that adds to a group the reader has unfolded, which
+moves every row below that group, and those offsets are recounted.
+
+`R` re-reads a history while the previous read stays on screen. The first page of the re-read
+replaces the outline instead of being appended to it, which is why the pane counts the events
+of the read in progress separately from the outline that holds them.
+
 Groups are the unit of everything downstream:
 
 - **Compact view**: one row per group
@@ -418,6 +439,19 @@ Scrolling a 100k-event history moves an index; it does not rebuild a list.
 changes (a group folded, plumbing toggled) and never while scrolling. A row lookup is then a
 binary search over that table, so asking for row 84,102 costs the same as asking for row 0.
 `len()` is the last entry in that table rather than a count of anything.
+
+The payload pane is virtualised the same way. A payload is rendered once, into
+`RenderCache`, keyed by its bytes so that a value the codec decodes is a new entry, and each
+frame builds only the lines in view. Rendering on every frame meant parsing and printing the
+whole value again on every key.
+
+`crates/tmprl-core/benches/history.rs` times all of this at 10,000, 100,000 and 500,000
+events and over payloads of 1 MB and 8 MB: `cargo bench -p tmprl-core`. It prints a table and
+asserts nothing, and is not part of `cargo test`.
+
+What still grows with the history: `/` reads every row, so a search, and each page of a
+search that reads on past the loaded events, costs in proportion to what is loaded. The
+header's summary and the timeline walk every group on each frame.
 
 Two consequences that are easy to get wrong, both pinned by tests:
 

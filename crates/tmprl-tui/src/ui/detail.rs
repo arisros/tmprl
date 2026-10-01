@@ -8,15 +8,18 @@
 //! was called with and what came back. Those live on the events that opened and closed the
 //! group, so the pane gathers from both rather than showing only the row you happen to be on.
 
+use std::rc::Rc;
+
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::style::Modifier;
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use tmprl_core::history::{Failure, NormalizedEvent};
 use tmprl_core::outline::{Outline, Row};
-use tmprl_core::payload::Rendered;
+use tmprl_core::payload::{Lines, Rendered};
 use tmprl_core::pending::{self, PendingActivity};
+use tmprl_core::search::Search;
 
 use crate::app::{App, DecodeState};
 use crate::theme::Theme;
@@ -38,40 +41,41 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
     let Some(outline) = view.history.value() else {
         return (0, 0);
     };
-    let lines = match outline.row_at(view.cursor) {
+    let pieces = match outline.row_at(view.cursor) {
         Some(Row::Event { event, .. }) => outline
             .event(event)
-            .map(|e| event_lines(e, app, t))
+            .map(|e| event_lines(e, view, app, t))
             .unwrap_or_default(),
         Some(Row::Group { group, .. }) => group_lines(outline, group, view, app, t),
         None => Vec::new(),
     };
 
-    let lines = if lines.is_empty() {
-        vec![Line::from(Span::styled("  nothing carried here", t.faint))]
+    let pieces = if pieces.is_empty() {
+        vec![Piece::Line(Line::from(Span::styled(
+            "  nothing carried here",
+            t.faint,
+        )))]
     } else {
-        lines
+        pieces
     };
+    let total: usize = pieces.iter().map(Piece::len).sum();
 
     let search = app.search.for_pane();
-    let first_match = lines
-        .iter()
-        .position(|l| l.spans.iter().any(|s| search.matches(&s.content)));
-    let lines: Vec<Line> = lines
-        .into_iter()
-        .map(|l| super::highlight(l, &search, super::match_style()))
-        .collect();
-
     // A payload can be far taller than the pane. Clipping it silently would hide the end of
     // a stack trace, which is the part worth reading, so the pane scrolls and says so.
     let visible = area.height.saturating_sub(1) as usize;
-    let max_scroll = lines.len().saturating_sub(visible);
-    // One line of context above the match, its label or the key it sits under.
-    let scroll = match first_match {
-        Some(at) if view.detail_seek => at.saturating_sub(1),
+    let max_scroll = total.saturating_sub(visible);
+    // One line of context above the match, its label or the key it sits under. Looked for
+    // only on the draw a search landed on: it reads every line the pane could show.
+    let scroll = match view.detail_seek.then(|| first_match(&pieces, &search)) {
+        Some(Some(at)) => at.saturating_sub(1),
         _ => view.detail_scroll,
     }
     .min(max_scroll);
+    let lines: Vec<Line> = window(pieces, scroll, visible)
+        .into_iter()
+        .map(|l| super::highlight(l, &search, super::match_style()))
+        .collect();
 
     let title = if max_scroll == 0 {
         " payloads (K to close) ".to_string()
@@ -90,9 +94,84 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
     frame.render_widget(block, area);
     // This pane's only border is the rule along its top, so the bar takes a column rather
     // than being drawn over the payload.
-    let inner = super::list_scrollbar(frame, inner, scroll, lines.len(), t);
-    frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, 0)), inner);
+    let inner = super::list_scrollbar(frame, inner, scroll, total, t);
+    frame.render_widget(Paragraph::new(lines), inner);
     (max_scroll, scroll)
+}
+
+/// Part of what the pane shows: a line of its own, or the text of one payload.
+///
+/// A payload's text stays as the cached lines it was rendered to until the window is cut,
+/// so a frame builds the few dozen lines in view and not the several hundred thousand a
+/// payload of a few megabytes prints to.
+enum Piece<'a> {
+    Line(Line<'a>),
+    Text(Rc<Lines>, Style),
+}
+
+impl Piece<'_> {
+    fn len(&self) -> usize {
+        match self {
+            Piece::Line(_) => 1,
+            Piece::Text(lines, _) => lines.len(),
+        }
+    }
+}
+
+/// A payload line as the pane draws it.
+fn indented(line: &str) -> String {
+    format!("    {line}")
+}
+
+/// The first line the search matches, counted over everything the pane could show.
+fn first_match(pieces: &[Piece], search: &Search) -> Option<usize> {
+    if search.is_empty() {
+        return None;
+    }
+    let mut at = 0;
+    for piece in pieces {
+        let hit = match piece {
+            Piece::Line(l) => l
+                .spans
+                .iter()
+                .any(|s| search.matches(&s.content))
+                .then_some(0),
+            Piece::Text(lines, _) => lines.iter().position(|l| search.matches(&indented(l))),
+        };
+        if let Some(hit) = hit {
+            return Some(at + hit);
+        }
+        at += piece.len();
+    }
+    None
+}
+
+/// The lines in `[first, first + count)`, the only ones built.
+fn window(pieces: Vec<Piece>, first: usize, count: usize) -> Vec<Line> {
+    let mut out = Vec::with_capacity(count);
+    let mut at = 0;
+    for piece in pieces {
+        let len = piece.len();
+        if at >= first + count {
+            break;
+        }
+        if at + len > first {
+            match piece {
+                Piece::Line(l) => out.push(l),
+                Piece::Text(lines, style) => {
+                    let from = first.saturating_sub(at);
+                    let to = (first + count - at).min(len);
+                    out.extend(
+                        (from..to)
+                            .filter_map(|i| lines.get(i))
+                            .map(|l| Line::from(Span::styled(indented(l), style))),
+                    );
+                }
+            }
+        }
+        at += len;
+    }
+    out
 }
 
 fn group_lines<'a>(
@@ -101,7 +180,7 @@ fn group_lines<'a>(
     view: &'a View,
     app: &App,
     t: &Theme,
-) -> Vec<Line<'a>> {
+) -> Vec<Piece<'a>> {
     let Some(g) = outline.group(group) else {
         return Vec::new();
     };
@@ -128,38 +207,38 @@ fn group_lines<'a>(
             t.faint,
         ));
     }
-    let mut lines = vec![Line::from(title)];
+    let mut lines = vec![Piece::Line(Line::from(title))];
     if let Some(p) = live {
-        lines.push(pending_line(p, app, t));
+        lines.push(Piece::Line(pending_line(p, app, t)));
     }
     let failure = g
         .failure
         .as_ref()
         .or(live.and_then(|p| p.last_failure.as_ref()));
     if let Some(f) = failure {
-        lines.extend(failure_lines(f, "  ", t));
+        lines.extend(failure_lines(f, "  ", t).into_iter().map(Piece::Line));
     }
 
     let before = lines.len();
     for id in g.payload_ends() {
-        let Some(e) = outline.events().iter().find(|e| e.id == id) else {
+        let Some(e) = outline.event_by_id(id) else {
             continue;
         };
         if e.payloads.is_empty() {
             continue;
         }
-        lines.extend(payload_lines(e, app, t));
+        lines.extend(payload_lines(e, view, app, t));
     }
     if lines.len() == before {
         // A pane showing nothing but a title reads as broken. Plenty of events genuinely
         // carry no payload, and saying so is the answer to "where is the input".
-        lines.push(Line::from(Span::styled(
+        lines.push(Piece::Line(Line::from(Span::styled(
             "  no payloads on this group",
             t.faint,
-        )));
+        ))));
     }
     if let Some(f) = failure {
-        lines.extend(stack_lines(f, "  ", t));
+        lines.extend(stack_lines(f, "  ", t).into_iter().map(Piece::Line));
     }
     lines
 }
@@ -232,7 +311,7 @@ fn stack_lines<'a>(f: &'a Failure, indent: &str, t: &Theme) -> Vec<Line<'a>> {
     lines
 }
 
-fn event_lines<'a>(e: &'a NormalizedEvent, app: &App, t: &Theme) -> Vec<Line<'a>> {
+fn event_lines<'a>(e: &'a NormalizedEvent, view: &View, app: &App, t: &Theme) -> Vec<Piece<'a>> {
     let mut lines = vec![Line::from(vec![
         Span::styled(format!("  {} ", e.name), t.fg.add_modifier(Modifier::BOLD)),
         Span::styled(format!("event {}", e.id), t.dim),
@@ -252,33 +331,39 @@ fn event_lines<'a>(e: &'a NormalizedEvent, app: &App, t: &Theme) -> Vec<Line<'a>
     if let Some(f) = &e.failure {
         lines.extend(failure_lines(f, "    ", t));
     }
-    lines.extend(payload_lines(e, app, t));
+    let mut lines: Vec<Piece> = lines.into_iter().map(Piece::Line).collect();
+    lines.extend(payload_lines(e, view, app, t));
     if let Some(f) = &e.failure {
-        lines.extend(stack_lines(f, "    ", t));
+        lines.extend(stack_lines(f, "    ", t).into_iter().map(Piece::Line));
     }
     lines
 }
 
-fn payload_lines<'a>(e: &'a NormalizedEvent, app: &App, t: &Theme) -> Vec<Line<'a>> {
+fn payload_lines<'a>(e: &NormalizedEvent, view: &View, app: &App, t: &Theme) -> Vec<Piece<'a>> {
     let mut lines = Vec::new();
     for (label, p) in &e.payloads {
-        lines.push(Line::from(Span::styled(
+        lines.push(Piece::Line(Line::from(Span::styled(
             format!("  {label}"),
             t.accent.add_modifier(Modifier::BOLD),
-        )));
-        match p.render() {
+        ))));
+        // Text comes from the pane's cache: rendering it is a parse and a print of the
+        // whole value, which a frame cannot afford once a payload reaches megabytes.
+        if let Some(text) = view.payload_text(p) {
+            lines.push(Piece::Text(text, t.fg));
+            continue;
+        }
+        let line = match p.render() {
             Rendered::Text(text) => {
-                for l in text.lines() {
-                    lines.push(Line::from(Span::styled(format!("    {l}"), t.fg)));
-                }
+                lines.push(Piece::Text(Rc::new(Lines::new(text)), t.fg));
+                continue;
             }
-            Rendered::Null => lines.push(Line::from(Span::styled("    null", t.faint))),
+            Rendered::Null => Line::from(Span::styled("    null", t.faint)),
             // Say what it is and how big rather than showing bytes. The value is not lost,
             // it is just not something a terminal should be asked to print.
-            Rendered::Opaque { bytes, encoding } => lines.push(Line::from(Span::styled(
+            Rendered::Opaque { bytes, encoding } => Line::from(Span::styled(
                 format!("    {encoding}, {bytes} bytes, not shown"),
                 t.faint,
-            ))),
+            )),
             // The encoding is named rather than called "encrypted": a codec chooses its own
             // encoding, so seeing the actual one is what tells you whether the codec server
             // you are running is the right one for this payload.
@@ -301,9 +386,10 @@ fn payload_lines<'a>(e: &'a NormalizedEvent, app: &App, t: &Theme) -> Vec<Line<'
                         t.err,
                     ),
                 };
-                lines.push(Line::from(Span::styled(what, style)));
+                Line::from(Span::styled(what, style))
             }
-        }
+        };
+        lines.push(Piece::Line(line));
     }
     lines
 }
