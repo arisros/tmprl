@@ -74,6 +74,11 @@ impl App {
                 self.view.viewing = None;
                 self.reset_history();
                 self.restore_cursor();
+                // A history reached without its list behind it, from `-w` or in a split,
+                // would otherwise go up to a list nobody ever asked the server for.
+                if self.view.workflows.value().is_none() {
+                    self.load_workflows(false);
+                }
             }
             Screen::Workflows => {
                 self.mark_jump();
@@ -136,6 +141,11 @@ impl App {
             self.note = Some(("that workflow is no longer in the list".into(), Note::Warn));
             return;
         };
+        self.open_row(row);
+    }
+
+    /// Open the history of a workflow row, wherever the row came from.
+    pub(super) fn open_row(&mut self, row: WorkflowRow) {
         self.mark_jump();
         self.view.workflow_cursor = self.view.cursor;
         self.view.anchor = None;

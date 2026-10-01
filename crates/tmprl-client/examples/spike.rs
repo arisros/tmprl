@@ -27,7 +27,7 @@ use temporalio_common::protos::temporal::api::{
 async fn main() -> anyhow::Result<()> {
     let profile = ProfileRef {
         name: std::env::args().nth(1),
-        config_file: None,
+        ..Default::default()
     };
 
     let conn = Conn::connect(&profile).await?;

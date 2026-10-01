@@ -19,6 +19,7 @@
 //! | `windows` | splits and tabs |
 //! | `prompt` | the `:` and `!` prompts |
 //! | `load` | every request to the server |
+//! | `startup` | where the command line asked to open |
 
 mod find;
 mod history;
@@ -28,8 +29,11 @@ mod nav;
 mod payload;
 mod prompt;
 mod query;
+mod startup;
 mod windows;
 mod yank;
+
+pub use startup::Startup;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -287,6 +291,12 @@ pub enum Msg {
         search: u64,
         result: Result<Vec<WorkflowRow>, String>,
     },
+    /// What the server has for the id `-w` named at startup.
+    StartupWorkflow {
+        generation: u64,
+        id: String,
+        result: Result<Vec<WorkflowRow>, String>,
+    },
     /// The open activities of the run on screen, from describe.
     Pending {
         generation: u64,
@@ -424,6 +434,9 @@ pub struct App {
     accent: Option<tmprl_core::config::Accent>,
     /// Refuse every mutation on this profile.
     readonly: bool,
+    /// Refuse every mutation for this run, `--readonly`. Kept apart from the profile's
+    /// setting so the refusal can name the cause the reader is able to change.
+    readonly_flag: bool,
     audit_sink: AuditSink,
     /// Where `K` opens, from `config.toml`'s `[layout]`.
     payload_pane: tmprl_core::config::PayloadPane,
@@ -508,6 +521,7 @@ impl App {
             address,
             accent: None,
             readonly: false,
+            readonly_flag: false,
             audit_sink: AuditSink::File,
             payload_pane: Default::default(),
             namespace,
@@ -794,6 +808,11 @@ impl App {
                     Err(e) => self.note = Some((format!("workflow search: {e}"), Note::Warn)),
                 }
             }
+            Msg::StartupWorkflow {
+                generation,
+                id,
+                result,
+            } => self.startup_workflow_found(generation, id, result),
             Msg::Pending { generation, result } => {
                 if generation != self.view.generation {
                     return;
@@ -1116,8 +1135,9 @@ impl App {
         self.accent
     }
 
+    /// Whether mutations are refused, by the profile or by `--readonly`.
     pub fn readonly(&self) -> bool {
-        self.readonly
+        self.readonly || self.readonly_flag
     }
 
     pub fn payload_pane(&self) -> tmprl_core::config::PayloadPane {

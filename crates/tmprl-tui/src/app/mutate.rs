@@ -397,16 +397,23 @@ impl App {
         });
     }
 
-    /// Refuse a mutation on a read-only profile, and say which profile refused it.
+    /// Refuse a mutation on a read-only run, and say what made it read-only.
     ///
     /// Checked at both ends: here, so a refusal costs one keystroke rather than a typed
     /// signal payload, and again in `run_mutation`, which is the only path to the wire.
     pub(super) fn refuses_mutation(&mut self) -> bool {
-        if self.readonly {
-            self.note = Some((format!("profile {} is read-only", self.profile), Note::Warn));
-            return true;
+        if !self.readonly() {
+            return false;
         }
-        false
+        // The profile is named whenever it is a cause: restarting without `--readonly`
+        // would not help there, so pointing at the flag would send the reader the wrong way.
+        let why = if self.readonly {
+            format!("profile {} is read-only", self.profile)
+        } else {
+            "read-only: tmprl was started with --readonly".to_string()
+        };
+        self.note = Some((why, Note::Warn));
+        true
     }
 
     /// Record what was attempted, whether or not it worked.

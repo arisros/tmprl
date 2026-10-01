@@ -68,6 +68,20 @@ fn a_readonly_profile_says_so_in_the_header() {
 }
 
 #[test]
+fn the_readonly_flag_carries_the_same_marker() {
+    let mut app = app_with_rows();
+    app.start(crate::app::Startup {
+        readonly: true,
+        ..Default::default()
+    });
+    let out = draw(&mut app, 90, 12);
+    assert!(
+        out.contains("prod [ro]"),
+        "read-only marker missing:\n{out}"
+    );
+}
+
+#[test]
 fn a_writable_profile_carries_no_marker() {
     let mut app = app_with_rows();
     let out = draw(&mut app, 90, 12);
