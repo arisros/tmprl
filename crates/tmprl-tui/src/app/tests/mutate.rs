@@ -453,6 +453,24 @@ fn a_failed_mutation_shows_the_servers_reason() {
 }
 
 #[test]
+fn a_readonly_profile_refuses_the_schedule_form_before_it_opens() {
+    // The form is the longest input there is. Refusing only once it is filled in and
+    // confirmed is the same refusal, six fields later.
+    let mut app = on_schedules();
+    app.apply_config(None, None, Some("[profile.prod]\nreadonly = true"));
+
+    app.run("schedule.create", None);
+    assert!(app.form.is_none(), "no form may open");
+    let (text, level) = app.note.clone().expect("a refusal should be reported");
+    assert!(text.contains("read-only"), "{text}");
+    assert!(matches!(level, Note::Warn));
+
+    // Not swallowed by a form that is not there.
+    app.handle(Msg::Key(Chord::ch('j')));
+    assert!(app.form.is_none());
+}
+
+#[test]
 fn creating_a_schedule_collects_every_field_then_confirms() {
     let mut app = on_schedules();
     app.run("schedule.create", None);

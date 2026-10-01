@@ -242,6 +242,10 @@ impl App {
     /// Unlike every other mutation this one has no target under the cursor: it is creating
     /// the thing, so it only needs a namespace to create it in.
     pub(super) fn open_new_schedule_form(&mut self) {
+        // Six fields typed and then refused is the costliest refusal there is.
+        if self.refuses_mutation() {
+            return;
+        }
         self.form = Some(Form::new_schedule());
     }
 
