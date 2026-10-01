@@ -41,7 +41,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
         let msg = if view.workflows.is_loading() {
             "loading workflows…".to_string()
         } else if let Some(e) = view.workflows.error() {
-            format!("{e} (R to retry)")
+            super::failed(e)
         } else if view.query.trim().is_empty() {
             "no workflows in this namespace".to_string()
         } else {

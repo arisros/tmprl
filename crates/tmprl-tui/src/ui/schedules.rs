@@ -30,7 +30,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
         let msg = if view.schedules.is_loading() {
             "loading schedules…".to_string()
         } else if let Some(e) = view.schedules.error() {
-            format!("{e} (R to retry)")
+            super::failed(e)
         } else {
             "no schedules in this namespace (gw for workflows)".to_string()
         };

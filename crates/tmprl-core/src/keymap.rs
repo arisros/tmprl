@@ -334,6 +334,7 @@ pub fn default_keymap() -> Keymap {
     // *where you are*, not finding something inside where you already are.
     bind(Mode::Normal, "<leader>N", "find.namespace");
     bind(Mode::Normal, "<leader>xx", "list.problems");
+    bind(Mode::Normal, "<leader>xm", "app.messages");
     bind(Mode::Normal, "<leader>e", "payload.edit");
 
     bind(Mode::Normal, "i", "mode.insert");

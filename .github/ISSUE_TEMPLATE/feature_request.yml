@@ -1,0 +1,36 @@
+name: Feature request
+description: Something tmprl should do and does not
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read the [roadmap](https://github.com/arisros/tmprl/blob/main/docs/ROADMAP.md) first, including the *Not planned* table at the end. If the item is already listed, a comment on why it matters to you is more useful than a new issue.
+
+        An item gets on the roadmap when it makes a workflow easier to understand, navigate or operate from a terminal, and Temporal exposes the data it needs. The two questions below are those two tests.
+  - type: textarea
+    id: goal
+    attributes:
+      label: What are you trying to do with a workflow?
+      description: The task, not the feature. "Find which activity is holding up a run that has been open for two hours" says more than "add a duration column".
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: How do you do it today?
+      description: In tmprl, the web UI, the `temporal` CLI, or not at all.
+  - type: textarea
+    id: data
+    attributes:
+      label: Does Temporal expose the data this needs?
+      description: Name the RPC, the field, the `temporal` CLI command or the web UI screen that already shows it. Say so if you do not know.
+    validations:
+      required: true
+  - type: checkboxes
+    id: roadmap
+    attributes:
+      label: Roadmap
+      options:
+        - label: I checked docs/ROADMAP.md, including the Not planned table
+          required: true

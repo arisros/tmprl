@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security report
+    url: https://github.com/arisros/tmprl/security/policy
+    about: Do not open a public issue for a vulnerability. The security policy says how to report one.
+  - name: Roadmap
+    url: https://github.com/arisros/tmprl/blob/main/docs/ROADMAP.md
+    about: What is planned, and what is not planned and why.

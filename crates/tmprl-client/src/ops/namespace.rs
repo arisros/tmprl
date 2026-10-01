@@ -33,7 +33,7 @@ impl Conn {
                     ..Default::default()
                 }))
                 .await
-                .map_err(|s| OpError::rpc("ListNamespaces", s))?
+                .map_err(|s| super::rpc("ListNamespaces", s))?
                 .into_inner();
 
             for ns in resp.namespaces {

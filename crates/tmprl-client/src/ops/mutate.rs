@@ -87,7 +87,7 @@ impl Conn {
                         },
                     ))
                     .await
-                    .map_err(|s| OpError::rpc("RequestCancelWorkflowExecution", s))?;
+                    .map_err(|s| super::rpc("RequestCancelWorkflowExecution", s))?;
             }
 
             Mutation::Terminate {
@@ -105,7 +105,7 @@ impl Conn {
                         ..Default::default()
                     }))
                     .await
-                    .map_err(|s| OpError::rpc("TerminateWorkflowExecution", s))?;
+                    .map_err(|s| super::rpc("TerminateWorkflowExecution", s))?;
             }
 
             Mutation::Signal {
@@ -126,7 +126,7 @@ impl Conn {
                         ..Default::default()
                     }))
                     .await
-                    .map_err(|s| OpError::rpc("SignalWorkflowExecution", s))?;
+                    .map_err(|s| super::rpc("SignalWorkflowExecution", s))?;
             }
 
             Mutation::Delete {
@@ -140,7 +140,7 @@ impl Conn {
                         workflow_execution: execution(workflow_id, run_id),
                     }))
                     .await
-                    .map_err(|s| OpError::rpc("DeleteWorkflowExecution", s))?;
+                    .map_err(|s| super::rpc("DeleteWorkflowExecution", s))?;
             }
 
             Mutation::Reset {
@@ -166,7 +166,7 @@ impl Conn {
                         ..Default::default()
                     }))
                     .await
-                    .map_err(|s| OpError::rpc("ResetWorkflowExecution", s))?;
+                    .map_err(|s| super::rpc("ResetWorkflowExecution", s))?;
             }
 
             Mutation::Update {
@@ -204,7 +204,7 @@ impl Conn {
                         ..Default::default()
                     }))
                     .await
-                    .map_err(|s| OpError::rpc("UpdateWorkflowExecution", s))?
+                    .map_err(|s| super::rpc("UpdateWorkflowExecution", s))?
                     .into_inner();
 
                 // An update can be *accepted* and then rejected by the workflow itself. That
@@ -215,11 +215,11 @@ impl Conn {
                         temporalio_common::protos::temporal::api::update::v1::outcome::Value::Failure(f),
                     ) = outcome.value
                 {
-                    return Err(OpError::Rpc {
-                        operation: "UpdateWorkflowExecution",
-                        code: "Rejected".into(),
-                        message: f.message,
-                    });
+                    return Err(OpError::rpc(
+                        "UpdateWorkflowExecution",
+                        tmprl_core::fault::Code::Rejected,
+                        f.message,
+                    ));
                 }
             }
 
@@ -244,7 +244,7 @@ impl Conn {
                         request_id: request_id(),
                     }))
                     .await
-                    .map_err(|s| OpError::rpc("PatchSchedule", s))?;
+                    .map_err(|s| super::rpc("PatchSchedule", s))?;
             }
 
             Mutation::TriggerSchedule {
@@ -269,7 +269,7 @@ impl Conn {
                         request_id: request_id(),
                     }))
                     .await
-                    .map_err(|s| OpError::rpc("PatchSchedule", s))?;
+                    .map_err(|s| super::rpc("PatchSchedule", s))?;
             }
 
             Mutation::CreateSchedule {
@@ -316,7 +316,7 @@ impl Conn {
                         ..Default::default()
                     }))
                     .await
-                    .map_err(|s| OpError::rpc("CreateSchedule", s))?;
+                    .map_err(|s| super::rpc("CreateSchedule", s))?;
             }
 
             Mutation::BackfillSchedule {
@@ -341,7 +341,7 @@ impl Conn {
                         request_id: request_id(),
                     }))
                     .await
-                    .map_err(|s| OpError::rpc("PatchSchedule", s))?;
+                    .map_err(|s| super::rpc("PatchSchedule", s))?;
             }
 
             Mutation::DeleteSchedule {
@@ -355,7 +355,7 @@ impl Conn {
                         identity: identity(),
                     }))
                     .await
-                    .map_err(|s| OpError::rpc("DeleteSchedule", s))?;
+                    .map_err(|s| super::rpc("DeleteSchedule", s))?;
             }
         }
         Ok(())

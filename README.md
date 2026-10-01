@@ -156,9 +156,9 @@ flowchart LR
 
 | Crate | Tests | |
 |---|---|---|
-| `tmprl-client` | 68 | all network IO |
-| `tmprl-core` | 335 | no terminal, no server |
-| `tmprl-tui` | 316 | ratatui |
+| `tmprl-client` | 71 | all network IO |
+| `tmprl-core` | 342 | no terminal, no server |
+| `tmprl-tui` | 338 | ratatui |
 | `tmprl-ui` | 37 | window tree |
 
 ```sh
@@ -166,7 +166,7 @@ cargo test                       # integration tests skip with no server
 TMPRL_REQUIRE_SERVER=1 cargo test  # what CI runs
 ```
 
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/INTERFACE.md](docs/INTERFACE.md) · [docs/ROADMAP.md](docs/ROADMAP.md) · [docs/RELEASING.md](docs/RELEASING.md) · [CHANGELOG.md](CHANGELOG.md)
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/INTERFACE.md](docs/INTERFACE.md) · [docs/ROADMAP.md](docs/ROADMAP.md) · [docs/RELEASING.md](docs/RELEASING.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [CHANGELOG.md](CHANGELOG.md)
 
 ## Roadmap
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **Errors**: a failed request says which call failed and why in words, `ListWorkflowExecutions
+  failed (unavailable): transport error`, and an empty list whose load failed adds what to
+  try. A key scoped to one namespace is now recognised by the server's `PermissionDenied`
+  rather than by the wording of its refusal.
+- **`:messages`**, also `<leader>xm`: every note the status line has shown this session, with
+  the gRPC code and the call behind each failure. The note line still clears on the next key.
+
 ## 0.1.3 — 2026-09-29
 
 - No user-visible changes.

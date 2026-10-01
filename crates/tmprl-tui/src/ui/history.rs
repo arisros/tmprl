@@ -29,7 +29,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
     }
     let Some(outline) = view.history.value() else {
         let msg = match view.history.error() {
-            Some(e) => format!("{e} (R to retry)"),
+            Some(e) => super::failed(e),
             None => "loading history…".to_string(),
         };
         frame.render_widget(

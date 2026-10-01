@@ -37,7 +37,7 @@ impl Conn {
                 ..Default::default()
             }))
             .await
-            .map_err(|s| OpError::rpc("ListSchedules", s))?
+            .map_err(|s| super::rpc("ListSchedules", s))?
             .into_inner();
 
         let mut rows: Vec<ScheduleRow> = resp

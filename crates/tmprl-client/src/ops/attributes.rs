@@ -27,7 +27,7 @@ impl Conn {
                 namespace: namespace.to_string(),
             }))
             .await
-            .map_err(|s| OpError::rpc("ListSearchAttributes", s))?
+            .map_err(|s| super::rpc("ListSearchAttributes", s))?
             .into_inner();
 
         let mut out: Vec<SearchAttribute> = resp

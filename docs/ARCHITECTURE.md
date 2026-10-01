@@ -63,9 +63,9 @@ project testable:
 
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
-| `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 68 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 335 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 316 |
+| `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 71 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 342 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 338 |
 | `tmprl-ui` | built | Plain unit tests over the layout tree | 37 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -123,6 +123,7 @@ Every file opens with a `//!` line saying what it is; this is those lines, gathe
 | `key.rs`, `keymap.rs`, `mode.rs` | keys, the default bindings, modes |
 | `picker.rs`, `fuzzy.rs`, `form.rs`, `jumplist.rs` | the pickers, their matching, multi-field input, `<C-o>` |
 | `config.rs`, `clock.rs`, `loadable.rs` | config parsing, wall-clock rendering, four-state remote data |
+| `fault.rs` | a failed request: the call, the gRPC code, the server's message, and what to try |
 | `theme.rs` | colour depth from the environment, `theme.toml`, hex to the nearest of 16 |
 
 **`tmprl-client`**, all network IO: `conn.rs` connects; `ops/` has one file per area of the
@@ -196,12 +197,18 @@ enum Loadable<T> {
     NotAsked,
     Loading,
     Loaded(T, Instant),   // with the time it was fetched, for staleness display
-    Failed(String),
+    Failed(Fault),        // the call, the gRPC code, the server's own message
 }
 ```
 
 Panes render all four. There is no code path where a view waits for data, because there is no
 way to express waiting, only a way to express "not here yet", which draws a skeleton.
+
+A failure crosses the task boundary as a `Fault`, not a string. The code is what lets the
+interface tell "the server did not answer" from "the server said no", which want different
+things from the reader, and it is why a namespace-scoped key is recognised by
+`PermissionDenied` rather than by the wording of the refusal. Every note the status line shows
+is also kept, with its `Fault` when it had one, and `:messages` lists them.
 
 ### Frame pacing
 

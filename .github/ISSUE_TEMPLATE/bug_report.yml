@@ -1,0 +1,102 @@
+name: Bug report
+description: tmprl did something wrong, or failed to do something it says it does
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Redact before you paste. Workflow ids, run ids, payloads, namespace names, cluster addresses and API keys can all identify a customer or a system. Replace them with placeholders of the same shape.
+
+        A vulnerability does not belong here. See the [security policy](https://github.com/arisros/tmprl/security/policy).
+  - type: input
+    id: version
+    attributes:
+      label: tmprl version
+      description: The output of `tmprl -V`.
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Install method
+      options:
+        - Homebrew (arisros/tap)
+        - Installer script from the GitHub release
+        - cargo install tmprl
+        - Built from source
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      description: Name, version and architecture.
+      placeholder: macOS 15.5, arm64
+    validations:
+      required: true
+  - type: input
+    id: terminal
+    attributes:
+      label: Terminal
+      description: The terminal emulator and its version.
+      placeholder: Ghostty 1.2
+    validations:
+      required: true
+  - type: checkboxes
+    id: transport
+    attributes:
+      label: tmux and SSH
+      description: Check what applies. Leave both empty for a local terminal with no multiplexer.
+      options:
+        - label: Inside tmux
+        - label: Over SSH
+  - type: input
+    id: server
+    attributes:
+      label: Temporal server
+      description: The server version, or "Temporal Cloud". For a dev server, `temporal --version` prints it.
+      placeholder: 1.29.1
+    validations:
+      required: true
+  - type: dropdown
+    id: codec
+    attributes:
+      label: Codec server
+      description: Whether a codec endpoint is set in tmprl's `config.toml` for this profile.
+      options:
+        - "No"
+        - "Yes"
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The keys pressed, in order, starting from the screen you were on. Include any `config.toml`, `keys.toml` or `views.toml` settings that matter.
+      placeholder: |
+        1. Open a workflow history with Enter
+        2. Press K on an activity row
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual
+      description: What happened instead, including the text of the status line or any error. A screenshot helps for a drawing bug, redacted.
+    validations:
+      required: true
+  - type: checkboxes
+    id: redacted
+    attributes:
+      label: Redaction
+      options:
+        - label: Nothing above contains a real workflow id, payload, cluster address or credential
+          required: true

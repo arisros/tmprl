@@ -27,8 +27,7 @@ impl App {
             let result = conn
                 .list_schedules(&namespace, PAGE_SIZE, Vec::new())
                 .await
-                .map(|p| p.rows)
-                .map_err(|e| e.to_string());
+                .map(|p| p.rows);
             let _ = tx.send(Msg::Schedules { generation, result });
         });
     }
@@ -41,7 +40,7 @@ impl App {
         self.view.namespaces.begin_refresh();
         let tx = self.tx.clone();
         tokio::spawn(async move {
-            let res = conn.list_namespaces().await.map_err(|e| e.to_string());
+            let res = conn.list_namespaces().await;
             let _ = tx.send(Msg::Namespaces(res));
         });
     }
@@ -67,10 +66,7 @@ impl App {
         self.search_attributes.begin_refresh();
         let tx = self.tx.clone();
         tokio::spawn(async move {
-            let result = conn
-                .list_search_attributes(&namespace)
-                .await
-                .map_err(|e| e.to_string());
+            let result = conn.list_search_attributes(&namespace).await;
             let _ = tx.send(Msg::SearchAttributes { namespace, result });
         });
     }
@@ -125,8 +121,7 @@ impl App {
                     .await
             } else {
                 conn.list_workflows_across(&scope, &query, PAGE_SIZE).await
-            }
-            .map_err(|e| e.to_string());
+            };
             let _ = tx.send(Msg::Workflows {
                 generation,
                 append,
@@ -179,8 +174,7 @@ impl App {
                     token,
                 )
                 .await
-                .map(|p| (p.events, p.next_page_token))
-                .map_err(|e| e.to_string());
+                .map(|p| (p.events, p.next_page_token));
             let _ = tx.send(Msg::History { generation, result });
         });
     }
@@ -198,8 +192,7 @@ impl App {
         tokio::spawn(async move {
             let result = conn
                 .pending_activities(&row.namespace, &row.workflow_id, &row.run_id)
-                .await
-                .map_err(|e| e.to_string());
+                .await;
             let _ = tx.send(Msg::Pending { generation, result });
         });
     }
@@ -220,8 +213,7 @@ impl App {
                 every.tick().await;
                 let result = conn
                     .pending_activities(&row.namespace, &row.workflow_id, &row.run_id)
-                    .await
-                    .map_err(|e| e.to_string());
+                    .await;
                 let failed = result.is_err();
                 if tx.send(Msg::Pending { generation, result }).is_err() || failed {
                     return;
@@ -252,10 +244,7 @@ impl App {
             self.view.query.clone(),
         );
         tokio::spawn(async move {
-            let result = conn
-                .count_workflows_across(&scope, &query)
-                .await
-                .map_err(|e| e.to_string());
+            let result = conn.count_workflows_across(&scope, &query).await;
             let _ = tx.send(Msg::Counts { generation, result });
         });
     }

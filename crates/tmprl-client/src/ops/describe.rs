@@ -32,7 +32,7 @@ impl Conn {
                 }),
             }))
             .await
-            .map_err(|s| OpError::rpc("DescribeWorkflowExecution", s))?
+            .map_err(|s| super::rpc("DescribeWorkflowExecution", s))?
             .into_inner();
         Ok(resp
             .pending_activities

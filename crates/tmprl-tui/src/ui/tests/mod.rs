@@ -12,6 +12,7 @@ use tokio::sync::mpsc::unbounded_channel;
 mod chrome;
 mod detail;
 mod history;
+mod messages;
 mod schedules;
 mod theme;
 mod timeline;

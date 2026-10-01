@@ -68,7 +68,7 @@ pub fn render(frame: &mut Frame, confirm: &Confirm, t: &Theme) {
     )));
     // Wrapped rather than truncated: a command you can only see half of is not one you can
     // check, and checking it is the point.
-    for chunk in wrap(&m.cli(), 66) {
+    for chunk in super::wrap(&m.cli(), 66) {
         lines.push(Line::from(Span::styled(format!("    {chunk}"), t.ok)));
     }
     lines.push(Line::raw(""));
@@ -113,23 +113,4 @@ pub fn render(frame: &mut Frame, confirm: &Confirm, t: &Theme) {
         ),
         area,
     );
-}
-
-/// Break a long command on spaces so it can be read across several lines.
-fn wrap(s: &str, width: usize) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut line = String::new();
-    for word in s.split(' ') {
-        if !line.is_empty() && line.chars().count() + 1 + word.chars().count() > width {
-            out.push(std::mem::take(&mut line));
-        }
-        if !line.is_empty() {
-            line.push(' ');
-        }
-        line.push_str(word);
-    }
-    if !line.is_empty() {
-        out.push(line);
-    }
-    out
 }
