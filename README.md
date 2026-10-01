@@ -154,7 +154,7 @@ cargo test                       # integration tests skip with no server
 TMPRL_REQUIRE_SERVER=1 cargo test  # what CI runs
 ```
 
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/INTERFACE.md](docs/INTERFACE.md) · [docs/RELEASING.md](docs/RELEASING.md) · [CHANGELOG.md](CHANGELOG.md)
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/INTERFACE.md](docs/INTERFACE.md) · [docs/ROADMAP.md](docs/ROADMAP.md) · [docs/RELEASING.md](docs/RELEASING.md) · [CHANGELOG.md](CHANGELOG.md)
 
 ## Roadmap
 
@@ -162,13 +162,17 @@ TMPRL_REQUIRE_SERVER=1 cargo test  # what CI runs
 - [x] histories, follow mode, retries in progress, the timeline, `jq`, codec server
 - [x] search that reaches the server, pickers, jumplist, splits and tabs
 - [x] mutations, schedules, batch over a selection of rows
-- [ ] batch over a query, server-side
-- [ ] task queues and workers
-- [ ] themes from `theme.toml`, headless `--exec`, macros, diff
 
-Nexus operations already appear inside a history, and a profile's `accent` colour already
-works; the rest of the palette is compiled in. A Nexus screen, deployments and archival are
-not planned.
+| Next | |
+|---|---|
+| 0.2 | timeouts and reconnect, readable errors, large histories, paste, `theme.toml`, more CLI flags |
+| 0.3 | a workflow info pane, signal and update payloads, queries, run chains, batch over a query |
+| 0.4 | task queues and pollers, a history opened from a file, export, headless `--exec` |
+| 0.5 | quickfix, marks, diff, macros |
+
+[docs/ROADMAP.md](docs/ROADMAP.md) has each item, and what is not planned and why. Nexus
+operations already appear inside a history, and a profile's `accent` colour already works;
+the rest of the palette is compiled in.
 
 ## Prior art
 
