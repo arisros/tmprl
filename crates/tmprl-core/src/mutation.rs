@@ -10,6 +10,7 @@
 //! rendered command has to be *correct*: someone will copy it and run it. The flags here are
 //! checked against `temporal workflow --help`, and the quoting is tested.
 
+use crate::line::LineEdit;
 use crate::timerange::{Overlap, TimeRange, to_rfc3339};
 
 /// A change to a cluster, fully specified.
@@ -407,7 +408,7 @@ pub struct Confirm {
     /// the operations where a single keypress is too cheap for what it does.
     pub typed_word: Option<String>,
     /// What they have typed so far.
-    pub entered: String,
+    pub entered: LineEdit,
 }
 
 impl Confirm {
@@ -431,7 +432,7 @@ impl Confirm {
         Self {
             mutations,
             typed_word,
-            entered: String::new(),
+            entered: LineEdit::default(),
         }
     }
 

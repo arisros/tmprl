@@ -11,7 +11,12 @@ use crate::theme::Theme;
 /// Width of the label column, so the values line up under each other.
 const LABEL: usize = 15;
 
+/// How wide the box is, borders included.
+const WIDTH: u16 = 60;
+
 pub fn render(frame: &mut Frame, form: &Form, t: &Theme) {
+    // What a value has to itself: the box, less its borders and the label column.
+    let room = (WIDTH.min(frame.area().width) as usize).saturating_sub(2 + 2 + LABEL);
     let mut lines = Vec::new();
     for (i, field) in form.fields.iter().enumerate() {
         let focused = i == form.cursor;
@@ -19,19 +24,17 @@ pub fn render(frame: &mut Frame, form: &Form, t: &Theme) {
             format!("  {:<LABEL$}", field.label),
             if focused { t.fg } else { t.dim },
         );
-        // An empty field shows what belongs in it. Faint, so a hint is never mistaken for a
-        // value that is already there.
-        let value = if field.value.is_empty() && !focused {
-            Span::styled(field.hint.to_string(), t.faint)
-        } else {
-            Span::styled(field.value.clone(), t.fg)
-        };
-        let mut spans = vec![label, value];
+        let mut spans = vec![label];
         if focused {
-            spans.push(Span::styled("█", t.accent));
-            if field.value.is_empty() {
-                spans.push(Span::styled(format!("  {}", field.hint), t.faint));
-            }
+            spans.extend(super::input::spans(&field.value, t.fg, room));
+        } else {
+            spans.push(Span::styled(field.value.text(), t.fg));
+        }
+        // An empty field shows what belongs in it. Faint, so a hint is never mistaken for a
+        // value that is already there, and after the cursor on the field being typed in.
+        if field.value.is_empty() {
+            let gap = if focused { "  " } else { "" };
+            spans.push(Span::styled(format!("{gap}{}", field.hint), t.faint));
         }
         lines.push(Line::from(spans));
     }
@@ -43,7 +46,7 @@ pub fn render(frame: &mut Frame, form: &Form, t: &Theme) {
     )));
 
     let height = (lines.len() as u16 + 2).min(frame.area().height);
-    let area = super::centered(frame.area(), 60, height);
+    let area = super::centered(frame.area(), WIDTH, height);
     if area.height < 3 || area.width < 20 {
         return;
     }

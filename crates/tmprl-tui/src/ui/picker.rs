@@ -59,19 +59,18 @@ pub fn render(frame: &mut Frame, picker: &Picker, t: &Theme) {
 }
 
 fn render_prompt(frame: &mut Frame, area: Rect, picker: &Picker, t: &Theme) {
-    let counts = format!("{}/{}", picker.shown(), picker.total());
-    let line = Line::from(vec![
-        Span::styled(
-            format!(" {} ", picker.kind.title()),
-            t.accent.add_modifier(Modifier::BOLD),
-        ),
+    let title = format!(" {} ", picker.kind.title());
+    let counts = format!("  {}/{}", picker.shown(), picker.total());
+    // The prompt scrolls inside what the title and the counts leave it, so a long one
+    // never pushes "3/50" off the edge: that number is how you know the list narrowed.
+    let room = (area.width as usize).saturating_sub(title.len() + 2 + counts.len());
+    let mut spans = vec![
+        Span::styled(title, t.accent.add_modifier(Modifier::BOLD)),
         Span::styled("> ", t.accent),
-        Span::styled(picker.prompt.clone(), t.fg),
-        // A block caret, since the terminal's own is parked in the statusline.
-        Span::styled("▏", t.accent),
-        Span::styled(format!("  {counts}"), t.faint),
-    ]);
-    frame.render_widget(Paragraph::new(line), area);
+    ];
+    spans.extend(super::input::spans(&picker.prompt, t.fg, room.max(1)));
+    spans.push(Span::styled(counts, t.faint));
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
 fn render_list(frame: &mut Frame, area: Rect, picker: &Picker, t: &Theme) {

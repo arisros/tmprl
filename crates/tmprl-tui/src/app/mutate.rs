@@ -69,7 +69,7 @@ impl App {
                 // prompt comes back.
                 self.prompt = Some(Prompt {
                     kind: PromptKind::Backfill,
-                    buf: String::new(),
+                    buf: LineEdit::default(),
                 });
                 self.mode = Mode::Command;
                 return;
@@ -116,7 +116,7 @@ impl App {
                 } else {
                     PromptKind::Update
                 },
-                buf: String::new(),
+                buf: LineEdit::default(),
             });
             self.mode = Mode::Command;
             return;
@@ -270,11 +270,10 @@ impl App {
             Key::Enter => self.confirm_new_schedule(),
             // Backspace on an empty field moves back rather than closing the form: a form is
             // several fields deep, so losing all of them to one key would be a trap.
-            // The guard does the deleting, as `prompt_key` and `picker_key` do.
-            Key::Backspace if !form.backspace() => form.previous(),
-            Key::Backspace => {}
-            Key::Char(c) if chord.mods.is_none() => form.push(c),
-            _ => {}
+            Key::Backspace if form.on_empty_field() => form.previous(),
+            _ => {
+                form.key(chord);
+            }
         }
     }
 
@@ -349,11 +348,9 @@ impl App {
             }
             // Enter with the word unfinished is not a refusal, just not yet.
             Key::Enter => {}
-            Key::Backspace => {
-                confirm.entered.pop();
+            _ => {
+                confirm.entered.key(chord);
             }
-            Key::Char(c) if chord.mods.is_none() => confirm.entered.push(c),
-            _ => {}
         }
     }
 

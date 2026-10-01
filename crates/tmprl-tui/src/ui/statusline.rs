@@ -196,11 +196,11 @@ fn status_style(s: tmprl_core::WorkflowStatus, t: &Theme) -> Style {
 pub fn render_status(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
     // The command line takes over the status row while it is open.
     if let Some(prompt) = &app.prompt {
-        let line = Line::from(vec![
-            Span::styled(prompt.sigil(), t.accent),
-            Span::styled(prompt.buf.clone(), t.fg),
-            Span::styled("█", t.accent),
-        ]);
+        let sigil = prompt.sigil();
+        let room = (area.width as usize).saturating_sub(sigil.len());
+        let mut spans = vec![Span::styled(sigil, t.accent)];
+        spans.extend(super::input::spans(&prompt.buf, t.fg, room));
+        let line = Line::from(spans);
         frame.render_widget(Paragraph::new(line), area);
         return;
     }

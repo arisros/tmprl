@@ -61,6 +61,11 @@ So:
 `<C-w>` is also what vim itself uses for window motions, so this is the more consistent
 choice regardless.
 
+The rule is about commands: nothing may be reachable *only* through a chord tmux takes.
+Inside a text input `<C-k>` is bound all the same, to readline's delete-to-end, see
+[Editing a line](#editing-a-line). A navigator that takes the chord leaves that input no
+worse off than it was, and the keymap itself still binds none of the four.
+
 ### Yank must be OSC 52, not `xclip`
 
 The common deployment is SSH into a remote host, often headless. There, `xclip` and `xsel`
@@ -218,6 +223,14 @@ the end: `ExecutionStatus = 'Running'` has spaces in it, and completing a word w
 the field name behind and produce `ExecutionStatus = ExecutionStatus = 'Running'`. A quoted
 literal is not a split, so `WorkflowId = 'send and forget'` stays one clause.
 
+With the cursor in the middle of the line, the clause being typed is what lies between the
+last `AND` or `OR` and the **cursor**: that is what ranks the offers and that is all `<Tab>`
+replaces. Text right of the cursor is never deleted. It may be the rest of this clause or
+the whole of the next one, and nothing tells the two apart until an `AND` is typed between
+them, so a completion that guessed would sometimes take a clause nobody offered it. The
+cursor lands after the clause that went in. Moving the cursor dismisses the offers, since
+they were ranked for where it was, and the next character typed brings them back.
+
 Nothing is offered until something is typed, and nothing is offered once a clause ends in a
 space: a list that appears the moment Insert mode opens, or that offers back the text just
 finished, is in the way of the common case, which is typing a query you already know. `<Tab>`
@@ -232,6 +245,46 @@ says where the cursor is, the thumb says how much of the whole you are looking a
 Where a pane is boxed, the help overlay, the bar rides the border and costs nothing. The
 lists are not boxed, and their rightmost column holds the age, so there the bar takes a
 column of its own rather than painting over a value.
+
+### Editing a line
+
+Every text input is the same one-line editor with a cursor: the `:` line and the `!`, `/`,
+signal, update and backfill prompts, the query bar, a picker's prompt, a form field, and the
+word a confirmation asks for. The keys are readline's, because those are the ones already in
+people's fingers in a single-line input:
+
+| Key | |
+|---|---|
+| `Left` `Right`, `<C-b>` `<C-f>` | one character |
+| `Home` `End`, `<C-a>` `<C-e>` | start and end of the line |
+| `<A-Left>` `<A-Right>`, `<C-Left>` `<C-Right>`, `<A-b>` `<A-f>` | one word, where a word is letters, digits and `_` |
+| `Backspace`, `Delete` | delete the character before the cursor, or under it |
+| `<C-w>`, `<A-BS>` | delete back to the previous space |
+| `<C-u>` | delete to the start of the line |
+| `<C-k>` | delete to the end of the line |
+
+These are not commands and are not in `keys.toml`: inside an input a key is text or an
+edit, and the input handles it itself. Each input keeps the keys that were already its own,
+and they win: `Enter` and `Esc` everywhere, `<Tab>` `<C-n>` `<C-p>` for the offers under the
+query bar, `jk` to leave it, `<C-n>` `<C-p>` `Up` `Down` in a picker, `<Tab>` `<S-Tab>` `Up`
+`Down` between form fields. `Backspace` on an empty prompt still closes it, and on an empty
+form field still steps back a field; `<C-u>` empties a line without closing anything.
+
+`<C-k>` is bound here although `<C-h/j/k/l>` are kept out of the keymap. That ban is on
+commands, which must not depend on a chord vim-tmux-navigator takes before tmprl sees it.
+Deleting to the end of a line is a convenience with nothing depending on it, so where the
+chord arrives it does what readline does, and where tmux takes it the input is exactly as
+it was before the key existed. `<C-n>` and `<C-p>` keep meaning *move in the list*, not
+readline's history, which tmprl's inputs do not have yet.
+
+The `<A-…>` keys need the terminal to send Alt as Meta. macOS terminals do not by default
+(Terminal.app: *Use Option as Meta key*; iTerm2: *Left Option key: Esc+*), and until they do
+Option-b types `∫`.
+
+The cursor is drawn in reverse video, so it shows with `NO_COLOR` as well, and a line wider
+than its room scrolls to keep the cursor in view. It moves by `char`, not by grapheme: a
+letter with a combining accent, or an emoji built from several code points, is more than
+one stop and more than one backspace.
 
 ### Windows
 

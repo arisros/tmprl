@@ -165,7 +165,7 @@ impl App {
             kind: PromptKind::Pipe,
             // Pre-filled: `jq` is what this is for, and an empty prompt makes you type the
             // same three characters every time.
-            buf: "jq .".into(),
+            buf: LineEdit::new("jq ."),
         });
         self.mode = Mode::Command;
     }

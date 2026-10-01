@@ -64,8 +64,8 @@ project testable:
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
 | `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 77 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 342 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 375 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 371 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 400 |
 | `tmprl-ui` | built | Plain unit tests over the layout tree | 37 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -121,6 +121,7 @@ Every file opens with a `//!` line saying what it is; this is those lines, gathe
 | `payload.rs` | payloads: bytes plus the metadata saying how to read them |
 | `command.rs` | **the command registry: every action tmprl can take, by id** |
 | `key.rs`, `keymap.rs`, `mode.rs` | keys, the default bindings, modes |
+| `line.rs` | the line editor behind every text input: text, a cursor, the readline keys |
 | `picker.rs`, `fuzzy.rs`, `form.rs`, `jumplist.rs` | the pickers, their matching, multi-field input, `<C-o>` |
 | `config.rs`, `clock.rs`, `loadable.rs` | config parsing, wall-clock rendering, four-state remote data |
 | `fault.rs` | a failed request: the call, the gRPC code, the server's message, and what to try |
@@ -490,10 +491,10 @@ The focused pane's `View` is held directly on `App` and the others wait in a map
 swaps between the two. That is what lets the whole reducer keep saying `self.view` without a
 lookup that could fail.
 
-Three things can own the keyboard, and they are checked in this order: a confirmation, a
-prompt, then a form. A confirmation outranks the rest because a pending change to a cluster
-must not be reachable around; a form outranks the keymap because inside a field `j` is the
-letter, not a cursor move.
+Four things can own the keyboard, and they are checked in this order: a confirmation, a
+prompt, a picker, then a form. A confirmation outranks the rest because a pending change to
+a cluster must not be reachable around; a form outranks the keymap because inside a field
+`j` is the letter, not a cursor move.
 
 ```mermaid
 flowchart LR
@@ -501,10 +502,19 @@ flowchart LR
     C -->|yes| CK[confirm_key]
     C -->|no| P{prompt?}
     P -->|yes| PK[prompt_key]
-    P -->|no| F{form?}
+    P -->|no| PI{picker?}
+    PI -->|yes| PIK[picker_key]
+    PI -->|no| F{form?}
     F -->|yes| FK[form_key]
     F -->|no| KM[keymap resolve]
 ```
+
+Each of those four, and the query bar the keymap feeds in Insert mode, holds a
+`tmprl_core::LineEdit`. The input matches the keys that are its own, `Enter`, `Esc`,
+whatever moves its list, and hands the rest to `LineEdit::key`, which is the one table of
+editing keys. They are deliberately not `Command`s (rule 3 in §10 is about actions on the
+app): in an input a key is text or an edit to that text, and it has to stay literal under
+any remap.
 
 Editing a form lives in `tmprl-core`, not the renderer: field movement, validation and which
 field is missing are all decidable without knowing the terminal size, so they are unit-tested

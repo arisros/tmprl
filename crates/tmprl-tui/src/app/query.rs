@@ -11,7 +11,7 @@ impl App {
     /// applied. Used by the tests and by anything that needs the focused pane's query.
     pub fn query_display(&self) -> &str {
         if self.is_editing_query() {
-            &self.insert_buf
+            self.insert_buf.text()
         } else {
             &self.view.query
         }
@@ -90,16 +90,12 @@ impl App {
         self.load_workflows(false);
     }
 
-    /// Literal input, the two editing keys a text field cannot do without, and the keys
-    /// that drive the completion list under the bar.
+    /// The keys that drive the completion list under the bar, and after them whatever the
+    /// line editor makes of the rest.
     pub(super) fn insert_keys(&mut self, flushed: Vec<Chord>) {
         use tmprl_core::{Key, Mods};
         for c in flushed {
             match c.key {
-                Key::Backspace if c.mods.is_none() => {
-                    self.insert_buf.pop();
-                    self.recompute_completion();
-                }
                 // Enter applies the query rather than accepting an offer. The offer is on
                 // `<Tab>`, so a query you typed in full is never diverted by a list you
                 // were not reading.
@@ -107,12 +103,14 @@ impl App {
                 Key::Tab if c.mods.is_none() => self.accept_completion(),
                 Key::Char('n') if c.mods == Mods::CTRL => self.move_completion(1),
                 Key::Char('p') if c.mods == Mods::CTRL => self.move_completion(-1),
-                _ => {
-                    if let Some(ch) = c.as_insertable() {
-                        self.insert_buf.push(ch);
-                        self.recompute_completion();
-                    }
-                }
+                _ => match self.insert_buf.key(c) {
+                    Edit::Changed => self.recompute_completion(),
+                    // The offers were ranked against what is left of the cursor, and it
+                    // has moved. They come back with the next character typed, which is
+                    // quieter than a list that follows the cursor across the line.
+                    Edit::Unchanged => self.completion = None,
+                    Edit::Ignored => {}
+                },
             }
         }
     }
@@ -128,7 +126,7 @@ impl App {
             return;
         }
         let clauses = self.filter_clauses();
-        self.completion = Completion::new(&self.insert_buf, clauses);
+        self.completion = Completion::new(&self.insert_buf, self.insert_buf.cursor(), clauses);
     }
 
     fn move_completion(&mut self, delta: isize) {
@@ -137,7 +135,8 @@ impl App {
         }
     }
 
-    /// `<Tab>`: splice the selected offer into the bar, replacing the clause being typed.
+    /// `<Tab>`: splice the selected offer into the bar, replacing the clause being typed,
+    /// which is what lies left of the cursor.
     ///
     /// The query is *not* applied: the text lands in the bar and stays editable, which is
     /// the rule the whole bar is built on. Enter still applies it.
@@ -150,7 +149,8 @@ impl App {
         else {
             return;
         };
-        self.insert_buf = complete::apply(&self.insert_buf, &clause);
+        let (text, cursor) = complete::apply(&self.insert_buf, self.insert_buf.cursor(), &clause);
+        self.insert_buf.set(text, cursor);
         // A fresh list for the text as it now stands: what was being typed is complete, so
         // there is nothing left to offer for it.
         self.completion = None;
@@ -161,7 +161,7 @@ impl App {
         if self.insert_target != InsertTarget::Query {
             return;
         }
-        self.view.query = self.insert_buf.clone();
+        self.view.query = self.insert_buf.text().to_string();
         self.mode = Mode::Normal;
         self.insert_target = InsertTarget::Scratch;
         self.insert_buf.clear();

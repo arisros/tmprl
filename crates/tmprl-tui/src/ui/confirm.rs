@@ -12,6 +12,9 @@ use tmprl_core::mutation::Confirm;
 
 use crate::theme::Theme;
 
+/// How wide the box is, borders included.
+const WIDTH: u16 = 74;
+
 /// How many targets a batch confirmation lists before summarising the rest.
 const LISTED: usize = 8;
 
@@ -82,11 +85,10 @@ pub fn render(frame: &mut Frame, confirm: &Confirm, t: &Theme) {
             ),
             Span::styled(format!("type `{word}`:"), t.fg),
         ]));
-        lines.push(Line::from(vec![
-            Span::styled("    ", Style::new()),
-            Span::styled(confirm.entered.clone(), t.fg),
-            Span::styled("█", accent),
-        ]));
+        let room = (WIDTH.min(frame.area().width) as usize).saturating_sub(2 + 4);
+        let mut typed = vec![Span::styled("    ", Style::new())];
+        typed.extend(super::input::spans(&confirm.entered, t.fg, room));
+        lines.push(Line::from(typed));
         lines.push(Line::raw(""));
     }
     lines.push(Line::from(Span::styled(
@@ -95,7 +97,7 @@ pub fn render(frame: &mut Frame, confirm: &Confirm, t: &Theme) {
     )));
 
     let height = (lines.len() as u16 + 2).min(frame.area().height);
-    let area = super::centered(frame.area(), 74, height);
+    let area = super::centered(frame.area(), WIDTH, height);
     if area.height < 3 || area.width < 20 {
         return;
     }

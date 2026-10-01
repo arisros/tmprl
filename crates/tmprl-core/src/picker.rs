@@ -13,6 +13,8 @@
 //! so a new kind of picker cannot be silently unhandled.
 
 use crate::fuzzy::{self, Match};
+use crate::key::Chord;
+use crate::line::{Edit, LineEdit};
 
 /// What accepting an entry means.
 ///
@@ -135,8 +137,9 @@ impl Kind {
 #[derive(Debug, Clone)]
 pub struct Picker {
     pub kind: Kind,
-    /// What has been typed, verbatim.
-    pub prompt: String,
+    /// What has been typed, verbatim. Read it freely; edit it through [`Picker::key`],
+    /// which is what re-ranks the list.
+    pub prompt: LineEdit,
     /// Every candidate, in the order it was handed over. That order is the tiebreak when
     /// scores are equal, so a workflow picker opens newest-first like the list behind it.
     items: Vec<Item>,
@@ -150,7 +153,7 @@ impl Picker {
     pub fn new(kind: Kind, items: Vec<Item>) -> Self {
         let mut p = Self {
             kind,
-            prompt: String::new(),
+            prompt: LineEdit::default(),
             items,
             hits: Vec::new(),
             cursor: 0,
@@ -210,20 +213,23 @@ impl Picker {
     }
 
     pub fn push(&mut self, c: char) {
-        self.prompt.push(c);
-        self.forget_answers();
-        self.refilter();
+        self.prompt.insert(c);
+        self.prompt_changed();
     }
 
-    /// Delete a character. `false` when there was nothing to delete, which the caller turns
-    /// into closing the picker, the way backspace on an empty prompt does everywhere else.
-    pub fn backspace(&mut self) -> bool {
-        let had = self.prompt.pop().is_some();
-        if had {
-            self.forget_answers();
-            self.refilter();
+    /// An editing key in the prompt. The list is re-ranked only when the text changed: a
+    /// cursor move must not send the selection back to the top.
+    pub fn key(&mut self, chord: Chord) -> Edit {
+        let edit = self.prompt.key(chord);
+        if edit == Edit::Changed {
+            self.prompt_changed();
         }
-        had
+        edit
+    }
+
+    fn prompt_changed(&mut self) {
+        self.forget_answers();
+        self.refilter();
     }
 
     /// Move the cursor, clamping rather than wrapping.
@@ -282,6 +288,11 @@ impl Picker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::key::Key;
+
+    fn backspace(p: &mut Picker) -> Edit {
+        p.key(Chord::plain(Key::Backspace))
+    }
 
     fn items(labels: &[&str]) -> Vec<Item> {
         labels
@@ -354,11 +365,33 @@ mod tests {
     fn backspace_reports_when_there_is_nothing_left_to_delete() {
         let mut p = picker(&["a"]);
         p.push('a');
-        assert!(p.backspace(), "deleted the 'a'");
-        assert!(
-            !p.backspace(),
-            "empty, so the caller should close the picker"
-        );
+        assert_eq!(backspace(&mut p), Edit::Changed, "deleted the 'a'");
+        assert!(p.prompt.is_empty(), "so the caller should close the picker");
+        assert_eq!(backspace(&mut p), Edit::Unchanged);
+    }
+
+    #[test]
+    fn moving_in_the_prompt_keeps_the_selection_where_it_was() {
+        // Only a change to the text re-ranks. A cursor move that reset the list would undo
+        // the `<C-n>` that came before it.
+        let mut p = picker(&["alpha", "beta", "gamma"]);
+        p.push('a');
+        p.move_cursor(2);
+        assert_eq!(p.key(Chord::plain(Key::Left)), Edit::Unchanged);
+        assert_eq!(p.cursor, 2);
+    }
+
+    #[test]
+    fn an_edit_in_the_middle_of_the_prompt_narrows_the_list() {
+        let mut p = picker(&["order-checkout", "order-refund", "shipping"]);
+        p.push('o');
+        p.push('r');
+        p.key(Chord::plain(Key::Left));
+        p.push('z');
+        assert_eq!(p.prompt, "ozr");
+        assert!(p.is_empty());
+        p.key(Chord::plain(Key::Backspace));
+        assert_eq!(p.shown(), 2);
     }
 
     #[test]
@@ -367,8 +400,8 @@ mod tests {
         p.push('o');
         p.push('r');
         assert_eq!(p.shown(), 1);
-        p.backspace();
-        p.backspace();
+        backspace(&mut p);
+        backspace(&mut p);
         assert_eq!(p.shown(), 2, "back to everything");
     }
 

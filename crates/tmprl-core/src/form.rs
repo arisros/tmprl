@@ -8,11 +8,14 @@
 //! Editing lives here rather than in the renderer so that field movement, validation and the
 //! rendered command are all testable without a terminal.
 
+use crate::key::Chord;
+use crate::line::{Edit, LineEdit};
+
 /// One labelled line of a [`Form`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Field {
     pub label: &'static str,
-    pub value: String,
+    pub value: LineEdit,
     /// Shown in place of an empty value, to say what belongs there.
     pub hint: &'static str,
     pub required: bool,
@@ -35,7 +38,7 @@ impl Form {
     pub fn new_schedule() -> Self {
         let f = |label, hint, required| Field {
             label,
-            value: String::new(),
+            value: LineEdit::default(),
             hint,
             required,
         };
@@ -68,17 +71,23 @@ impl Form {
 
     pub fn push(&mut self, c: char) {
         if let Some(f) = self.fields.get_mut(self.cursor) {
-            f.value.push(c);
+            f.value.insert(c);
         }
     }
 
-    /// Delete backwards. Reports whether anything was there, so the caller can decide what an
-    /// empty backspace means.
-    pub fn backspace(&mut self) -> bool {
+    /// An editing key, in the focused field.
+    pub fn key(&mut self, chord: Chord) -> Edit {
         self.fields
             .get_mut(self.cursor)
-            .and_then(|f| f.value.pop())
-            .is_some()
+            .map_or(Edit::Ignored, |f| f.value.key(chord))
+    }
+
+    /// Whether the focused field has nothing in it, so the caller can decide what a
+    /// backspace there means.
+    pub fn on_empty_field(&self) -> bool {
+        self.fields
+            .get(self.cursor)
+            .is_none_or(|f| f.value.is_empty())
     }
 
     /// The value of a field by label, trimmed. Empty when absent.
@@ -112,6 +121,7 @@ impl Form {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::key::Key;
 
     #[test]
     fn a_new_schedule_asks_for_everything_the_server_requires() {
@@ -162,12 +172,43 @@ mod tests {
     }
 
     #[test]
-    fn backspace_says_whether_it_removed_anything() {
+    fn an_empty_field_says_so_before_and_after_a_backspace() {
         let mut f = Form::new_schedule();
-        assert!(!f.backspace(), "nothing to delete on an empty field");
+        assert!(f.on_empty_field());
         f.push('x');
-        assert!(f.backspace());
+        assert!(!f.on_empty_field());
+        assert_eq!(f.key(Chord::plain(Key::Backspace)), Edit::Changed);
+        assert!(f.on_empty_field());
         assert_eq!(f.get("schedule id"), "");
+    }
+
+    #[test]
+    fn editing_keys_act_on_the_focused_field_and_leave_the_rest() {
+        let mut f = Form::new_schedule();
+        for c in "nightly".chars() {
+            f.push(c);
+        }
+        f.next();
+        for c in "recon".chars() {
+            f.push(c);
+        }
+        f.key(Chord::plain(Key::Home));
+        f.push('x');
+        f.key(Chord::ctrl('k'));
+        assert_eq!(f.get("workflow id"), "x");
+        assert_eq!(f.get("schedule id"), "nightly");
+    }
+
+    #[test]
+    fn each_field_keeps_its_own_cursor() {
+        let mut f = Form::new_schedule();
+        f.push('a');
+        f.push('c');
+        f.key(Chord::plain(Key::Left));
+        f.next();
+        f.previous();
+        f.push('b');
+        assert_eq!(f.get("schedule id"), "abc");
     }
 
     #[test]

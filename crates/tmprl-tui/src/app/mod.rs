@@ -49,6 +49,7 @@ use tmprl_core::filter::{self, SearchAttribute};
 use tmprl_core::form::Form;
 use tmprl_core::history::{NormalizedEvent, group_events, merge_events};
 use tmprl_core::jumplist::Jumplist;
+use tmprl_core::line::{Edit, LineEdit};
 use tmprl_core::mutation::{Confirm, Mutation};
 use tmprl_core::outline::{Outline, Row};
 use tmprl_core::payload::Payload;
@@ -200,7 +201,8 @@ pub enum PromptKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Prompt {
     pub kind: PromptKind,
-    pub buf: String,
+    /// The line being typed. It reads as a `&str`; editing goes through its own methods.
+    pub buf: LineEdit,
 }
 
 impl Prompt {
@@ -397,7 +399,7 @@ pub struct App {
     pub confirm: Option<Confirm>,
     /// `Some` while a multi-field form is open, for the inputs a single line cannot carry.
     pub form: Option<Form>,
-    pub insert_buf: String,
+    pub insert_buf: LineEdit,
     pub insert_target: InsertTarget,
     /// `Some` while a `<leader>f` picker is open. It owns the keyboard while it is, the
     /// way a prompt does.
@@ -521,7 +523,7 @@ impl App {
             prompt: None,
             confirm: None,
             form: None,
-            insert_buf: String::new(),
+            insert_buf: LineEdit::default(),
             insert_target: InsertTarget::Scratch,
             picker: None,
             picker_found: Vec::new(),
@@ -967,7 +969,7 @@ impl App {
             Action::OpenCommandLine => {
                 self.prompt = Some(Prompt {
                     kind: PromptKind::Command,
-                    buf: String::new(),
+                    buf: LineEdit::default(),
                 });
                 self.mode = Mode::Command;
             }
@@ -1044,7 +1046,7 @@ impl App {
                 // edit, not a retype.
                 if self.view.screen == Screen::Workflows {
                     self.insert_target = InsertTarget::Query;
-                    self.insert_buf = self.view.query.clone();
+                    self.insert_buf = LineEdit::new(self.view.query.clone());
                 } else {
                     self.insert_target = InsertTarget::Scratch;
                     self.insert_buf.clear();

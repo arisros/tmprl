@@ -26,10 +26,10 @@ impl App {
                 }
             }
             // Backspace on an empty line closes the prompt, as it does in vim.
-            Key::Backspace if prompt.buf.pop().is_none() => self.close_prompt(),
-            Key::Backspace => {}
-            Key::Char(c) if chord.mods.is_none() => prompt.buf.push(c),
-            _ => {}
+            Key::Backspace if prompt.buf.is_empty() => self.close_prompt(),
+            _ => {
+                prompt.buf.key(chord);
+            }
         }
     }
 

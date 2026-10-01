@@ -9,6 +9,7 @@ mod form;
 mod help;
 mod highlight;
 mod history;
+mod input;
 mod messages;
 mod namespaces;
 mod picker;

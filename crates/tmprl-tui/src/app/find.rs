@@ -207,11 +207,10 @@ impl App {
             Key::Char('n') if ctrl => self.move_picker(1),
             Key::Char('p') if ctrl => self.move_picker(-1),
             // Backspace on an empty prompt closes, as it does at every other prompt here.
-            // The guard does the deleting, matching how `prompt_key` is written.
-            Key::Backspace if !p.backspace() => self.picker = None,
-            Key::Backspace => {}
-            Key::Char(c) if chord.mods.is_none() => p.push(c),
-            _ => {}
+            Key::Backspace if p.prompt.is_empty() => self.picker = None,
+            _ => {
+                p.key(chord);
+            }
         }
         self.schedule_picker_search();
     }
@@ -368,7 +367,7 @@ impl App {
         self.mode = Mode::Command;
         self.prompt = Some(Prompt {
             kind: PromptKind::Search,
-            buf: String::new(),
+            buf: LineEdit::default(),
         });
     }
 
