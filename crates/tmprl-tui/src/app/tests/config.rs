@@ -57,3 +57,54 @@ fn views_from_config_become_commands_and_bindings() {
     app.handle(Msg::Key(Chord::ch('1')));
     assert_eq!(app.view.query, "ExecutionStatus = 'Running'");
 }
+
+#[test]
+fn a_theme_with_an_unknown_slot_is_surfaced_and_not_half_applied() {
+    let mut app = app();
+    app.apply_theme(
+        ColorDepth::TrueColor,
+        Some("err = \"#010203\"\nacent = \"red\"\n"),
+    );
+    let (msg, kind) = app.note.clone().expect("a bad theme must be reported");
+    assert_eq!(kind, Note::Error);
+    assert!(msg.contains("theme.toml") && msg.contains("acent"), "{msg}");
+    assert_eq!(app.theme, Theme::default());
+}
+
+#[test]
+fn a_theme_with_an_unparseable_colour_is_surfaced() {
+    let mut app = app();
+    app.apply_theme(ColorDepth::TrueColor, Some("accent = \"#12345\"\n"));
+    let (msg, kind) = app.note.clone().expect("a bad colour must be reported");
+    assert_eq!(kind, Note::Error);
+    assert!(msg.contains("#12345"), "{msg}");
+}
+
+#[test]
+fn a_valid_theme_is_applied_without_a_word() {
+    let mut app = app();
+    app.apply_theme(ColorDepth::TrueColor, Some("accent = \"cyan\"\n"));
+    assert!(app.note.is_none());
+    assert_ne!(app.theme, Theme::default());
+}
+
+#[test]
+fn no_theme_file_is_the_default_palette_for_the_depth() {
+    let mut app = app();
+    app.apply_theme(ColorDepth::Ansi16, None);
+    assert!(app.note.is_none());
+    assert_eq!(
+        app.theme,
+        Theme::new(ColorDepth::Ansi16, &ThemeOverrides::default())
+    );
+    assert_ne!(app.theme, Theme::default());
+}
+
+#[test]
+fn a_theme_error_is_still_reported_under_no_color() {
+    // The file is not used there, but it is still wrong, and saying so only once
+    // NO_COLOR is unset would look like the theme had broken by itself.
+    let mut app = app();
+    app.apply_theme(ColorDepth::Mono, Some("nope = \"red\"\n"));
+    assert!(app.note.is_some());
+}

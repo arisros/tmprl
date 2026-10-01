@@ -64,8 +64,8 @@ project testable:
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
 | `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 68 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 315 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 286 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 335 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 316 |
 | `tmprl-ui` | built | Plain unit tests over the layout tree | 37 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -123,6 +123,7 @@ Every file opens with a `//!` line saying what it is; this is those lines, gathe
 | `key.rs`, `keymap.rs`, `mode.rs` | keys, the default bindings, modes |
 | `picker.rs`, `fuzzy.rs`, `form.rs`, `jumplist.rs` | the pickers, their matching, multi-field input, `<C-o>` |
 | `config.rs`, `clock.rs`, `loadable.rs` | config parsing, wall-clock rendering, four-state remote data |
+| `theme.rs` | colour depth from the environment, `theme.toml`, hex to the nearest of 16 |
 
 **`tmprl-client`**, all network IO: `conn.rs` connects; `ops/` has one file per area of the
 API (`workflow`, `history`, `schedule`, `namespace`, `mutate`, `codec`, `describe`,
@@ -144,7 +145,8 @@ draws nothing; it is rectangles and focus, and `tmprl-tui` draws into them.
 | `view.rs` | what one pane owns: its screen, cursor, loaded data |
 | `ui/*.rs` | drawing, one file per screen or overlay; pure functions of `&App` |
 | `app/tests/`, `ui/tests/` | behaviour and rendering tests, one file per concern, shared fixtures in `mod.rs` |
-| `config.rs`, `keys.rs`, `theme.rs`, `clipboard.rs` | files on disk, key conversion, colours, yank |
+| `config.rs`, `keys.rs`, `clipboard.rs` | files on disk, key conversion, yank |
+| `theme.rs` | the palette as styles, built once for the terminal's colour depth and held on `App` |
 
 `scripts/check-docs.sh`, run by CI, fails when a file has no `//!` header or is missing from
 this map. To follow one behaviour end to end: find its id in `command.rs`, its `Action` arm in

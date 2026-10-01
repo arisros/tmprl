@@ -33,7 +33,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
             None => "loading history…".to_string(),
         };
         frame.render_widget(
-            Paragraph::new(Span::styled(format!("  {msg}"), Style::new().fg(t.faint))),
+            Paragraph::new(Span::styled(format!("  {msg}"), t.faint)),
             area,
         );
         return;
@@ -48,7 +48,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
             "nothing but workflow tasks (zp to show them)"
         };
         frame.render_widget(
-            Paragraph::new(Span::styled(format!("  {msg}"), Style::new().fg(t.faint))),
+            Paragraph::new(Span::styled(format!("  {msg}"), t.faint)),
             area,
         );
         return;
@@ -90,15 +90,15 @@ fn render_row<'a>(
 ) -> Line<'a> {
     let focused = index == view.cursor;
     let base = if focused {
-        Style::new().fg(t.fg).bg(t.sel).add_modifier(Modifier::BOLD)
+        t.fg.patch(t.sel).add_modifier(Modifier::BOLD)
     } else if view.is_selected(index) {
-        Style::new().fg(t.fg).bg(t.sel)
+        t.fg.patch(t.sel)
     } else {
-        Style::new().fg(t.fg)
+        t.fg
     };
     let gutter = Span::styled(
         super::gutter(index, view.cursor),
-        Style::new().fg(if focused { t.warn } else { t.faint }),
+        if focused { t.warn } else { t.faint },
     );
 
     match row {
@@ -115,16 +115,13 @@ fn render_row<'a>(
                     } else {
                         "  "
                     },
-                    Style::new().fg(t.faint),
+                    t.faint,
                 ),
                 Span::styled(
                     format!("{} ", outcome_glyph(g.outcome)),
-                    Style::new().fg(outcome_color(g.outcome, t)),
+                    outcome_style(g.outcome, t),
                 ),
-                Span::styled(
-                    format!("{:<14}", category_label(g.category)),
-                    Style::new().fg(t.dim),
-                ),
+                Span::styled(format!("{:<14}", category_label(g.category)), t.dim),
                 Span::styled(format!("{:<32}", truncate(&g.subject, 31)), base),
             ];
             let live = pending::for_group(&view.pending, g, outline.events());
@@ -137,7 +134,7 @@ fn render_row<'a>(
             if let Some(n) = attempts {
                 spans.push(Span::styled(
                     format!("×{n} "),
-                    Style::new().fg(t.warn).add_modifier(Modifier::BOLD),
+                    t.warn.add_modifier(Modifier::BOLD),
                 ));
             }
             spans.push(Span::styled(
@@ -150,10 +147,10 @@ fn render_row<'a>(
                         None => format!("{:>6}", ""),
                     }
                 },
-                Style::new().fg(t.faint),
+                t.faint,
             ));
             if let Some(status) = live.and_then(|p| p.status(now_ms())) {
-                spans.push(Span::styled(format!("  {status}"), Style::new().fg(t.warn)));
+                spans.push(Span::styled(format!("  {status}"), t.warn));
             }
             if let Some(f) = g
                 .failure
@@ -162,7 +159,7 @@ fn render_row<'a>(
             {
                 spans.push(Span::styled(
                     format!("  {}", truncate(&f.headline(), 48)),
-                    Style::new().fg(t.err),
+                    t.err,
                 ));
             }
             Line::from(spans)
@@ -175,12 +172,12 @@ fn render_row<'a>(
             let mut spans = vec![
                 gutter,
                 // Indented under the group it belongs to.
-                Span::styled(format!("    {:>5}  ", e.id), Style::new().fg(t.faint)),
+                Span::styled(format!("    {:>5}  ", e.id), t.faint),
             ];
             if app.times.is_absolute() {
                 spans.push(Span::styled(
                     format!("{}  ", app.clock.stamp(e.time)),
-                    Style::new().fg(t.faint),
+                    t.faint,
                 ));
             }
             spans.push(Span::styled(format!("{:<38}", truncate(e.name, 37)), base));
@@ -191,12 +188,12 @@ fn render_row<'a>(
                 .collect::<Vec<_>>()
                 .join(" ");
             if !detail.is_empty() {
-                spans.push(Span::styled(truncate(&detail, 40), Style::new().fg(t.dim)));
+                spans.push(Span::styled(truncate(&detail, 40), t.dim));
             }
             if let Some(f) = &e.failure {
                 spans.push(Span::styled(
                     format!("  {}", truncate(&f.headline(), 40)),
-                    Style::new().fg(t.err),
+                    t.err,
                 ));
             }
             Line::from(spans)
@@ -218,7 +215,7 @@ fn outcome_glyph(o: Outcome) -> char {
     }
 }
 
-fn outcome_color(o: Outcome, t: &Theme) -> ratatui::style::Color {
+fn outcome_style(o: Outcome, t: &Theme) -> Style {
     match o {
         Outcome::Pending => t.accent,
         Outcome::Completed => t.ok,

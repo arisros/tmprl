@@ -27,6 +27,8 @@ use tmprl_core::search::Search;
 /// selection background. Replacing outright would make a matched row lose the colour that
 /// says what it is.
 pub(crate) fn highlight<'a>(line: Line<'a>, search: &Search, style: Style) -> Line<'a> {
+    const REVERSED: Modifier = Modifier::REVERSED;
+
     if search.is_empty() {
         return line;
     }
@@ -39,13 +41,23 @@ pub(crate) fn highlight<'a>(line: Line<'a>, search: &Search, style: Style) -> Li
             continue;
         }
         let base = span.style;
+        // Without a selection colour the cursor row is itself reverse video, and reversing
+        // a match on it again would change nothing. There the match is the stretch that is
+        // *not* reversed, underlined so it reads as marked rather than as a hole in the row.
+        let lit = if line.style.patch(base).add_modifier.contains(REVERSED) {
+            base.patch(style)
+                .remove_modifier(REVERSED)
+                .add_modifier(Modifier::UNDERLINED)
+        } else {
+            base.patch(style)
+        };
         let text = span.content.into_owned();
         let mut at = 0;
         for (a, b) in hits {
             if a > at {
                 out.push(Span::styled(text[at..a].to_string(), base));
             }
-            out.push(Span::styled(text[a..b].to_string(), base.patch(style)));
+            out.push(Span::styled(text[a..b].to_string(), lit));
             at = b;
         }
         if at < text.len() {
@@ -111,6 +123,26 @@ mod tests {
         let out = highlight(line, &Search::new("timed"), hl());
         assert_eq!(out.spans[0].style.fg, Some(Color::Red));
         assert!(out.spans[0].style.add_modifier.contains(Modifier::REVERSED));
+    }
+
+    #[test]
+    fn a_match_on_a_reversed_row_is_the_part_that_is_not() {
+        // The cursor row without a selection colour, both ways a renderer builds one:
+        // reversed on the span, and reversed on the whole line.
+        let reversed = Style::new().add_modifier(Modifier::REVERSED);
+        let on_span = Line::from(vec![Span::styled("order-1001", reversed)]);
+        let on_line = Line::from(vec![Span::raw("order-1001")]).style(reversed);
+
+        for line in [on_span, on_line] {
+            let out = highlight(line, &Search::new("1001"), match_style());
+            assert_eq!(text(&out), "order-1001");
+            let lit = out.spans[1].style;
+            assert!(lit.sub_modifier.contains(Modifier::REVERSED), "{lit:?}");
+            assert!(!lit.add_modifier.contains(Modifier::REVERSED), "{lit:?}");
+            assert!(lit.add_modifier.contains(Modifier::UNDERLINED), "{lit:?}");
+            // The rest of the row stays the cursor row.
+            assert!(out.spans[0].style.sub_modifier.is_empty());
+        }
     }
 
     #[test]

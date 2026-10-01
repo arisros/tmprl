@@ -13,6 +13,7 @@ mod chrome;
 mod detail;
 mod history;
 mod schedules;
+mod theme;
 mod timeline;
 mod workflows;
 

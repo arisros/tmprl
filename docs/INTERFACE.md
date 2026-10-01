@@ -443,13 +443,75 @@ included, the question that log answers is what was *attempted*.
 
 ## Theming
 
-Colours will come from `~/.config/tmprl/theme.toml`; that loader is not written yet, and the
-palette is currently compiled in. What *is* live is the part that matters most: status is
-encoded in shape as well as hue. Every execution status has its own glyph, `●` running,
-`✓` completed, `✗` failed, `■` terminated, `⊘` cancelled, `◔` timed out, `↻` continued-as-new,
-`‖` paused, used identically in the table and in the header tallies. Colour only reinforces
-it, so the workflow list stays readable for a colour-blind reader. The palette itself is
-truecolor and `NO_COLOR` is not read yet; both arrive with `theme.toml`.
+Status is encoded in shape as well as hue. Every execution status has its own glyph, `●`
+running, `✓` completed, `✗` failed, `■` terminated, `⊘` cancelled, `◔` timed out, `↻`
+continued-as-new, `‖` paused, used identically in the table and in the header tallies. Colour
+only reinforces it, so the workflow list stays readable for a colour-blind reader, and with no
+colour at all.
+
+### How much colour
+
+Decided once, at startup, from two environment variables. tmprl cannot see the terminal's
+background, so the fallback is the palette that does not need to.
+
+| Environment | Palette |
+|---|---|
+| `NO_COLOR` set to anything but the empty string | none: bold, dim, underline and reverse video only |
+| otherwise, `COLORTERM` is `truecolor` or `24bit` | 24-bit RGB, tuned for a dark background |
+| otherwise | the terminal's own 16 named colours |
+
+The 16-colour palette names only colours with a hue (blue, green, yellow, red, and magenta
+and cyan for the mode indicator). Text is the terminal's own foreground, chrome is that
+foreground dimmed, and the cursor row is reverse video, so it reads on a light background
+as well as a dark one and follows whatever theme the terminal has. `TERM` is not consulted:
+it says what a terminal emulates, not what it can paint. A truecolor terminal that does not
+export `COLORTERM`, which is common over `ssh`, therefore gets 16 colours until it does.
+
+Without colour the things that were told apart by colour are told apart by weight: the cursor
+row and a selection are reverse video (the cursor row bold as well), the focused pane's border
+is bold against the others' dim, an error is bold, and a `/` match is reverse video, or on the
+cursor row the one stretch that is *not* reversed, underlined. The timeline (`<leader>G`) is
+the exception: it draws how a group ended in the colour of its line, so without colour that
+is only in the list view's glyphs.
+
+### `theme.toml`
+
+`~/.config/tmprl/theme.toml` repaints the palette, one slot per line. A slot it does not name
+keeps its default.
+
+```toml
+accent = "#6b99e8"
+err    = "bright-red"
+sel    = "#2c3340"
+```
+
+| Slot | Paints |
+|---|---|
+| `fg` | primary text |
+| `dim` | secondary text, such as a workflow's type |
+| `faint` | chrome: gutters, borders, hints |
+| `accent` | titles, the text cursor, the focused pane's border, anything running |
+| `ok` | completed, and the `FOLLOW` indicator |
+| `warn` | terminated and cancelled, key chords, the cursor row's line number |
+| `err` | failed and timed out, error messages |
+| `sel` | the background of the cursor row and of a selection |
+| `mode_normal`, `mode_insert`, `mode_visual`, `mode_command` | the mode indicator's background |
+
+A value is `#rrggbb`, or one of the terminal's colour names: `black`, `red`, `green`, `yellow`,
+`blue`, `magenta`, `cyan`, `white`, and each with a `bright-` prefix. A name stays the
+terminal's own colour at every depth. On a 16-colour terminal a hex value becomes the nearest
+named colour: its hue picks the colour, then its brightness picks the plain or `bright-` form,
+and only a value with almost no hue becomes a grey. Under `NO_COLOR` the file is checked but
+not applied.
+
+The loader is strict, like the others: a key that is not a slot, or a value that is not a
+colour, is reported in the statusline at startup and the whole file is set aside, rather than
+the line being skipped. A profile's `accent` in `config.toml` is separate from the `accent`
+slot: it colours the profile name in the header, always in a named colour, so production
+stays unmistakable whatever the theme says.
+
+The timeline's colours are Temporal's web UI's and are not slots. They go through the same
+depth rule: nearest named colour on 16, none under `NO_COLOR`.
 
 ## Configuration files
 
@@ -457,7 +519,7 @@ truecolor and `NO_COLOR` is not read yet; both arrive with `theme.toml`.
 |---|---|
 | `~/.config/tmprl/config.toml` | codec server endpoint and payload pane position and display timezone, **live**; refresh intervals and defaults *planned* |
 | `~/.config/tmprl/keys.toml` | key chord → command id, **live** |
-| `~/.config/tmprl/theme.toml` | colours, *planned* |
+| `~/.config/tmprl/theme.toml` | palette slot → colour, **live** |
 | `~/.config/tmprl/views.toml` | saved visibility queries, **live** |
 | `~/.local/state/tmprl/audit.jsonl` | every mutation attempted, **live** |
 

@@ -50,7 +50,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
             "no workflows match this query (i to edit it)".to_string()
         };
         frame.render_widget(
-            Paragraph::new(Span::styled(format!("  {msg}"), Style::new().fg(t.faint))),
+            Paragraph::new(Span::styled(format!("  {msg}"), t.faint)),
             area,
         );
         return;
@@ -82,17 +82,17 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
         .map(|(i, w)| {
             let focused = i == view.cursor;
             let base = if focused {
-                Style::new().fg(t.fg).bg(t.sel).add_modifier(Modifier::BOLD)
+                t.fg.patch(t.sel).add_modifier(Modifier::BOLD)
             } else if view.is_selected(i) {
-                Style::new().fg(t.fg).bg(t.sel)
+                t.fg.patch(t.sel)
             } else {
-                Style::new().fg(t.fg)
+                t.fg
             };
 
             let mut spans = vec![
                 Span::styled(
                     super::gutter(i, view.cursor),
-                    Style::new().fg(if focused { t.warn } else { t.faint }),
+                    if focused { t.warn } else { t.faint },
                 ),
                 Span::styled(
                     format!(
@@ -101,7 +101,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
                         truncate(w.status.query_name(), STATUS - 2),
                         width = STATUS - 2
                     ),
-                    Style::new().fg(status_color(w.status, t)),
+                    status_style(w.status, t),
                 ),
                 Span::styled(
                     format!("{:<id_width$}", truncate(&w.workflow_id, id_width)),
@@ -113,7 +113,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
                         truncate(&w.workflow_type, TYPE - 1),
                         width = TYPE
                     ),
-                    Style::new().fg(t.dim),
+                    t.dim,
                 ),
             ];
             if show_ns {
@@ -123,7 +123,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
                         truncate(&w.namespace, NAMESPACE - 1),
                         width = NAMESPACE
                     ),
-                    Style::new().fg(t.accent),
+                    t.accent,
                 ));
             }
             if app.times.is_absolute() {
@@ -133,7 +133,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
                         app.clock.stamp(w.start_time),
                         app.clock.stamp(w.close_time)
                     ),
-                    Style::new().fg(t.faint),
+                    t.faint,
                 ));
             } else {
                 spans.push(Span::styled(
@@ -143,7 +143,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
                         }
                         None => format!("{:>AGE$}", ","),
                     },
-                    Style::new().fg(t.faint),
+                    t.faint,
                 ));
             }
             Line::from(spans)
@@ -157,7 +157,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
 }
 
 /// Colour reinforces the glyph; it never carries information on its own.
-fn status_color(s: WorkflowStatus, t: &Theme) -> ratatui::style::Color {
+fn status_style(s: WorkflowStatus, t: &Theme) -> Style {
     match s {
         WorkflowStatus::Running => t.accent,
         WorkflowStatus::Completed => t.ok,

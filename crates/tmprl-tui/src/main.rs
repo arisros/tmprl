@@ -26,9 +26,9 @@ OPTIONS:
     -V, --version               Print version
 
 Connection settings come from the same files and TEMPORAL_* variables the
-`temporal` CLI uses. tmprl's own config (config.toml, keys.toml, views.toml)
-is a different directory; --config-path prints it. Press ? inside the
-application for keybindings.
+`temporal` CLI uses. tmprl's own config (config.toml, keys.toml, theme.toml,
+views.toml) is a different directory; --config-path prints it. NO_COLOR is
+honoured. Press ? inside the application for keybindings.
 ";
 
 fn parse_args() -> Result<ProfileRef, String> {
@@ -98,11 +98,15 @@ async fn main() -> std::process::ExitCode {
             None
         }
     };
-    let (keys, views, config) = (
+    let (keys, views, config, theme) = (
         read_config("keys.toml"),
         read_config("views.toml"),
         read_config("config.toml"),
+        read_config("theme.toml"),
     );
+    // The theme first: both report through the statusline, which holds one message, and a
+    // key that does not work matters more than a colour that is off.
+    app.apply_theme(theme::depth_from_env(), theme.as_deref());
     app.apply_config(keys.as_deref(), views.as_deref(), config.as_deref());
 
     let terminal = ratatui::init();

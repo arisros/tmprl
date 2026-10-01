@@ -131,6 +131,18 @@ name  = "Running now"
 query = "ExecutionStatus = 'Running'"
 ```
 
+```toml
+# ~/.config/tmprl/theme.toml, only the slots you name change
+accent = "#6b99e8"        # #rrggbb, or a terminal colour name
+err    = "bright-red"
+sel    = "#2c3340"        # background of the cursor row
+```
+
+Slots: `fg`, `dim`, `faint`, `accent`, `ok`, `warn`, `err`, `sel` and `mode_normal`,
+`mode_insert`, `mode_visual`, `mode_command`. `NO_COLOR` turns colour off; without
+`COLORTERM=truecolor` tmprl uses the terminal's own 16 colours, so it follows a light theme.
+[docs/INTERFACE.md](docs/INTERFACE.md#theming) has the rest.
+
 ## Layout
 
 ```mermaid
@@ -145,8 +157,8 @@ flowchart LR
 | Crate | Tests | |
 |---|---|---|
 | `tmprl-client` | 68 | all network IO |
-| `tmprl-core` | 315 | no terminal, no server |
-| `tmprl-tui` | 286 | ratatui |
+| `tmprl-core` | 335 | no terminal, no server |
+| `tmprl-tui` | 316 | ratatui |
 | `tmprl-ui` | 37 | window tree |
 
 ```sh

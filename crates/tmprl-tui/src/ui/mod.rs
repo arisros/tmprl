@@ -26,7 +26,6 @@ pub(crate) use history::category_label;
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::layout::{Constraint, Layout};
-use ratatui::style::Style;
 use ratatui::widgets::{Block, Borders, Scrollbar, ScrollbarOrientation, ScrollbarState};
 
 use tmprl_core::config::PayloadPane;
@@ -36,7 +35,8 @@ use crate::theme::Theme;
 use crate::view::View;
 
 pub fn render(frame: &mut Frame, app: &mut App) {
-    let theme = Theme::default();
+    // A copy, so the palette can be lent to every renderer while `app` is still mutated.
+    let theme = app.theme;
     let [header, body, status] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Min(1),
@@ -190,7 +190,7 @@ fn render_pane(
     let area = if split {
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::new().fg(if focused { theme.accent } else { theme.faint }));
+            .border_style(theme.border(focused));
         let inner = block.inner(area);
         frame.render_widget(block, area);
         inner
@@ -221,7 +221,7 @@ fn render_pane(
                 if pane.x > areas.list.x {
                     let rule = Block::default()
                         .borders(Borders::LEFT)
-                        .border_style(Style::new().fg(theme.faint));
+                        .border_style(theme.faint);
                     let inner = rule.inner(pane);
                     frame.render_widget(rule, pane);
                     pane = inner;
@@ -301,7 +301,7 @@ fn draw_scrollbar(
             .begin_symbol(None)
             .end_symbol(None)
             .track_symbol(None)
-            .thumb_style(Style::new().fg(t.faint)),
+            .thumb_style(t.faint),
         area,
         &mut state,
     );

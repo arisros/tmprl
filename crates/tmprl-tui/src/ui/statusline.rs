@@ -34,15 +34,12 @@ pub fn render_header(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
     let scope = super::truncate(&scope_label(app), budget);
 
     let left = Line::from(vec![
-        Span::styled(
-            " tmprl ",
-            Style::new().fg(t.accent).add_modifier(Modifier::BOLD),
-        ),
-        Span::styled("profile=", Style::new().fg(t.faint)),
+        Span::styled(" tmprl ", t.accent.add_modifier(Modifier::BOLD)),
+        Span::styled("profile=", t.faint),
         Span::styled(app.profile().to_string(), profile_style(app, t)),
         Span::styled(ro, profile_style(app, t)),
-        Span::styled("  ns=", Style::new().fg(t.faint)),
-        Span::styled(scope, Style::new().fg(t.fg)),
+        Span::styled("  ns=", t.faint),
+        Span::styled(scope, t.fg),
     ]);
     frame.render_widget(Paragraph::new(left), area);
 
@@ -61,10 +58,8 @@ pub fn render_header(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
 /// environment is legible where colour is not.
 fn profile_style(app: &App, t: &Theme) -> Style {
     match app.accent() {
-        None => Style::new().fg(t.fg),
-        Some(a) => Style::new()
-            .fg(Theme::accent_color(a))
-            .add_modifier(Modifier::BOLD),
+        None => t.fg,
+        Some(a) => t.profile_accent(a).add_modifier(Modifier::BOLD),
     }
 }
 
@@ -87,7 +82,7 @@ fn namespace_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
     } else {
         format!("{} namespaces", app.namespace_rows().len())
     };
-    vec![Span::styled(text, Style::new().fg(t.dim))]
+    vec![Span::styled(text, t.dim)]
 }
 
 /// Per-status counts, from one `CountWorkflowExecutions ... GROUP BY ExecutionStatus`.
@@ -96,7 +91,7 @@ fn namespace_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
 /// are read the same way.
 fn workflow_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
     if let Some(e) = app.view.counts.error() {
-        return vec![Span::styled(format!("counts: {e}"), Style::new().fg(t.err))];
+        return vec![Span::styled(format!("counts: {e}"), t.err)];
     }
     let Some(counts) = app.view.counts.value() else {
         return vec![Span::styled(
@@ -105,7 +100,7 @@ fn workflow_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
             } else {
                 ""
             },
-            Style::new().fg(t.faint),
+            t.faint,
         )];
     };
 
@@ -113,15 +108,12 @@ fn workflow_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
     for (status, n) in counts.iter() {
         spans.push(Span::styled(
             format!("{} {n}  ", status.glyph()),
-            Style::new().fg(status_color(status, t)),
+            status_style(status, t),
         ));
     }
     // The total is the server's own, not the sum of the groups: grouped counts are
     // approximate, so summing them would understate the real number.
-    spans.push(Span::styled(
-        format!("{} total", counts.total),
-        Style::new().fg(t.dim),
-    ));
+    spans.push(Span::styled(format!("{} total", counts.total), t.dim));
     spans
 }
 
@@ -134,7 +126,7 @@ fn history_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
             } else {
                 ""
             },
-            Style::new().fg(t.faint),
+            t.faint,
         )];
     };
     let s = tmprl_core::outline::summarize(outline.groups());
@@ -144,13 +136,13 @@ fn history_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
         // First, because it is why anyone opens a history.
         spans.push(Span::styled(
             format!("✗ {} failed  ", s.failures),
-            Style::new().fg(t.err).add_modifier(Modifier::BOLD),
+            t.err.add_modifier(Modifier::BOLD),
         ));
     }
     if s.in_flight > 0 {
         spans.push(Span::styled(
             format!("● {} running  ", s.in_flight),
-            Style::new().fg(t.accent),
+            t.accent,
         ));
     }
     spans.push(Span::styled(
@@ -159,7 +151,7 @@ fn history_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
             s.activities,
             outline.events().len()
         ),
-        Style::new().fg(t.dim),
+        t.dim,
     ));
     spans
 }
@@ -173,7 +165,7 @@ fn schedule_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
             } else {
                 "no schedules"
             },
-            Style::new().fg(t.faint),
+            t.faint,
         )];
     }
     let paused = rows.iter().filter(|s| s.paused).count();
@@ -182,17 +174,14 @@ fn schedule_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
         // A paused schedule is the one worth spotting: it looks like any other until read.
         spans.push(Span::styled(
             format!("‖ {paused} paused  "),
-            Style::new().fg(t.warn).add_modifier(Modifier::BOLD),
+            t.warn.add_modifier(Modifier::BOLD),
         ));
     }
-    spans.push(Span::styled(
-        format!("{} schedules", rows.len()),
-        Style::new().fg(t.dim),
-    ));
+    spans.push(Span::styled(format!("{} schedules", rows.len()), t.dim));
     spans
 }
 
-fn status_color(s: tmprl_core::WorkflowStatus, t: &Theme) -> ratatui::style::Color {
+fn status_style(s: tmprl_core::WorkflowStatus, t: &Theme) -> Style {
     use tmprl_core::WorkflowStatus as W;
     match s {
         W::Running => t.accent,
@@ -208,9 +197,9 @@ pub fn render_status(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
     // The command line takes over the status row while it is open.
     if let Some(prompt) = &app.prompt {
         let line = Line::from(vec![
-            Span::styled(prompt.sigil(), Style::new().fg(t.accent)),
-            Span::styled(prompt.buf.clone(), Style::new().fg(t.fg)),
-            Span::styled("█", Style::new().fg(t.accent)),
+            Span::styled(prompt.sigil(), t.accent),
+            Span::styled(prompt.buf.clone(), t.fg),
+            Span::styled("█", t.accent),
         ]);
         frame.render_widget(Paragraph::new(line), area);
         return;
@@ -218,24 +207,12 @@ pub fn render_status(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
 
     let mode = app.mode;
     let mut spans = vec![
-        Span::styled(
-            format!(" {} ", mode.label()),
-            Style::new()
-                .fg(ratatui::style::Color::Black)
-                .bg(t.mode_color(mode))
-                .add_modifier(Modifier::BOLD),
-        ),
+        Span::styled(format!(" {} ", mode.label()), t.mode_badge(mode)),
         Span::raw(" "),
     ];
     // A view that rewrites itself while you read it has to say so.
     if app.view.following {
-        spans.push(Span::styled(
-            " FOLLOW ",
-            Style::new()
-                .fg(ratatui::style::Color::Black)
-                .bg(t.ok)
-                .add_modifier(Modifier::BOLD),
-        ));
+        spans.push(Span::styled(" FOLLOW ", t.badge(t.ok)));
         spans.push(Span::raw(" "));
     }
 
@@ -246,22 +223,16 @@ pub fn render_status(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
                 Note::Warn => t.warn,
                 Note::Error => t.err,
             };
-            spans.push(Span::styled(msg.clone(), Style::new().fg(c)));
+            spans.push(Span::styled(msg.clone(), c));
         }
         None => {
             if let Some(sel) = app.selection() {
                 let n = sel.1 - sel.0 + 1;
-                spans.push(Span::styled(
-                    format!("{n} selected"),
-                    Style::new().fg(t.warn),
-                ));
+                spans.push(Span::styled(format!("{n} selected"), t.warn));
             } else if let Some(err) = app.view.namespaces.error() {
-                spans.push(Span::styled(err.to_string(), Style::new().fg(t.err)));
+                spans.push(Span::styled(err.to_string(), t.err));
             } else {
-                spans.push(Span::styled(
-                    "? help   : commands".to_string(),
-                    Style::new().fg(t.faint),
-                ));
+                spans.push(Span::styled("? help   : commands".to_string(), t.faint));
             }
         }
     }
@@ -279,10 +250,7 @@ pub fn render_status(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
                 width: w,
                 height: 1,
             };
-            frame.render_widget(
-                Paragraph::new(Span::styled(pend, Style::new().fg(t.warn))),
-                r,
-            );
+            frame.render_widget(Paragraph::new(Span::styled(pend, t.warn)), r);
         }
     }
 }

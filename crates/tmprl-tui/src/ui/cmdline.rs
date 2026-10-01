@@ -5,7 +5,7 @@
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph};
 
@@ -38,9 +38,9 @@ pub fn render(frame: &mut Frame, app: &App, t: &Theme) {
             Line::from(vec![
                 Span::styled(
                     format!(" {:<20}", c.id),
-                    Style::new().fg(t.accent).add_modifier(Modifier::BOLD),
+                    t.accent.add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(c.title.to_string(), Style::new().fg(t.dim)),
+                Span::styled(c.title.to_string(), t.dim),
             ])
         })
         .collect();
@@ -49,8 +49,8 @@ pub fn render(frame: &mut Frame, app: &App, t: &Theme) {
     frame.render_widget(
         Paragraph::new(lines).block(
             Block::bordered()
-                .title(Span::styled(" commands ", Style::new().fg(t.faint)))
-                .border_style(Style::new().fg(t.faint)),
+                .title(Span::styled(" commands ", t.faint))
+                .border_style(t.faint),
         ),
         popup,
     );
