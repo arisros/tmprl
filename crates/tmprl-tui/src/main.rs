@@ -68,8 +68,10 @@ async fn main() -> std::process::ExitCode {
         read_config("theme.toml"),
     );
     // The theme first: both report through the statusline, which holds one message, and a
-    // key that does not work matters more than a colour that is off.
-    app.apply_theme(theme::depth_from_env(), theme.as_deref());
+    // key that does not work matters more than a colour that is off. The palette needs
+    // `colors` from config.toml all the same, so that one key is read ahead of the rest.
+    let colors = theme::colors_in(config.as_deref());
+    app.apply_theme(theme::depth_from_env(colors), theme.as_deref());
     app.apply_config(keys.as_deref(), views.as_deref(), config.as_deref());
     app.start(startup);
 

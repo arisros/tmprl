@@ -64,8 +64,8 @@ project testable:
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
 | `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 77 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 345 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 391 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 352 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 395 |
 | `tmprl-ui` | built | Plain unit tests over the layout tree | 37 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -124,7 +124,7 @@ Every file opens with a `//!` line saying what it is; this is those lines, gathe
 | `picker.rs`, `fuzzy.rs`, `form.rs`, `jumplist.rs` | the pickers, their matching, multi-field input, `<C-o>` |
 | `config.rs`, `clock.rs`, `loadable.rs` | config parsing, wall-clock rendering, four-state remote data |
 | `fault.rs` | a failed request: the call, the gRPC code, the server's message, and what to try |
-| `theme.rs` | colour depth from the environment, `theme.toml`, hex to the nearest of 16 |
+| `theme.rs` | colour depth from the environment and the `colors` key, `theme.toml`, hex to the nearest of 16 |
 
 **`tmprl-client`**, all network IO: `conn.rs` connects; `ops/` has one file per area of the
 API (`workflow`, `history`, `schedule`, `namespace`, `mutate`, `codec`, `describe`,

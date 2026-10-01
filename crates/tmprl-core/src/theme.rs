@@ -1,8 +1,9 @@
 //! `theme.toml`, and what the terminal can show of it.
 //!
 //! Two decisions live here, both pure so they are unit tests rather than something you find
-//! out by launching in the wrong terminal: how many colours there are to work with, read once
-//! from the environment at startup, and which palette slots the user has repainted. Turning
+//! out by launching in the wrong terminal: how many colours there are to work with, settled
+//! once at startup from the environment and `config.toml`'s `colors`, and which palette
+//! slots the user has repainted. Turning
 //! either into terminal escapes is `tmprl-tui`'s job; this crate has no terminal to ask.
 
 use crate::config::ConfigError;
@@ -33,6 +34,22 @@ impl ColorDepth {
         match colorterm {
             Some("truecolor" | "24bit") => Self::TrueColor,
             _ => Self::Ansi16,
+        }
+    }
+
+    /// The depth to draw at, given `colors` from `config.toml` as well as the environment.
+    ///
+    /// `NO_COLOR` still wins over the key: it is said about this environment, this pipe or
+    /// this screen reader, while the key was written once for a terminal that may not be
+    /// the one in use. Then the key, which exists because detection cannot be right for a
+    /// truecolor terminal that does not export `COLORTERM`, the usual case over `ssh`. Then
+    /// [`ColorDepth::detect`].
+    pub fn resolve(no_color: Option<&str>, colors: Option<Self>, colorterm: Option<&str>) -> Self {
+        let detected = Self::detect(no_color, colorterm);
+        match (detected, colors) {
+            // Detection answers `Mono` for `NO_COLOR` and for nothing else.
+            (Self::Mono, _) | (_, None) => detected,
+            (_, Some(forced)) => forced,
         }
     }
 }
@@ -331,6 +348,67 @@ mod tests {
             ColorDepth::detect(None, Some("rxvt-xpm")),
             ColorDepth::Ansi16
         );
+    }
+
+    #[test]
+    fn the_colors_key_outranks_detection() {
+        use ColorDepth::*;
+        // The case the key exists for: truecolor over ssh, where COLORTERM is not exported.
+        assert_eq!(ColorDepth::resolve(None, Some(TrueColor), None), TrueColor);
+        // And the other way: a COLORTERM that promises more than the terminal paints.
+        for forced in [Ansi16, Mono] {
+            assert_eq!(
+                ColorDepth::resolve(None, Some(forced), Some("truecolor")),
+                forced
+            );
+        }
+        assert_eq!(
+            ColorDepth::resolve(None, Some(TrueColor), Some("rxvt-xpm")),
+            TrueColor
+        );
+    }
+
+    #[test]
+    fn no_color_outranks_the_colors_key() {
+        use ColorDepth::*;
+        for colors in [None, Some(TrueColor), Some(Ansi16), Some(Mono)] {
+            for colorterm in [None, Some("truecolor")] {
+                assert_eq!(
+                    ColorDepth::resolve(Some("1"), colors, colorterm),
+                    Mono,
+                    "{colors:?} {colorterm:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn an_empty_no_color_does_not_outrank_the_colors_key() {
+        use ColorDepth::*;
+        assert_eq!(
+            ColorDepth::resolve(Some(""), Some(TrueColor), None),
+            TrueColor
+        );
+        assert_eq!(ColorDepth::resolve(Some(""), Some(Mono), None), Mono);
+    }
+
+    #[test]
+    fn colors_left_at_auto_is_detection_unchanged() {
+        for no_color in [None, Some(""), Some("1")] {
+            for colorterm in [
+                None,
+                Some(""),
+                Some("truecolor"),
+                Some("24bit"),
+                Some("xterm"),
+            ] {
+                assert_eq!(
+                    ColorDepth::resolve(no_color, None, colorterm),
+                    ColorDepth::detect(no_color, colorterm),
+                    "{no_color:?} {colorterm:?}"
+                );
+            }
+        }
     }
 
     #[test]

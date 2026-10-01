@@ -16,13 +16,26 @@ use tmprl_core::Mode;
 use tmprl_core::config::Accent;
 use tmprl_core::theme::{Ansi, ColorDepth, ColorValue, Rgb, Slot, ThemeOverrides};
 
-/// What the terminal tmprl was started in can show. Read once: the rule itself is
-/// [`ColorDepth::detect`], which takes the two variables as arguments so it can be tested
-/// without touching the process environment.
-pub fn depth_from_env() -> ColorDepth {
+/// What the terminal tmprl was started in can show, or what `colors` says it can. Read
+/// once: the rule itself is [`ColorDepth::resolve`], which takes the key and the two
+/// variables as arguments so it can be tested without touching the process environment.
+pub fn depth_from_env(colors: Option<ColorDepth>) -> ColorDepth {
     // Lossy rather than `env::var`: a `NO_COLOR` that is not valid UTF-8 is still set.
     let var = |name: &str| std::env::var_os(name).map(|v| v.to_string_lossy().into_owned());
-    ColorDepth::detect(var("NO_COLOR").as_deref(), var("COLORTERM").as_deref())
+    ColorDepth::resolve(
+        var("NO_COLOR").as_deref(),
+        colors,
+        var("COLORTERM").as_deref(),
+    )
+}
+
+/// `colors` out of `config.toml`, read ahead of the rest of the file because the palette is
+/// built before the config is applied.
+///
+/// A file that does not parse counts as `auto` and is not reported here: `App::apply_config`
+/// parses it again and says what is wrong, once.
+pub fn colors_in(config: Option<&str>) -> Option<ColorDepth> {
+    tmprl_core::config::parse_config(config?).ok()?.colors
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -54,8 +67,8 @@ impl Default for Theme {
 impl Theme {
     /// The defaults for `depth`, with the slots `overrides` names repainted.
     ///
-    /// Without colour the overrides are dropped: `NO_COLOR` is the user saying so outright,
-    /// and it outranks a file they wrote for some other terminal.
+    /// Without colour the overrides are dropped: `NO_COLOR`, or `colors = "none"`, is the
+    /// user saying so outright, and it outranks a file they wrote for some other terminal.
     pub fn new(depth: ColorDepth, overrides: &ThemeOverrides) -> Self {
         let mut theme = match depth {
             ColorDepth::TrueColor => Self::truecolor(),
@@ -275,6 +288,29 @@ mod tests {
         Mode::VisualLine,
         Mode::Command,
     ];
+
+    #[test]
+    fn the_colors_key_is_read_ahead_of_the_rest_of_the_config() {
+        assert_eq!(colors_in(None), None);
+        assert_eq!(colors_in(Some("timezone = \"UTC\"\n")), None);
+        assert_eq!(
+            colors_in(Some(
+                "colors = \"truecolor\"\n[layout]\npayload = \"right\"\n"
+            )),
+            Some(ColorDepth::TrueColor)
+        );
+    }
+
+    #[test]
+    fn a_config_that_does_not_parse_forces_no_depth() {
+        // Half a file applied would look like a rendering bug. The error itself is
+        // `apply_config`'s to report.
+        assert_eq!(
+            colors_in(Some("colors = \"truecolor\"\n[codec]\nauth = \"x\"\n")),
+            None
+        );
+        assert_eq!(colors_in(Some("colors = \"256\"\n")), None);
+    }
 
     #[test]
     fn without_colour_no_slot_carries_one() {

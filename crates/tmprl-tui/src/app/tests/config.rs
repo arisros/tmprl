@@ -108,3 +108,31 @@ fn a_theme_error_is_still_reported_under_no_color() {
     app.apply_theme(ColorDepth::Mono, Some("nope = \"red\"\n"));
     assert!(app.note.is_some());
 }
+
+#[test]
+fn an_unknown_colors_value_is_surfaced() {
+    let mut app = app();
+    app.apply_config(None, None, Some("colors = \"256\"\n"));
+    let (msg, kind) = app.note.clone().expect("a bad depth must be reported");
+    assert_eq!(kind, Note::Error);
+    assert!(msg.contains("colors") && msg.contains("truecolor"), "{msg}");
+}
+
+#[test]
+fn a_theme_error_does_not_hide_a_config_error() {
+    // In the order `main` applies them. The statusline holds one message, and the config
+    // is the one that decides whether keys and the codec work.
+    let mut app = app();
+    let config = "colors = \"256\"\n";
+    let depth = ColorDepth::resolve(None, crate::theme::colors_in(Some(config)), None);
+    app.apply_theme(depth, Some("nope = \"red\"\n"));
+    app.apply_config(None, None, Some(config));
+
+    let (msg, _) = app.note.clone().expect("the config error is reported");
+    assert!(msg.contains("config.toml"), "{msg}");
+    assert_eq!(
+        app.theme,
+        Theme::new(ColorDepth::Ansi16, &ThemeOverrides::default()),
+        "a config that does not parse forces no depth"
+    );
+}

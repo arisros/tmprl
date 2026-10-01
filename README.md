@@ -115,6 +115,9 @@ api_key   = "…"
 
 ```toml
 # ~/.config/tmprl/config.toml
+colors = "truecolor"      # for a truecolor terminal over ssh, where COLORTERM is not exported;
+                          # "16", "none", or "auto" (the default) to detect
+
 [layout]
 payload = "right"         # K opens beside the list; "bottom" is the default
 
@@ -147,6 +150,7 @@ sel    = "#2c3340"        # background of the cursor row
 Slots: `fg`, `dim`, `faint`, `accent`, `ok`, `warn`, `err`, `sel` and `mode_normal`,
 `mode_insert`, `mode_visual`, `mode_command`. `NO_COLOR` turns colour off; without
 `COLORTERM=truecolor` tmprl uses the terminal's own 16 colours, so it follows a light theme.
+`colors` in `config.toml` overrides that detection, and `NO_COLOR` overrides `colors`.
 [docs/INTERFACE.md](docs/INTERFACE.md#theming) has the rest.
 
 ## Layout
@@ -163,8 +167,8 @@ flowchart LR
 | Crate | Tests | |
 |---|---|---|
 | `tmprl-client` | 77 | all network IO |
-| `tmprl-core` | 345 | no terminal, no server |
-| `tmprl-tui` | 391 | ratatui |
+| `tmprl-core` | 352 | no terminal, no server |
+| `tmprl-tui` | 395 | ratatui |
 | `tmprl-ui` | 37 | window tree |
 
 ```sh

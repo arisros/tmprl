@@ -515,21 +515,34 @@ colour at all.
 
 ### How much colour
 
-Decided once, at startup, from two environment variables. tmprl cannot see the terminal's
-background, so the fallback is the palette that does not need to.
+Decided once, at startup, from two environment variables and one key in `config.toml`. tmprl
+cannot see the terminal's background, so the fallback is the palette that does not need to.
+The first row that applies decides:
 
-| Environment | Palette |
+| | Palette |
 |---|---|
 | `NO_COLOR` set to anything but the empty string | none: bold, dim, underline and reverse video only |
-| otherwise, `COLORTERM` is `truecolor` or `24bit` | 24-bit RGB, tuned for a dark background |
+| `colors = "none"` in `config.toml` | none, the same |
+| `colors = "truecolor"` | 24-bit RGB, tuned for a dark background |
+| `colors = "16"` | the terminal's own 16 named colours |
+| `colors = "auto"`, or no `colors` key, and `COLORTERM` is `truecolor` or `24bit` | 24-bit RGB |
 | otherwise | the terminal's own 16 named colours |
 
 The 16-colour palette names only colours with a hue (blue, green, yellow, red, and magenta
 and cyan for the mode indicator). Text is the terminal's own foreground, chrome is that
 foreground dimmed, and the cursor row is reverse video, so it reads on a light background
 as well as a dark one and follows whatever theme the terminal has. `TERM` is not consulted:
-it says what a terminal emulates, not what it can paint. A truecolor terminal that does not
-export `COLORTERM`, which is common over `ssh`, therefore gets 16 colours until it does.
+it says what a terminal emulates, not what it can paint.
+
+`colors` is for the terminal that detection gets wrong. The usual one is a truecolor terminal
+reached over `ssh`: `COLORTERM` is not forwarded by default, so the remote tmprl sees nothing
+and draws 16 colours. `colors = "truecolor"` in the remote `config.toml` says what the
+terminal can do; `"16"` does the reverse for a `COLORTERM` that promises more than is
+painted, or to follow a light theme. `NO_COLOR` outranks the key in both directions, because
+it is said about this environment, a pipe, a screen reader, one run, while the key was
+written once for whichever terminal was in use that day. The value is a string, `"16"` and
+not `16`, and anything else is refused when `config.toml` is read rather than taken as
+`auto`.
 
 Without colour the things that were told apart by colour are told apart by weight: the cursor
 row and a selection are reverse video (the cursor row bold as well), the focused pane's border
@@ -565,8 +578,8 @@ A value is `#rrggbb`, or one of the terminal's colour names: `black`, `red`, `gr
 `blue`, `magenta`, `cyan`, `white`, and each with a `bright-` prefix. A name stays the
 terminal's own colour at every depth. On a 16-colour terminal a hex value becomes the nearest
 named colour: its hue picks the colour, then its brightness picks the plain or `bright-` form,
-and only a value with almost no hue becomes a grey. Under `NO_COLOR` the file is checked but
-not applied.
+and only a value with almost no hue becomes a grey. Under `NO_COLOR` or `colors = "none"` the
+file is checked but not applied.
 
 The loader is strict, like the others: a key that is not a slot, or a value that is not a
 colour, is reported in the statusline at startup and the whole file is set aside, rather than
@@ -575,13 +588,13 @@ slot: it colours the profile name in the header, always in a named colour, so pr
 stays unmistakable whatever the theme says.
 
 The timeline's colours are Temporal's web UI's and are not slots. They go through the same
-depth rule: nearest named colour on 16, none under `NO_COLOR`.
+depth rule: nearest named colour on 16, none without colour.
 
 ## Configuration files
 
 | File | Holds |
 |---|---|
-| `~/.config/tmprl/config.toml` | codec server endpoint and payload pane position and display timezone, **live**; refresh intervals and defaults *planned* |
+| `~/.config/tmprl/config.toml` | codec server endpoint, payload pane position, display timezone and colour depth, **live**; refresh intervals and defaults *planned* |
 | `~/.config/tmprl/keys.toml` | key chord → command id, **live** |
 | `~/.config/tmprl/theme.toml` | palette slot → colour, **live** |
 | `~/.config/tmprl/views.toml` | saved visibility queries, **live** |
@@ -592,6 +605,7 @@ A `config.toml` points at a codec server, if the cluster uses one:
 
 ```toml
 timezone = "Asia/Jakarta"   # optional; default: the machine's own zone
+colors   = "truecolor"      # optional; "auto" (the default), "truecolor", "16" or "none"
 
 [codec]
 endpoint = "http://localhost:8081"

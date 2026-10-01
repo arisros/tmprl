@@ -13,6 +13,7 @@ use crate::command::Registry;
 use crate::key::KeyParseError;
 use crate::keymap::Keymap;
 use crate::mode::Mode;
+use crate::theme::ColorDepth;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ConfigError {
@@ -225,6 +226,9 @@ pub struct Config {
     /// `[layout] payload`. Global rather than per profile: it is about your terminal, not
     /// the cluster.
     pub payload_pane: PayloadPane,
+    /// `colors`: the depth to draw at, for a terminal the environment undersells. `None`
+    /// is `auto`, which leaves it to [`ColorDepth::detect`].
+    pub colors: Option<ColorDepth>,
 }
 
 impl Config {
@@ -254,6 +258,7 @@ impl Config {
 ///
 /// ```toml
 /// timezone = "Asia/Jakarta"      # optional, default: the machine's zone
+/// colors   = "truecolor"         # or "16", "none", or "auto", the default
 ///
 /// [layout]
 /// payload = "right"              # or "bottom", the default
@@ -320,12 +325,34 @@ pub fn parse_config(src: &str) -> Result<Config, ConfigError> {
         Some(raw) => parse_layout(raw)?,
     };
 
+    let colors = match table.get("colors") {
+        None => None,
+        Some(raw) => parse_colors(raw)?,
+    };
+
     Ok(Config {
         codec,
         timezone,
         profiles,
         payload_pane,
+        colors,
     })
+}
+
+/// `colors`. A string even for sixteen: `colors = 16` is the mistake to expect, and it is
+/// reported with the quoted spelling rather than accepted as a second one.
+fn parse_colors(raw: &toml::Value) -> Result<Option<ColorDepth>, ConfigError> {
+    match raw.as_str() {
+        Some("auto") => Ok(None),
+        Some("truecolor") => Ok(Some(ColorDepth::TrueColor)),
+        Some("16") => Ok(Some(ColorDepth::Ansi16)),
+        Some("none") => Ok(Some(ColorDepth::Mono)),
+        _ => Err(ConfigError::Type {
+            file: "config.toml",
+            path: "colors".into(),
+            expected: "\"auto\", \"truecolor\", \"16\" or \"none\"",
+        }),
+    }
 }
 
 fn parse_layout(raw: &toml::Value) -> Result<PayloadPane, ConfigError> {
@@ -899,6 +926,42 @@ accent = "green"
         ] {
             let err = parse_config(src).unwrap_err();
             assert!(matches!(err, ConfigError::Type { .. }), "{src}: {err:?}");
+        }
+    }
+
+    #[test]
+    fn colors_default_to_auto() {
+        assert_eq!(parse_config("").unwrap().colors, None);
+        assert_eq!(parse_config("colors = \"auto\"").unwrap().colors, None);
+    }
+
+    #[test]
+    fn colors_can_name_each_depth() {
+        for (value, depth) in [
+            ("truecolor", ColorDepth::TrueColor),
+            ("16", ColorDepth::Ansi16),
+            ("none", ColorDepth::Mono),
+        ] {
+            let cfg = parse_config(&format!("colors = \"{value}\"")).unwrap();
+            assert_eq!(cfg.colors, Some(depth), "{value}");
+        }
+    }
+
+    #[test]
+    fn an_unknown_colors_value_is_reported() {
+        // `256` and a bare 16 are the two people will try. A value quietly read as `auto`
+        // would leave them where they started with nothing to say why.
+        for src in [
+            "colors = \"256\"",
+            "colors = \"24bit\"",
+            "colors = \"Truecolor\"",
+            "colors = 16",
+            "colors = true",
+        ] {
+            let err = parse_config(src).unwrap_err();
+            assert!(matches!(err, ConfigError::Type { .. }), "{src}: {err:?}");
+            assert!(err.to_string().contains("`colors`"), "{err}");
+            assert!(err.to_string().contains("\"truecolor\""), "{err}");
         }
     }
 
