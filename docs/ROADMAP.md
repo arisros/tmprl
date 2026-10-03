@@ -60,7 +60,7 @@ broken.
 | Task queue describe | Nothing. `DescribeTaskQueue` gives pollers, backlog count and age, and rates. Reached from a workflow's task queue or a typed name | M |
 | Build id display | Nothing. Shown on the info pane and on pollers; no browser, see below | S |
 | Open a history from a file | The app cannot start without a server. Wanted: `tmprl --history <file>` and a capture command. This also gives a demo with no server and fixtures for tests | M to L |
-| Export | `Y` yanks JSON, capped at 64 KB. Wanted: a Markdown summary of a workflow and JSON to a file | M |
+| Export | `Y` yanks JSON, and past the yank limit writes it to a file in the temp directory. Wanted: a Markdown summary of a workflow and JSON to a file | M |
 | Switch profile in the app | One connection per process. Also show the cluster address in the header | M |
 | Stricter confirmation per profile | Three tiers exist. Wanted: an opt-in that asks for more on a named profile | S |
 | Headless `--exec` | No non-interactive mode. Every action already runs through one dispatch point | M |

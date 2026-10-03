@@ -79,6 +79,17 @@ needs the `Ms` capability for the client terminal, which many terminfo entries l
 set -ga terminal-overrides ',*:Ms=\E]52;%p1%s;%p2%s\7'
 ```
 
+Terminals commonly cap OSC 52 around 100 KB and cut the rest without saying so. A yank
+longer than 65536 bytes therefore does not touch the clipboard: it is written to
+`yank.json` (`yank.txt` when it is not JSON) in a fresh directory under the temp directory,
+readable by you only, and the status line and `:messages` give the path. tmprl does not
+remove the file. A terminal that takes more can have the limit raised:
+
+```toml
+[yank]
+max_bytes = 1048576     # 65536 is the default
+```
+
 ## Keymap
 
 Leader is `Space`. A which-key-style popup appears as soon as a prefix is incomplete.
@@ -563,7 +574,7 @@ depth rule: nearest named colour on 16, none under `NO_COLOR`.
 
 | File | Holds |
 |---|---|
-| `~/.config/tmprl/config.toml` | codec server endpoint and payload pane position and display timezone, **live**; refresh intervals and defaults *planned* |
+| `~/.config/tmprl/config.toml` | codec server endpoint, payload pane position, display timezone and yank limit, **live**; refresh intervals and defaults *planned* |
 | `~/.config/tmprl/keys.toml` | key chord → command id, **live** |
 | `~/.config/tmprl/theme.toml` | palette slot → colour, **live** |
 | `~/.config/tmprl/views.toml` | saved visibility queries, **live** |
