@@ -83,7 +83,7 @@ tested with no server in sight, and the generated types still stop at the client
 
 ### Why `tmprl-client` exists at all
 
-`temporalio-client` is pre-1.0 and its public surface moves between releases. Rather than
+`temporalio-client` moved its public surface between every pre-1.0 release. Rather than
 scatter `temporalio_*` types through the UI, every RPC goes through a wrapper here. A version
 bump then breaks one crate, loudly, in one place, instead of breaking forty call sites.
 
@@ -681,7 +681,7 @@ Collected because each one cost real time to discover.
 
 | | |
 |---|---|
-| **`protoc` is a build requirement** | `temporalio-protos` compiles protos from source. Missing it fails inside a build script, which reads like a network error but isn't. |
+| **`protoc` is not a build requirement** | `temporalio-protos` compiles protos from source, with `protox` because the `vendored-protox` feature is on. Dropping the feature brings back a `protoc` failure inside a build script, which reads like a network error but isn't. |
 | **Raw services hang off `Connection`, not `Client`** | `client.connection().workflow_service()`. There are same-named methods on `TemporalServiceClient` too, which makes the error message misleading. |
 | **Protos are in `temporalio-common`** | `temporalio_common::protos::temporal::api::*::v1`, requiring a direct dependency on `temporalio-common`. Not `temporal-sdk-core-protos`, which is a different, older crate. |
 | **`ConfigError` is not `Sync`** | It boxes a bare `dyn Error`. Flatten it at the crate boundary or it poisons every `anyhow` signature above it. |

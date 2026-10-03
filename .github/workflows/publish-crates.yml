@@ -17,10 +17,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # Verifying a package builds it, and temporalio-protos needs protoc to build.
-      - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
-
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 

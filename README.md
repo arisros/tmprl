@@ -38,17 +38,16 @@ temporal server start-dev &
 tmprl
 ```
 
-Both install a prebuilt binary. Building from crates.io needs Rust 1.95 or newer and `protoc`,
-because Temporal's protobufs compile from source:
+Both install a prebuilt binary. Building from crates.io needs Rust 1.95 or newer and nothing
+else:
 
 ```sh
-brew install protobuf        # Debian and Ubuntu: sudo apt-get install protobuf-compiler
 rustup update stable         # only if `rustc --version` is older than 1.95
-cargo install tmprl
+cargo install tmprl          # add --force if the script above installed tmprl before
 ```
 
-Without `protoc` the build fails late, in the build script of `prost-wkt-types`, with
-``Could not find `protoc` ``.
+The script and `cargo install` both write `~/.cargo/bin/tmprl`, and cargo will not overwrite a
+binary it did not install.
 
 ```sh
 tmprl --profile prod                        # a profile from temporal.toml

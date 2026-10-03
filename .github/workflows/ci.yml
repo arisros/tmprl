@@ -17,11 +17,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # temporalio-protos compiles Temporal's protobufs from source, so protoc
-      # is a hard build requirement — not an optional accelerator.
-      - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
-
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -43,9 +38,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
-
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.95"
@@ -61,9 +53,6 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
-
-      - name: Install protoc
-        run: brew install protobuf
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
@@ -82,9 +71,6 @@ jobs:
         temporal-cli: [latest, v1.5.1]
     steps:
       - uses: actions/checkout@v5
-
-      - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - uses: dtolnay/rust-toolchain@stable
         with:
