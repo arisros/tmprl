@@ -28,7 +28,8 @@ with <code>*</code> afterwards, same length, so the layout and timing are untouc
 brew install arisros/tap/tmprl
 # or, on Linux and macOS
 curl -LsSf https://github.com/arisros/tmprl/releases/latest/download/tmprl-installer.sh | sh
-# or from crates.io; protoc is required, the protos build from source
+# or from crates.io, Rust 1.95 or newer
+# add --force if the script above installed tmprl before, both write ~/.cargo/bin/tmprl
 cargo install tmprl
 
 temporal server start-dev &

@@ -18,6 +18,8 @@
   for the run. A long option also takes `--option=value`.
 - An option that needs a value no longer takes a following argument that starts with `-`, so
   `tmprl -n --readonly` is an error rather than a namespace called `--readonly`.
+- **Fixed**: `cargo install tmprl` no longer needs `protoc`. The protos are compiled by a
+  vendored pure Rust compiler, so a Rust toolchain is the only build requirement.
 - **Fixed**: the create-schedule form opened on a read-only profile and refused only after
   it was filled in. It now refuses before it opens.
 

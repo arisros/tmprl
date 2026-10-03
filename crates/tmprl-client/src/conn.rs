@@ -261,12 +261,11 @@ mod tests {
     }
 
     fn cloud_profile() -> ClientConfigProfile {
-        ClientConfigProfile {
-            address: Some("my-ns.a1b2c.tmprl.cloud:7233".into()),
-            namespace: Some("my-ns.a1b2c".into()),
-            api_key: Some("secret".into()),
-            ..Default::default()
-        }
+        let mut profile = ClientConfigProfile::default();
+        profile.address = Some("my-ns.a1b2c.tmprl.cloud:7233".into());
+        profile.namespace = Some("my-ns.a1b2c".into());
+        profile.api_key = Some("secret".into());
+        profile
     }
 
     fn overriding(address: Option<&str>, namespace: Option<&str>) -> ProfileRef {

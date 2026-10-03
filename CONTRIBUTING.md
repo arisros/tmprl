@@ -15,7 +15,6 @@ A bug needs no such check. Open an issue with the bug form.
 | | |
 |---|---|
 | Rust 1.95 or newer | `rust-version` in `Cargo.toml`. CI builds and tests on stable, and checks 1.95 separately |
-| `protoc` | `temporalio-protos` compiles Temporal's protobufs from source. Without it the build fails inside a build script, which reads like a network error and is not one. `brew install protobuf`, or `apt-get install protobuf-compiler` |
 | the `temporal` CLI | Only for the integration tests. It carries the dev server they run against |
 
 ## What CI runs

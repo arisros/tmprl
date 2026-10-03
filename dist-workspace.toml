@@ -23,11 +23,3 @@ install-updater = false
 dispatch-releases = true
 # Formula name, so it installs as `brew install arisros/tap/tmprl`
 formula = "tmprl"
-
-# temporalio-protos compiles Temporal's protobufs from source, so every build machine
-# needs protoc. Build-time only: the binary does not need it.
-[dist.dependencies.apt]
-protobuf-compiler = "*"
-
-[dist.dependencies.homebrew]
-protobuf = "*"

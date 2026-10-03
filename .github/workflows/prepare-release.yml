@@ -32,9 +32,6 @@ jobs:
           # Tags decide the next rc number, and the changelog reads the log since the last one.
           fetch-depth: 0
 
-      - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
-
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
