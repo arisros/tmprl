@@ -33,12 +33,22 @@ with <code>*</code> afterwards, same length, so the layout and timing are untouc
 brew install arisros/tap/tmprl
 # or, on Linux and macOS
 curl -LsSf https://github.com/arisros/tmprl/releases/latest/download/tmprl-installer.sh | sh
-# or from crates.io; protoc is required, the protos build from source
-cargo install tmprl
 
 temporal server start-dev &
 tmprl
 ```
+
+Both install a prebuilt binary. Building from crates.io needs Rust 1.95 or newer and `protoc`,
+because Temporal's protobufs compile from source:
+
+```sh
+brew install protobuf        # Debian and Ubuntu: sudo apt-get install protobuf-compiler
+rustup update stable         # only if `rustc --version` is older than 1.95
+cargo install tmprl
+```
+
+Without `protoc` the build fails late, in the build script of `prost-wkt-types`, with
+``Could not find `protoc` ``.
 
 ```sh
 tmprl --profile prod                        # a profile from temporal.toml
