@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5 — 2026-10-03
+
+- No user-visible changes.
+
 ## 0.1.4 — 2026-10-03
 
 - **Colours**: `NO_COLOR` is honoured, a terminal that does not announce truecolor through
