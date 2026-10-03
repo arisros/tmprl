@@ -11,9 +11,11 @@
 //! comparison, and it works for any two views rather than a pair somebody anticipated.
 
 mod tabs;
+mod tracks;
 mod tree;
 
 pub use tabs::Tabs;
+pub use tracks::{Track, tracks};
 pub use tree::{Pane, Tree};
 
 /// Which way a split divides its children.

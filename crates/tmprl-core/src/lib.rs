@@ -8,6 +8,7 @@ pub mod clock;
 pub mod command;
 pub mod complete;
 pub mod config;
+pub mod dashboard;
 pub mod fault;
 pub mod filter;
 pub mod form;

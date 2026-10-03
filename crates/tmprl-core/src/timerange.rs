@@ -124,7 +124,7 @@ pub fn parse_instant(s: &str, now_ms: i64) -> Result<i64, RangeError> {
 }
 
 /// `90s`, `30m`, `36h`, `7d`, `2w`, as milliseconds.
-fn parse_offset(s: &str) -> Option<i64> {
+pub fn parse_offset(s: &str) -> Option<i64> {
     let (digits, unit) = s.split_at(s.find(|c: char| !c.is_ascii_digit())?);
     let n: i64 = digits.parse().ok()?;
     let scale = match unit {
