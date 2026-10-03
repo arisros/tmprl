@@ -1,7 +1,7 @@
 <h1 align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/img/logo-lockup-dark.svg">
-    <img alt="tmprl" src="docs/img/logo-lockup-light.svg" width="250">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/arisros/tmprl/main/docs/img/logo-lockup-dark.svg">
+    <img alt="tmprl" src="https://raw.githubusercontent.com/arisros/tmprl/main/docs/img/logo-lockup-light.svg" width="250">
   </picture>
 </h1>
 
