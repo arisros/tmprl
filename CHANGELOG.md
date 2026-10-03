@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.4 — 2026-10-03
 
 - **Colours**: `NO_COLOR` is honoured, a terminal that does not announce truecolor through
   `COLORTERM` gets its own sixteen named colours, which follow a light or dark terminal theme,
@@ -25,7 +25,11 @@
 
 ## 0.1.3 — 2026-09-29
 
-- No user-visible changes.
+- fix: drop the protoc build requirement
+- feat: keep the grpc code and add :messages
+- feat: add theme.toml, NO_COLOR and a 16-colour palette
+- feat: add namespace, query, workflow, address and readonly flags
+- fix: refuse the create form on a read-only profile
 
 ## 0.1.2 — 2026-09-28
 
