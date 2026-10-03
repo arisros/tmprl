@@ -215,7 +215,7 @@ impl PayloadPane {
 }
 
 /// `config.toml`. Everything in it is optional.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
     /// The codec used by any profile that does not name its own.
     pub codec: Option<CodecConfig>,
@@ -225,6 +225,24 @@ pub struct Config {
     /// `[layout] payload`. Global rather than per profile: it is about your terminal, not
     /// the cluster.
     pub payload_pane: PayloadPane,
+    /// `[yank] max_bytes`. The largest text handed to the clipboard; anything longer is
+    /// written to a file instead.
+    pub yank_max: usize,
+}
+
+/// Terminals commonly cap OSC 52 around 100 KB and truncate silently past it.
+pub const DEFAULT_YANK_MAX: usize = 64 * 1024;
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            codec: None,
+            timezone: None,
+            profiles: Vec::new(),
+            payload_pane: PayloadPane::default(),
+            yank_max: DEFAULT_YANK_MAX,
+        }
+    }
 }
 
 impl Config {
@@ -257,6 +275,9 @@ impl Config {
 ///
 /// [layout]
 /// payload = "right"              # or "bottom", the default
+///
+/// [yank]
+/// max_bytes = 1048576            # default 65536; a longer yank goes to a file
 ///
 /// [codec]
 /// endpoint = "http://localhost:8081"
@@ -320,12 +341,39 @@ pub fn parse_config(src: &str) -> Result<Config, ConfigError> {
         Some(raw) => parse_layout(raw)?,
     };
 
+    let yank_max = match table.get("yank") {
+        None => DEFAULT_YANK_MAX,
+        Some(raw) => parse_yank(raw)?,
+    };
+
     Ok(Config {
         codec,
         timezone,
         profiles,
         payload_pane,
+        yank_max,
     })
+}
+
+fn parse_yank(raw: &toml::Value) -> Result<usize, ConfigError> {
+    const FILE: &str = "config.toml";
+    let table = raw.as_table().ok_or(ConfigError::Type {
+        file: FILE,
+        path: "yank".into(),
+        expected: "a table",
+    })?;
+    match table.get("max_bytes") {
+        None => Ok(DEFAULT_YANK_MAX),
+        Some(v) => v
+            .as_integer()
+            .filter(|n| *n > 0)
+            .and_then(|n| usize::try_from(n).ok())
+            .ok_or(ConfigError::Type {
+                file: FILE,
+                path: "yank.max_bytes".into(),
+                expected: "a number of bytes above zero",
+            }),
+    }
 }
 
 fn parse_layout(raw: &toml::Value) -> Result<PayloadPane, ConfigError> {
@@ -881,6 +929,31 @@ accent = "green"
             parse_config("[layout]\n").unwrap().payload_pane,
             PayloadPane::Bottom
         );
+    }
+
+    #[test]
+    fn the_yank_limit_defaults_to_64_kb() {
+        assert_eq!(parse_config("").unwrap().yank_max, DEFAULT_YANK_MAX);
+        assert_eq!(parse_config("[yank]\n").unwrap().yank_max, 64 * 1024);
+    }
+
+    #[test]
+    fn the_yank_limit_can_be_raised() {
+        let cfg = parse_config("[yank]\nmax_bytes = 1048576").unwrap();
+        assert_eq!(cfg.yank_max, 1_048_576);
+    }
+
+    #[test]
+    fn a_yank_limit_that_is_not_a_positive_number_is_reported() {
+        for src in [
+            "[yank]\nmax_bytes = 0",
+            "[yank]\nmax_bytes = -1",
+            "[yank]\nmax_bytes = \"1MB\"",
+            "yank = 4096",
+        ] {
+            let err = parse_config(src).unwrap_err();
+            assert!(matches!(err, ConfigError::Type { .. }), "{src}: {err:?}");
+        }
     }
 
     #[test]

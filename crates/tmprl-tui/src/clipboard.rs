@@ -15,23 +15,24 @@ use std::process::{Command, Stdio};
 
 use crossterm::{clipboard::CopyToClipboard, execute};
 
-/// Longest payload we will attempt. Terminals commonly cap OSC 52 around 100 KB and a
-/// silently truncated clipboard is worse than a refusal.
-pub const MAX_YANK: usize = 64 * 1024;
-
 #[derive(Debug, thiserror::Error)]
 pub enum YankError {
-    #[error("{0} bytes is too large to yank (limit {MAX_YANK})")]
-    TooLarge(usize),
+    #[error("{len} bytes is too large to yank (limit {max})")]
+    TooLarge { len: usize, max: usize },
     #[error("terminal write failed: {0}")]
     Io(#[from] io::Error),
     #[error("tmux load-buffer failed: {0}")]
     Tmux(String),
 }
 
-pub fn yank(text: &str) -> Result<(), YankError> {
-    if text.len() > MAX_YANK {
-        return Err(YankError::TooLarge(text.len()));
+/// `max` is `[yank] max_bytes`. A silently truncated clipboard is worse than a refusal, so
+/// the caller is expected to have sent anything longer to a file already.
+pub fn yank(text: &str, max: usize) -> Result<(), YankError> {
+    if text.len() > max {
+        return Err(YankError::TooLarge {
+            len: text.len(),
+            max,
+        });
     }
     // Tests run inside the developer's tmux, where a real yank would clobber their clipboard.
     if cfg!(test) {
@@ -80,7 +81,11 @@ mod tests {
 
     #[test]
     fn oversized_yanks_are_refused_rather_than_truncated() {
-        let big = "x".repeat(MAX_YANK + 1);
-        assert!(matches!(yank(&big), Err(YankError::TooLarge(_))));
+        let big = "x".repeat(101);
+        assert!(matches!(
+            yank(&big, 100),
+            Err(YankError::TooLarge { len: 101, max: 100 })
+        ));
+        assert!(yank(&big[..100], 100).is_ok());
     }
 }
