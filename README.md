@@ -1,4 +1,9 @@
-<h1 align="center">tmprl</h1>
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/img/logo-lockup-dark.svg">
+    <img alt="tmprl" src="docs/img/logo-lockup-light.svg" width="250">
+  </picture>
+</h1>
 
 <p align="center">A keyboard-driven terminal client for <a href="https://temporal.io">Temporal</a>.</p>
 
