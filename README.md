@@ -1,4 +1,9 @@
-<h1 align="center">tmprl</h1>
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/img/logo-lockup-dark.svg">
+    <img alt="tmprl" src="docs/img/logo-lockup-light.svg" width="250">
+  </picture>
+</h1>
 
 <p align="center">A keyboard-driven terminal client for <a href="https://temporal.io">Temporal</a>.</p>
 
@@ -17,7 +22,7 @@
 
 <sub>Real history on Temporal Cloud. Two customer values blurred, nothing else.</sub>
 
-[![A recorded tmprl session: search, folds and the payload pane](https://asciinema.org/a/mTNgbyV9vP1SC5Ed.svg)](https://asciinema.org/a/mTNgbyV9vP1SC5Ed)
+[![A recorded tmprl session: search, folds and the payload pane](https://raw.githubusercontent.com/arisros/tmprl/main/docs/img/demo.svg)](https://asciinema.org/a/mTNgbyV9vP1SC5Ed)
 
 <sub>Recorded on a local dev server. Payload values and a few identifying words were replaced
 with <code>*</code> afterwards, same length, so the layout and timing are untouched.</sub>
@@ -28,13 +33,21 @@ with <code>*</code> afterwards, same length, so the layout and timing are untouc
 brew install arisros/tap/tmprl
 # or, on Linux and macOS
 curl -LsSf https://github.com/arisros/tmprl/releases/latest/download/tmprl-installer.sh | sh
-# or from crates.io, Rust 1.95 or newer
-# add --force if the script above installed tmprl before, both write ~/.cargo/bin/tmprl
-cargo install tmprl
 
 temporal server start-dev &
 tmprl
 ```
+
+Both install a prebuilt binary. Building from crates.io needs Rust 1.95 or newer and nothing
+else:
+
+```sh
+rustup update stable         # only if `rustc --version` is older than 1.95
+cargo install tmprl          # add --force if the script above installed tmprl before
+```
+
+The script and `cargo install` both write `~/.cargo/bin/tmprl`, and cargo will not overwrite a
+binary it did not install.
 
 ```sh
 tmprl --profile prod                        # a profile from temporal.toml
