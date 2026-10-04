@@ -64,8 +64,8 @@ project testable:
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
 | `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 80 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 402 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 433 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 408 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 434 |
 | `tmprl-ui` | built | Plain unit tests over the layout tree | 44 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -343,6 +343,10 @@ one `dashboard.toml` parses into, or the builtin one when the file is absent, em
 - **A panel does not fetch.** It reads from a `Source`, and panels asking for the same thing
   share one. "Recent failures" and "failing types" are one `ListWorkflowExecutions` and
   cannot disagree, and a layout's request count is bounded by its distinct sources.
+- **A tally of a sample is counted again.** One page of a long list names the types and
+  queues that are there but miscounts them, so the board adds a count for each name it
+  shows, at most `MAX_TALLIES`, the way it adds a describe for each queue. Until a count
+  arrives the number is drawn as a tally, `~26`.
 - **The cursor is one list.** Every panel's items in order, so the motions, counts and search
   that work on a list work here. Across a refresh the cursor is anchored to the item's key,
   as it is in the workflow list.
@@ -736,5 +740,6 @@ Collected because each one cost real time to discover.
 | **Timestamps are `prost_wkt_types`** | Not `prost_types`. The generated protos use `prost_wkt_types::Timestamp` and nothing re-exports it, so reading a `start_time` needs a direct `prost-wkt-types` dependency. The compiler's "expected `prost_wkt_types::pbtime::Timestamp`" is the only clue. |
 | **`ListWorkflowExecutions` is unordered** | And standard visibility rejects `ORDER BY`, `operation is not supported: 'ORDER BY' clause`. Sorting is the client's job; see §5. |
 | **`GROUP BY` returns payloads** | An `AggregationGroup`'s `group_values` are `Payload`s, not strings: `json/plain`, type `Keyword`, data `"Running"` *with* the quotes. |
+| **A count groups by status only** | `GROUP BY WorkflowType` is refused. Counting by type or task queue is one `CountWorkflowExecutions` per name, which is why the dashboard caps how many it asks for. |
 | **Grouped counts are approximate** | Temporal documents this. Sum the groups and you understate the total, so read `response.count` for the total instead. |
 | **Debug info does not fit** | 228 crates, and `temporalio-protos` dominates. `[profile.dev] debug = false`; use `--profile dbg` when you actually need a debugger. |

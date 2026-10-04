@@ -358,3 +358,37 @@ fn a_list_windowed_on_close_time_says_how_long_ago_each_one_closed() {
     let row = out.lines().find(|l| l.contains("order-1001")).unwrap();
     assert!(row.ends_with("5m│"), "the start was 3d ago:\n{out}");
 }
+
+#[test]
+fn a_tally_of_a_sample_is_marked_until_its_counts_arrive() {
+    use tmprl_core::dashboard::Source;
+    let mut app = app_with_dashboard();
+    reply(&mut app, 1, Ok(failures(true)));
+    let out = draw(&mut app, 120, 30);
+    assert!(out.contains("~2  CheckoutWorkflow"), "{out}");
+    assert!(out.contains("of 3 sampled"), "{out}");
+
+    let counting = |app: &App, name: &str| {
+        app.view
+            .dashboard
+            .as_ref()
+            .unwrap()
+            .sources()
+            .iter()
+            .position(|s| matches!(s, Source::Counts { query, .. } if query.contains(name)))
+            .unwrap()
+    };
+    for (name, n) in [("CheckoutWorkflow", 31_204), ("RefundWorkflow", 7)] {
+        let source = counting(&app, name);
+        reply(
+            &mut app,
+            source,
+            Ok(SourceData::Counts(StatusCounts::new(n, []))),
+        );
+    }
+    let out = draw(&mut app, 120, 30);
+    assert!(out.contains("31204  CheckoutWorkflow"), "{out}");
+    assert!(!out.contains('~'), "{out}");
+    assert!(out.contains("Failing types names from 3"), "{out}");
+    assert!(out.contains("Recent failures of 3 sampled"), "{out}");
+}

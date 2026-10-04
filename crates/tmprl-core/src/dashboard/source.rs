@@ -13,6 +13,9 @@ use crate::workflow::{
 /// The most task queues a board describes. Each costs two requests a refresh.
 pub const MAX_QUEUES: usize = 8;
 
+/// The most names a board counts exactly. Each costs one request a refresh.
+pub const MAX_TALLIES: usize = 24;
+
 /// One request a board makes, shared by every panel that needs it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Source {
@@ -75,6 +78,8 @@ pub struct QueueRef {
     pub namespace: String,
     pub name: String,
     pub running: usize,
+    /// Whether `running` is a count, or a tally of one page of a longer list.
+    pub exact: bool,
     /// `None` until the queue has been described, and for queues past [`MAX_QUEUES`].
     pub health: Option<QueueHealth>,
 }
@@ -82,9 +87,17 @@ pub struct QueueRef {
 /// One line of a panel, and one stop for the cursor.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Item {
-    Status { status: WorkflowStatus, count: i64 },
+    Status {
+        status: WorkflowStatus,
+        count: i64,
+    },
     Workflow(WorkflowRow),
-    Type { name: String, count: usize },
+    /// `exact` when `count` is a count, not a tally of one page of a longer list.
+    Type {
+        name: String,
+        count: usize,
+        exact: bool,
+    },
     Queue(QueueRef),
     Schedule(ScheduleRow),
 }
@@ -114,7 +127,7 @@ impl Item {
                 w.namespace,
                 w.run_id,
             ),
-            Item::Type { name, count } => format!("{name} {count}"),
+            Item::Type { name, count, .. } => format!("{name} {count}"),
             Item::Queue(q) => format!("{} {} {}", q.name, q.namespace, q.running),
             Item::Schedule(s) => format!(
                 "{} {} {}",
@@ -122,6 +135,15 @@ impl Item {
                 s.workflow_type,
                 if s.paused { "paused" } else { "running" },
             ),
+        }
+    }
+
+    /// Whether the number on this line came from a sample and may be short of the truth.
+    pub fn approximate(&self) -> bool {
+        match self {
+            Item::Type { exact, .. } => !exact,
+            Item::Queue(q) => !q.exact,
+            Item::Status { .. } | Item::Workflow(_) | Item::Schedule(_) => false,
         }
     }
 
@@ -166,6 +188,7 @@ pub fn discover_queues(rows: &[WorkflowRow], names: &[String], namespace: &str) 
             namespace: namespace.to_string(),
             name: name.to_string(),
             running,
+            exact: false,
             health: None,
         })
         .collect();
@@ -181,6 +204,7 @@ pub fn discover_queues(rows: &[WorkflowRow], names: &[String], namespace: &str) 
                 namespace: namespace.to_string(),
                 name: name.clone(),
                 running: 0,
+                exact: false,
                 health: None,
             });
         }
@@ -206,7 +230,11 @@ pub(super) fn items(spec: &PanelSpec, data: Option<&SourceData>, namespace: &str
         }
         (PanelKind::Types { .. }, Some(SourceData::Workflows { rows, .. })) => tally_types(rows)
             .into_iter()
-            .map(|(name, count)| Item::Type { name, count })
+            .map(|(name, count)| Item::Type {
+                name,
+                count,
+                exact: false,
+            })
             .collect(),
         (PanelKind::Queues { names, .. }, Some(SourceData::Workflows { rows, .. })) => {
             discover_queues(rows, names, namespace)
