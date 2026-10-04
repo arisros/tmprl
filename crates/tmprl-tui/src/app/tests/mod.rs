@@ -1,7 +1,7 @@
 //! Tests for `App`, one file per `app/` file they exercise. The fixtures every file
 //! shares are here.
 
-use super::yank::json_string;
+use super::yank::{json_string, write_yank_file};
 use super::*;
 use tmprl_core::{Key, WorkflowStatus};
 use tokio::sync::mpsc::unbounded_channel;
