@@ -130,6 +130,9 @@ api_key   = "…"
 [layout]
 payload = "right"         # K opens beside the list; "bottom" is the default
 
+[yank]
+max_bytes = 1048576       # default 65536; a longer yank is written to a file, not refused
+
 [profile.sit]
 accent = "green"
 
@@ -188,8 +191,8 @@ flowchart LR
 | Crate | Tests | |
 |---|---|---|
 | `tmprl-client` | 77 | all network IO |
-| `tmprl-core` | 369 | no terminal, no server |
-| `tmprl-tui` | 414 | ratatui |
+| `tmprl-core` | 372 | no terminal, no server |
+| `tmprl-tui` | 418 | ratatui |
 | `tmprl-ui` | 44 | window tree |
 
 ```sh

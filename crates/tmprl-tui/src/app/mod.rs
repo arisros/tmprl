@@ -471,6 +471,7 @@ pub struct App {
     audit_sink: AuditSink,
     /// Where `K` opens, from `config.toml`'s `[layout]`.
     payload_pane: tmprl_core::config::PayloadPane,
+    yank_max: usize,
     namespace: String,
     conn: Option<Arc<Conn>>,
     tx: UnboundedSender<Msg>,
@@ -561,6 +562,7 @@ impl App {
             readonly_flag: false,
             audit_sink: AuditSink::File,
             payload_pane: Default::default(),
+            yank_max: tmprl_core::config::DEFAULT_YANK_MAX,
             namespace,
             conn,
             tx,
@@ -580,6 +582,7 @@ impl App {
                     self.accent = resolved.accent;
                     self.readonly = resolved.readonly;
                     self.payload_pane = cfg.payload_pane;
+                    self.yank_max = cfg.yank_max;
                     // Already validated by `parse_config`, so this cannot be the zone
                     // failing; unwrapping to the system zone here would be unreachable.
                     if let Ok(clock) = Clock::from_config(cfg.timezone.as_deref()) {

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Yank**: a yank over the limit is written to a file instead of being refused, and the
+  status line says where: `510853 bytes is over the yank limit (65536), written to
+  /tmp/tmprl-…/yank.json`. The file is readable by you only and stays until you remove it.
+  `[yank] max_bytes` in `config.toml` raises the limit for a terminal that takes more.
 - **Dashboard**, `gd`: one screen of panels over the namespaces in scope, with workflows by
   status, failures of the last day, the workflow types failing most, the task queues running
   workflows are on, and schedules. `Enter` on an item opens what it stands for, `]p` and `[p`

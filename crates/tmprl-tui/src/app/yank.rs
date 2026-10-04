@@ -220,7 +220,11 @@ impl App {
             return;
         }
         let n = text.len();
-        match crate::clipboard::yank(&text) {
+        if n > self.yank_max {
+            self.yank_to_file(&text);
+            return;
+        }
+        match crate::clipboard::yank(&text, self.yank_max) {
             Ok(()) => {
                 self.note = Some((format!("yanked {n} bytes to clipboard"), Note::Info));
                 self.view.anchor = None;
@@ -229,6 +233,51 @@ impl App {
             Err(e) => self.note = Some((format!("yank failed: {e}"), Note::Error)),
         }
     }
+
+    /// Over the limit the clipboard is left alone and the text goes to a file, kept until
+    /// the user removes it: the path in the note is the only way to reach it.
+    fn yank_to_file(&mut self, text: &str) {
+        let n = text.len();
+        let max = self.yank_max;
+        match write_yank_file(text) {
+            Ok(path) => {
+                self.note = Some((
+                    format!(
+                        "{n} bytes is over the yank limit ({max}), written to {}",
+                        path.display()
+                    ),
+                    Note::Warn,
+                ));
+                self.view.anchor = None;
+                self.mode = Mode::Normal;
+            }
+            Err(e) => {
+                self.note = Some((
+                    format!("yank failed: {n} bytes is over the limit ({max}) and {e}"),
+                    Note::Error,
+                ));
+            }
+        }
+    }
+}
+
+/// The same private directory and file modes `<leader>e` uses, for the same reason: the
+/// text is often a decoded payload.
+pub(super) fn write_yank_file(text: &str) -> Result<std::path::PathBuf, String> {
+    let dir = std::env::temp_dir().join(format!("tmprl-{}", uuid::Uuid::new_v4()));
+    super::payload::create_private_dir(&dir)
+        .map_err(|e| format!("could not create {}: {e}", dir.display()))?;
+    let name = if text.starts_with(['{', '[']) {
+        "yank.json"
+    } else {
+        "yank.txt"
+    };
+    let path = dir.join(name);
+    if let Err(e) = super::payload::write_private_file(&path, text.as_bytes()) {
+        let _ = std::fs::remove_dir_all(&dir);
+        return Err(format!("could not write {}: {e}", path.display()));
+    }
+    Ok(path)
 }
 
 /// Minimal JSON string escaping, enough for the identifiers and enum names yanked today.
