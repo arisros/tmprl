@@ -133,6 +133,9 @@ payload = "right"         # K opens beside the list; "bottom" is the default
 [refresh]
 dashboard = "1m"          # the dashboard asks again this often; "off" leaves it to R
 
+[yank]
+max_bytes = 1048576       # default 65536; a longer yank is written to a file, not refused
+
 [profile.sit]
 accent = "green"
 
@@ -191,8 +194,8 @@ flowchart LR
 | Crate | Tests | |
 |---|---|---|
 | `tmprl-client` | 77 | all network IO |
-| `tmprl-core` | 387 | no terminal, no server |
-| `tmprl-tui` | 426 | ratatui |
+| `tmprl-core` | 390 | no terminal, no server |
+| `tmprl-tui` | 430 | ratatui |
 | `tmprl-ui` | 44 | window tree |
 
 ```sh

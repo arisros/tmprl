@@ -26,7 +26,7 @@ These are the places where a bug is a security bug:
 | Codec server | Payloads that need decoding are sent to the codec endpoint set in tmprl's `config.toml`, as `POST {endpoint}/decode` with an `X-Namespace` header. `Authorization` is sent only when `auth` is set there, verbatim. That makes `config.toml` a file that can hold a credential |
 | `!` | Runs the command you type through `sh -c`, with the readable payloads under the cursor as JSON on stdin |
 | `$EDITOR` | `<leader>e` writes the readable payloads to a file with mode 0600 in a fresh directory with mode 0700 under the temp directory, runs `$VISUAL`, else `$EDITOR`, else `vi` on it without a shell, and removes the directory when the editor exits |
-| Yank | Sent to the terminal as OSC 52, or inside tmux through `tmux load-buffer -w` |
+| Yank | Sent to the terminal as OSC 52, or inside tmux through `tmux load-buffer -w`. A yank over `[yank] max_bytes` (default 65536) is written instead to a file with mode 0600 in a fresh directory with mode 0700 under the temp directory, named in the status line, and is not removed by tmprl |
 | Audit log | Every mutation attempted, failures included, is appended to `$XDG_STATE_HOME/tmprl/audit.jsonl`, else `~/.local/state/tmprl/audit.jsonl`. A line holds the time, the action, the profile, the cluster address, the namespace, the workflow id, the run id, the outcome and the equivalent `temporal` command |
 
 Examples of what to report:
