@@ -57,8 +57,8 @@ broken.
 
 | Item | Today | Effort |
 |---|---|---|
-| Dashboard | Built, `gd` or `--dashboard`: counts by status, recent failures, the types failing most, task queues in use and schedules, each item one `Enter` from the workflows it stands for, laid out by `dashboard.toml`, or by what the namespace shows when there is none. Refreshes itself, `[refresh] dashboard`. Still wanted: task queue health on the panel, arranging panels in the app | L |
-| Task queue describe | Nothing. `DescribeTaskQueue` gives pollers, backlog count and age, and rates. Reached from a workflow's task queue or a typed name | M |
+| Dashboard | Built, `gd` or `--dashboard`: counts by status, recent failures, the types failing most, task queues in use and schedules, each item one `Enter` from the workflows it stands for, laid out by `dashboard.toml`, or by what the namespace shows when there is none. Refreshes itself, `[refresh] dashboard`. Shows each task queue's backlog and pollers. Still wanted: arranging panels in the app | L |
+| Task queue describe | The dashboard shows backlog, its age and the poller count for queues with running workflows. Still wanted: a view of one queue, with each poller and the rates, reached from a workflow's task queue or a typed name | M |
 | Build id display | Nothing. Shown on the info pane and on pollers; no browser, see below | S |
 | Open a history from a file | The app cannot start without a server. Wanted: `tmprl --history <file>` and a capture command. This also gives a demo with no server and fixtures for tests | M to L |
 | Export | `Y` yanks JSON, and past the yank limit writes it to a file in the temp directory. Wanted: a Markdown summary of a workflow and JSON to a file | M |

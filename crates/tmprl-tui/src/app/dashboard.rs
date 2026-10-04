@@ -2,6 +2,7 @@
 
 use super::*;
 use tmprl_core::fault::Code;
+use tmprl_core::taskqueue::TaskQueueKind;
 
 impl App {
     /// `gd`. From the namespace list it takes the namespaces under the cursor as its scope,
@@ -112,6 +113,11 @@ impl App {
         result: Result<SourceData, Fault>,
     ) {
         let focused = id == self.tabs.current().focused();
+        let (conn, tx, deadline) = (
+            self.conn.clone(),
+            self.tx.clone(),
+            self.dashboard_deadline(),
+        );
         let Some(view) = self.pane_mut(id) else {
             return;
         };
@@ -143,6 +149,11 @@ impl App {
             && let Some(anchor) = anchor
         {
             view.cursor = board.reanchor(&anchor);
+        }
+        // The rows that just arrived may name task queues nobody has described yet.
+        let found = view.dashboard_pacer.take_new(board.sources().len());
+        if !found.is_empty() {
+            ask(view, id, found, conn, &tx, timed, deadline);
         }
         if focused {
             self.clamp_cursor();
@@ -265,6 +276,7 @@ fn operation(source: &Source) -> &'static str {
         Source::Counts { .. } => "CountWorkflowExecutions",
         Source::Workflows { .. } => "ListWorkflowExecutions",
         Source::Schedules { .. } => "ListSchedules",
+        Source::Queue { .. } => "DescribeTaskQueue",
     }
 }
 
@@ -288,6 +300,13 @@ async fn fetch(conn: &Conn, source: &Source, now_ms: i64) -> Result<SourceData, 
             conn.list_schedules(namespace, PAGE_SIZE, Vec::new())
                 .await
                 .map(|page| SourceData::Schedules(page.rows))
+        }
+        Source::Queue { namespace, name } => {
+            let (workflow, activity) = tokio::try_join!(
+                conn.describe_task_queue(namespace, name, TaskQueueKind::Workflow),
+                conn.describe_task_queue(namespace, name, TaskQueueKind::Activity),
+            )?;
+            Ok(SourceData::Queue(workflow.merge(activity)))
         }
     }
 }

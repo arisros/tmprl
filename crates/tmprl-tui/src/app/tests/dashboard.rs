@@ -609,3 +609,29 @@ fn a_source_the_server_refuses_is_left_alone_until_r() {
     app.run("app.refresh", None);
     assert!(out(&app.view)[3]);
 }
+
+#[test]
+fn a_queue_found_on_running_workflows_is_described_and_kept_fresh() {
+    use tmprl_core::taskqueue::QueueHealth;
+    let mut app = filled();
+    assert_eq!(board(&app).sources().len(), 5, "the probes and queue `tq`");
+    assert!(app.view.dashboard_pacer.in_flight(4));
+
+    reply(
+        &mut app,
+        4,
+        Ok(SourceData::Queue(QueueHealth {
+            backlog: Some(12),
+            pollers: 0,
+            ..QueueHealth::default()
+        })),
+    );
+    let Item::Queue(queue) = &board(&app).items(3)[0] else {
+        panic!("{:?}", board(&app).items(3));
+    };
+    assert!(queue.health.as_ref().unwrap().stuck());
+    assert_eq!(app.row_count(), 10, "health adds no rows");
+
+    app.tick_dashboards(now_ms() + INTERVAL + 1_000);
+    assert!(app.view.dashboard_pacer.in_flight(4));
+}

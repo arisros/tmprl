@@ -180,6 +180,12 @@ a longer list says how many rows it saw, `of 50 sampled`, because a tally over a
 not a count.
 
 Task queues are the ones found on running workflows: Temporal has no call that lists them.
+Each of the first eight is described, and its line says what that found: how many tasks are
+waiting and how long the oldest has waited, `backlog 12, oldest 4m`, and how many workers
+polled it lately, `2 pollers`. A backlog with `no pollers` is drawn as an error, because
+work is waiting and nothing is taking it. The numbers cover workflow and activity tasks
+together and are the server's approximations. A server too old to report a backlog shows
+pollers only.
 Nothing on the dashboard is a target for `<leader>m`; open the workflow first.
 
 On a terminal too small for every panel, the ones around the cursor are drawn and the rest

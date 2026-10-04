@@ -16,6 +16,9 @@
 - **The dashboard refreshes itself**, every 30 seconds by default: `[refresh] dashboard` in
   `config.toml` takes a duration or `"off"`. A request that fails keeps the panel's last
   answer, marked `stale`, is retried less often while it keeps failing, and is reported once.
+- **Task queue health** on the dashboard: each queue with running workflows shows its
+  backlog, how long the oldest task has waited, and how many workers are polling. A backlog
+  nothing is polling stands out as an error.
 - **`dashboard.toml`** lays the dashboard out: rows of panels, each with a kind, a query, a
   time window and a share of the screen. A key it does not know sets the file aside with a
   message, and the built-in layout is used. `--config-path` lists the file.

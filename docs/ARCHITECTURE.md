@@ -63,9 +63,9 @@ project testable:
 
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
-| `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 77 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 390 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 430 |
+| `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 80 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 397 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 432 |
 | `tmprl-ui` | built | Plain unit tests over the layout tree | 44 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -126,10 +126,11 @@ Every file opens with a `//!` line saying what it is; this is those lines, gathe
 | `fault.rs` | a failed request: the call, the gRPC code, the server's message, and what to try |
 | `theme.rs` | colour depth from the environment, `theme.toml`, hex to the nearest of 16 |
 | `dashboard.rs` | the dashboard's panels, the requests they share, `dashboard.toml` |
+| `taskqueue.rs` | a task queue's health: backlog, its age, who is polling |
 
 **`tmprl-client`**, all network IO: `conn.rs` connects; `ops/` has one file per area of the
 API (`workflow`, `history`, `schedule`, `namespace`, `mutate`, `codec`, `describe`,
-`attributes`).
+`attributes`, `taskqueue`).
 `ops/history.rs` is where protobuf events become `tmprl-core` events, `ops/describe.rs`
 reads the mutable state they cannot carry, the activities still being retried, and
 `ops/attributes.rs` asks the cluster what can be filtered on at all.
@@ -360,6 +361,11 @@ one `dashboard.toml` parses into, or the builtin one when the file is absent, em
   once the server has refused it. A timed round does not bump the generation, so an answer
   slower than the interval still lands. Each request is wrapped in a timeout, because no
   RPC has a deadline yet and a request that never answered would never be asked again.
+- **Queue health is a source the data asks for.** No panel names the queues it will list;
+  they are found on the rows of running workflows. So when such rows arrive the board adds a
+  `Source::Queue` for each queue listed, up to eight, and the reducer sends the requests
+  for whatever sources appeared. Health is copied onto the queue's item, and survives the
+  list under it being refreshed.
 - **`dashboard.toml` is strict.** A key that does not exist, or that belongs to another kind
   of panel, sets the file aside: a misspelt `query` would otherwise show every workflow under
   a "failures" title.

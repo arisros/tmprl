@@ -11,6 +11,7 @@ use crate::fault::Fault;
 use crate::loadable::Loadable;
 use crate::query;
 use crate::schedule::ScheduleRow;
+use crate::taskqueue::QueueHealth;
 use crate::timerange::{parse_offset, to_rfc3339};
 use crate::workflow::{StatusCounts, WorkflowRow, WorkflowStatus, by_start_time_desc};
 
@@ -19,6 +20,8 @@ const FILE: &str = "dashboard.toml";
 pub const MAX_PANELS: usize = 12;
 pub const DEFAULT_LIMIT: usize = 10;
 pub const MAX_LIMIT: usize = 50;
+/// The most task queues a board describes. Each costs two requests a refresh.
+pub const MAX_QUEUES: usize = 8;
 
 const RUNNING: &str = "ExecutionStatus = 'Running'";
 const DAY_MS: i64 = 86_400_000;
@@ -189,6 +192,12 @@ pub enum Source {
     Schedules {
         namespaces: Vec<String>,
     },
+    /// One task queue's health. Not asked for by a panel: a board adds one for each queue
+    /// its panels turn out to list.
+    Queue {
+        namespace: String,
+        name: String,
+    },
 }
 
 impl Source {
@@ -197,6 +206,7 @@ impl Source {
             Source::Counts { namespaces, .. }
             | Source::Workflows { namespaces, .. }
             | Source::Schedules { namespaces } => namespaces,
+            Source::Queue { namespace, .. } => std::slice::from_ref(namespace),
         }
     }
 
@@ -208,7 +218,7 @@ impl Source {
             Source::Workflows {
                 query, since_ms, ..
             } => since(query, *since_ms, now_ms),
-            Source::Schedules { .. } => String::new(),
+            Source::Schedules { .. } | Source::Queue { .. } => String::new(),
         }
     }
 }
@@ -232,6 +242,7 @@ pub enum SourceData {
         more: bool,
     },
     Schedules(Vec<ScheduleRow>),
+    Queue(QueueHealth),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -239,6 +250,8 @@ pub struct QueueRef {
     pub namespace: String,
     pub name: String,
     pub running: usize,
+    /// `None` until the queue has been described, and for queues past [`MAX_QUEUES`].
+    pub health: Option<QueueHealth>,
 }
 
 /// One line of a panel, and one stop for the cursor.
@@ -547,6 +560,23 @@ impl Pacer {
         }
     }
 
+    /// Sources that appeared since the last look, marked as asked: the queues a board
+    /// found on the rows it just received.
+    pub fn take_new(&mut self, sources: usize) -> Vec<usize> {
+        let from = self.slots.len();
+        if sources <= from {
+            return Vec::new();
+        }
+        self.slots.resize(
+            sources,
+            Pace {
+                in_flight: true,
+                ..Pace::default()
+            },
+        );
+        (from..sources).collect()
+    }
+
     pub fn in_flight(&self, source: usize) -> bool {
         self.slots.get(source).is_some_and(|p| p.in_flight)
     }
@@ -582,6 +612,7 @@ pub fn discover_queues(rows: &[WorkflowRow], names: &[String], namespace: &str) 
             namespace: namespace.to_string(),
             name: name.to_string(),
             running,
+            health: None,
         })
         .collect();
     out.sort_by(|a, b| {
@@ -596,6 +627,7 @@ pub fn discover_queues(rows: &[WorkflowRow], names: &[String], namespace: &str) 
                 namespace: namespace.to_string(),
                 name: name.clone(),
                 running: 0,
+                health: None,
             });
         }
     }
@@ -728,6 +760,51 @@ impl Board {
         }
         self.panels = panels;
         self.layout = layout;
+        self.sync_queues();
+    }
+
+    /// Give each listed queue the health on record for it, and add a request for the ones
+    /// that have none yet.
+    fn sync_queues(&mut self) {
+        let Self {
+            panels,
+            sources,
+            data,
+            faults,
+            ..
+        } = self;
+        let mut missing: Vec<Source> = Vec::new();
+        for item in panels.iter_mut().flat_map(|p| p.items.iter_mut()) {
+            let Item::Queue(queue) = item else {
+                continue;
+            };
+            let wanted = Source::Queue {
+                namespace: queue.namespace.clone(),
+                name: queue.name.clone(),
+            };
+            match sources.iter().position(|s| *s == wanted) {
+                Some(at) => {
+                    queue.health = match data[at].value() {
+                        Some(SourceData::Queue(health)) => Some(health.clone()),
+                        _ => None,
+                    }
+                }
+                None if !missing.contains(&wanted) => missing.push(wanted),
+                None => {}
+            }
+        }
+        let described = sources
+            .iter()
+            .filter(|s| matches!(s, Source::Queue { .. }))
+            .count();
+        for wanted in missing
+            .into_iter()
+            .take(MAX_QUEUES.saturating_sub(described))
+        {
+            sources.push(wanted);
+            data.push(Loadable::NotAsked);
+            faults.push(None);
+        }
     }
 
     fn probe(&self, slot: Slot) -> Option<&SourceData> {
@@ -809,7 +886,8 @@ impl Board {
             SourceData::Workflows { rows, more: true } => Some(rows.len()),
             SourceData::Workflows { more: false, .. }
             | SourceData::Counts(_)
-            | SourceData::Schedules(_) => None,
+            | SourceData::Schedules(_)
+            | SourceData::Queue(_) => None,
         }
     }
 
@@ -838,6 +916,7 @@ impl Board {
             panel.items = items(&panel.spec, data, namespace);
         }
         self.recompose();
+        self.sync_queues();
     }
 
     pub fn len(&self) -> usize {
@@ -1900,7 +1979,11 @@ mod tests {
             board_titles(&board),
             [vec!["Status"], vec!["Running"], vec!["Task queues"]]
         );
-        assert_eq!(board.sources().len(), 4, "no new requests, only the probes");
+        assert_eq!(
+            board.sources().len(),
+            5,
+            "the probes, and the one queue they found"
+        );
         assert_eq!(board.len(), 2);
     }
 
@@ -2027,5 +2110,88 @@ mod tests {
     fn a_source_never_asked_for_is_due_at_once() {
         let mut pacer = Pacer::default();
         assert_eq!(pacer.take_due(2, NOW, EVERY), [0, 1]);
+    }
+
+    fn queue(board: &Board, panel: usize, index: usize) -> &QueueRef {
+        match &board.items(panel)[index] {
+            Item::Queue(queue) => queue,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    fn health(backlog: i64, pollers: usize) -> QueueHealth {
+        QueueHealth {
+            backlog: Some(backlog),
+            pollers,
+            ..QueueHealth::default()
+        }
+    }
+
+    #[test]
+    fn a_queue_a_panel_lists_gets_a_request_and_then_its_health() {
+        let mut board = Board::new(Layout::builtin(), &scope());
+        board.apply(
+            2,
+            rows(vec![wf("a", "T", "orders", 1), wf("b", "T", "billing", 2)]),
+        );
+        assert_eq!(
+            board.sources()[4..],
+            [
+                Source::Queue {
+                    namespace: "default".into(),
+                    name: "billing".into()
+                },
+                Source::Queue {
+                    namespace: "default".into(),
+                    name: "orders".into()
+                },
+            ]
+        );
+        assert_eq!(queue(&board, 3, 0).health, None);
+
+        board.apply(4, Ok(SourceData::Queue(health(12, 0))));
+        assert_eq!(queue(&board, 3, 0).name, "billing");
+        assert!(queue(&board, 3, 0).health.as_ref().unwrap().stuck());
+        assert_eq!(queue(&board, 3, 1).health, None);
+    }
+
+    #[test]
+    fn health_survives_the_list_it_hangs_on_being_refreshed() {
+        let mut board = Board::new(Layout::builtin(), &scope());
+        board.apply(2, rows(vec![wf("a", "T", "orders", 1)]));
+        board.apply(4, Ok(SourceData::Queue(health(0, 3))));
+        board.apply(
+            2,
+            rows(vec![wf("a", "T", "orders", 1), wf("b", "T", "orders", 2)]),
+        );
+        assert_eq!(queue(&board, 3, 0).running, 2);
+        assert_eq!(queue(&board, 3, 0).health, Some(health(0, 3)));
+        assert_eq!(
+            board.sources().len(),
+            5,
+            "the same queue is not asked for twice"
+        );
+    }
+
+    #[test]
+    fn only_so_many_queues_are_described() {
+        let mut layout = Layout::builtin();
+        layout.rows[2].panels[0].limit = MAX_LIMIT;
+        let mut board = Board::new(layout, &scope());
+        let many: Vec<WorkflowRow> = (0..MAX_QUEUES + 3)
+            .map(|i| wf(&format!("r{i}"), "T", &format!("queue-{i:02}"), i as i64))
+            .collect();
+        board.apply(2, rows(many));
+        assert_eq!(board.items(3).len(), MAX_QUEUES + 3, "all are listed");
+        assert_eq!(board.sources().len(), 4 + MAX_QUEUES);
+    }
+
+    #[test]
+    fn sources_that_appear_are_asked_for_once() {
+        let mut pacer = Pacer::default();
+        pacer.restart(4);
+        assert_eq!(pacer.take_new(6), [4, 5]);
+        assert!(pacer.in_flight(5));
+        assert!(pacer.take_new(6).is_empty());
     }
 }

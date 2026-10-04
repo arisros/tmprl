@@ -291,3 +291,42 @@ fn a_namespace_with_nothing_in_it_says_so_in_every_panel() {
     assert!(out.contains("no schedules"), "{out}");
     assert!(out.contains("Recent failures"), "{out}");
 }
+
+#[test]
+fn a_task_queue_says_whether_anything_is_taking_its_work() {
+    use tmprl_core::taskqueue::QueueHealth;
+    let mut app = app_with_dashboard();
+    let out = draw(&mut app, 120, 30);
+    assert!(!out.contains("pollers"), "not described yet:\n{out}");
+
+    reply(
+        &mut app,
+        4,
+        Ok(SourceData::Queue(QueueHealth {
+            backlog: Some(12),
+            backlog_age_ms: Some(240_000),
+            pollers: 0,
+            last_poll_ms: None,
+        })),
+    );
+    let out = draw(&mut app, 120, 30);
+    assert!(
+        out.contains("backlog 12  no pollers"),
+        "narrow, so no age:\n{out}"
+    );
+    let out = draw(&mut app, 200, 30);
+    assert!(out.contains("backlog 12, oldest 4m  no pollers"), "{out}");
+
+    reply(
+        &mut app,
+        4,
+        Ok(SourceData::Queue(QueueHealth {
+            backlog: Some(0),
+            pollers: 2,
+            ..QueueHealth::default()
+        })),
+    );
+    let out = draw(&mut app, 120, 30);
+    assert!(out.contains("2 pollers"), "{out}");
+    assert!(!out.contains("backlog"), "{out}");
+}
