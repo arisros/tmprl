@@ -330,3 +330,31 @@ fn a_task_queue_says_whether_anything_is_taking_its_work() {
     assert!(out.contains("2 pollers"), "{out}");
     assert!(!out.contains("backlog"), "{out}");
 }
+
+#[test]
+fn a_list_windowed_on_close_time_says_how_long_ago_each_one_closed() {
+    let mut app = app_with_rows();
+    app.apply_dashboard(Some(
+        "[[row]]\n[[row.panel]]\nkind = \"workflows\"\nsince = \"1d\"\nby = \"close\"\n",
+    ));
+    app.view.screen = Screen::Workflows;
+    app.run("nav.dashboard", None);
+    let mut slow = wf(
+        "default",
+        "order-1001",
+        WorkflowStatus::Failed,
+        now() - 3 * 86_400_000,
+    );
+    slow.close_time = Some(now() - 300_000);
+    reply(
+        &mut app,
+        0,
+        Ok(SourceData::Workflows {
+            rows: vec![slow],
+            more: false,
+        }),
+    );
+    let out = draw(&mut app, 100, 12);
+    let row = out.lines().find(|l| l.contains("order-1001")).unwrap();
+    assert!(row.ends_with("5m│"), "the start was 3d ago:\n{out}");
+}

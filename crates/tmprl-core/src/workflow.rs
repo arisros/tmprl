@@ -149,6 +149,14 @@ pub fn by_start_time_desc(a: &WorkflowRow, b: &WorkflowRow) -> Ordering {
         .then_with(|| a.run_id.cmp(&b.run_id))
 }
 
+/// Most recently closed first, for a list read by when things ended. A row still open
+/// sorts last.
+pub fn by_close_time_desc(a: &WorkflowRow, b: &WorkflowRow) -> Ordering {
+    b.close_time
+        .cmp(&a.close_time)
+        .then_with(|| by_start_time_desc(a, b))
+}
+
 /// Merge per-namespace pages into one table, newest first.
 ///
 /// This sorts rather than merges pre-sorted runs, because there is nothing to merge: the

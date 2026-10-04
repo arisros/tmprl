@@ -9,7 +9,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, Wrap};
 use tmprl_core::Loadable;
-use tmprl_core::dashboard::{Board, Item, PanelKind, QueueRef, Size};
+use tmprl_core::dashboard::{Board, Item, PanelKind, QueueRef, Size, TimeField};
 use tmprl_core::schedule::time_until;
 use tmprl_core::workflow::humanize_age_ms;
 use tmprl_ui::{Axis, Track, tracks};
@@ -297,10 +297,15 @@ impl Panel<'_> {
                                 style(i, t.dim),
                             ));
                         }
-                        let age = w
-                            .start_time
-                            .map(|s| humanize_age_ms(now - s))
-                            .unwrap_or_default();
+                        let stamp = match self.board.spec(self.index).map(|s| &s.kind) {
+                            Some(PanelKind::Workflows { window, .. })
+                                if window.by == TimeField::Close =>
+                            {
+                                w.close_time
+                            }
+                            _ => w.start_time,
+                        };
+                        let age = stamp.map(|s| humanize_age_ms(now - s)).unwrap_or_default();
                         spans.push(Span::styled(format!("{age:>AGE$}"), style(i, t.faint)));
                     }
                     Item::Type { name, count } => {

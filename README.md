@@ -154,6 +154,7 @@ endpoint = "https://codec.internal"
 kind  = "workflows"
 title = "Stuck checkouts"
 query = "WorkflowType = 'Checkout' AND ExecutionStatus = 'Running'"
+older = "1h"               # started more than an hour ago
 
 [[row.panel]]
 kind = "schedules"
@@ -194,8 +195,8 @@ flowchart LR
 | Crate | Tests | |
 |---|---|---|
 | `tmprl-client` | 80 | all network IO |
-| `tmprl-core` | 397 | no terminal, no server |
-| `tmprl-tui` | 432 | ratatui |
+| `tmprl-core` | 402 | no terminal, no server |
+| `tmprl-tui` | 433 | ratatui |
 | `tmprl-ui` | 44 | window tree |
 
 ```sh

@@ -2,6 +2,8 @@
 
 use super::compose::Slot;
 use super::source::Source;
+use crate::query;
+use crate::timerange::to_rfc3339;
 
 pub const MAX_PANELS: usize = 12;
 
@@ -27,26 +29,61 @@ pub enum Show {
     Upcoming,
 }
 
+/// The timestamp a [`Window`] measures against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TimeField {
+    #[default]
+    Start,
+    Close,
+}
+
+impl TimeField {
+    fn attribute(self) -> &'static str {
+        match self {
+            TimeField::Start => "StartTime",
+            TimeField::Close => "CloseTime",
+        }
+    }
+}
+
+/// How far back a panel looks: no further than `since`, no nearer than `older`, or both.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Window {
+    pub since_ms: Option<i64>,
+    pub older_ms: Option<i64>,
+    pub by: TimeField,
+}
+
+impl Window {
+    pub fn since(ms: i64) -> Self {
+        Self {
+            since_ms: Some(ms),
+            ..Self::default()
+        }
+    }
+
+    /// `filter` narrowed to the window. The grammar has no `now()`, so each bound becomes a
+    /// literal instant every time this is asked.
+    pub(super) fn narrow(&self, filter: &str, now_ms: i64) -> String {
+        let field = self.by.attribute();
+        let mut out = filter.trim().to_string();
+        if let Some(ms) = self.since_ms {
+            out = query::and(&out, &format!("{field} > '{}'", to_rfc3339(now_ms - ms)));
+        }
+        if let Some(ms) = self.older_ms {
+            out = query::and(&out, &format!("{field} < '{}'", to_rfc3339(now_ms - ms)));
+        }
+        out
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PanelKind {
-    Counts {
-        query: String,
-    },
-    Workflows {
-        query: String,
-        since_ms: Option<i64>,
-    },
-    Types {
-        query: String,
-        since_ms: Option<i64>,
-    },
-    Queues {
-        query: String,
-        names: Vec<String>,
-    },
-    Schedules {
-        show: Show,
-    },
+    Counts { query: String, window: Window },
+    Workflows { query: String, window: Window },
+    Types { query: String, window: Window },
+    Queues { query: String, names: Vec<String> },
+    Schedules { show: Show },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,21 +136,22 @@ impl PanelSpec {
             self.namespaces.clone()
         };
         match &self.kind {
-            PanelKind::Counts { query } => Source::Counts {
+            PanelKind::Counts { query, window } => Source::Counts {
                 namespaces,
                 query: query.clone(),
+                window: *window,
             },
-            PanelKind::Workflows { query, since_ms } | PanelKind::Types { query, since_ms } => {
+            PanelKind::Workflows { query, window } | PanelKind::Types { query, window } => {
                 Source::Workflows {
                     namespaces,
                     query: query.clone(),
-                    since_ms: *since_ms,
+                    window: *window,
                 }
             }
             PanelKind::Queues { query, .. } => Source::Workflows {
                 namespaces,
                 query: query.clone(),
-                since_ms: None,
+                window: Window::default(),
             },
             PanelKind::Schedules { .. } => Source::Schedules { namespaces },
         }
@@ -141,6 +179,7 @@ impl Layout {
                     size: Size::Lines(3),
                     panels: vec![PanelSpec::new(PanelKind::Counts {
                         query: String::new(),
+                        window: Window::default(),
                     })],
                 },
                 RowSpec {
