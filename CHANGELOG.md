@@ -40,6 +40,12 @@
 - **Dashboard rows fit what they show**: a row whose panels hold two lines no longer takes
   a third of the screen. It keeps what it needs and the rest goes to the rows with more to
   list. A row given a fixed height with `lines` is left as it is.
+- **Dashboard histograms**: a `histogram` panel draws how many workflows started or closed
+  in each stretch of its window as columns, so a spike in failures shows as one.
+  `since = "24h"` with `bucket = "1h"` is a column an hour, and without `bucket` the step
+  is chosen to fit. `Enter` on a column opens the workflows in that stretch. With no
+  `dashboard.toml`, a namespace where something failed today gets a "Failures per hour"
+  chart under the status line.
 - **`--dashboard`** opens tmprl straight onto the dashboard, in the profile's namespace or
   the one `-n` names.
 

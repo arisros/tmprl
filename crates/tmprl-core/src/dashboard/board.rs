@@ -1,6 +1,7 @@
 //! A board: a layout, the requests behind it, what has come back, and the cursor over it.
 
 use super::compose::{Facts, Slot, compose};
+use super::histogram::{Bucket, edges};
 use super::layout::{Layout, PanelKind, PanelSpec};
 use super::source::{
     Item, MAX_QUEUES, MAX_REASONS, MAX_TALLIES, QueueRef, Source, SourceData, items,
@@ -54,6 +55,8 @@ pub struct Board {
     kept: Vec<Slot>,
     /// How many of the sources are counts of one name, added by `sync_tallies`.
     tallies: usize,
+    /// When the board was last told the time. Its histograms are cut against it.
+    clock: i64,
 }
 
 impl Board {
@@ -69,6 +72,7 @@ impl Board {
             adaptive: false,
             kept: Vec::new(),
             tallies: 0,
+            clock: 0,
         };
         board.lay_out(layout);
         board
@@ -117,6 +121,7 @@ impl Board {
         self.sync_tallies();
         self.sync_queues();
         self.sync_reasons();
+        self.sync_buckets();
     }
 
     fn closing(row: &WorkflowRow) -> Option<Source> {
@@ -164,6 +169,97 @@ impl Board {
         }
     }
 
+    /// Tell the board the time, so its histograms cover the stretches that end now. A
+    /// stretch that has just begun gets a request of its own.
+    pub fn advance(&mut self, now_ms: i64) {
+        self.clock = now_ms;
+        self.sync_buckets();
+    }
+
+    fn bucket_sources(&self, panel: &Panel) -> Vec<Source> {
+        let PanelKind::Histogram {
+            query,
+            window,
+            bucket_ms,
+        } = &panel.spec.kind
+        else {
+            return Vec::new();
+        };
+        if self.clock == 0 {
+            return Vec::new();
+        }
+        let namespaces = self.sources[panel.source].namespaces().to_vec();
+        edges(window, *bucket_ms, self.clock)
+            .into_iter()
+            .map(|(from_ms, to_ms)| Source::Bucket {
+                namespaces: namespaces.clone(),
+                query: query.clone(),
+                by: window.by,
+                from_ms,
+                to_ms,
+            })
+            .collect()
+    }
+
+    fn bucket_of(&self, wanted: &Source) -> Option<Bucket> {
+        let Source::Bucket { from_ms, to_ms, .. } = wanted else {
+            return None;
+        };
+        let count = self
+            .sources
+            .iter()
+            .position(|s| s == wanted)
+            .and_then(|at| match self.data[at].value() {
+                Some(SourceData::Counts(counts)) => Some(counts.total),
+                _ => None,
+            });
+        Some(Bucket {
+            from_ms: *from_ms,
+            to_ms: *to_ms,
+            count,
+        })
+    }
+
+    /// Add a request for each stretch of a histogram that has none, and make a cursor stop
+    /// of each stretch with something in it.
+    fn sync_buckets(&mut self) {
+        for at in 0..self.panels.len() {
+            let wanted = self.bucket_sources(&self.panels[at]);
+            if wanted.is_empty() {
+                continue;
+            }
+            let items = wanted
+                .iter()
+                .filter_map(|source| self.bucket_of(source))
+                .filter_map(|bucket| {
+                    Some(Item::Bucket {
+                        from_ms: bucket.from_ms,
+                        to_ms: bucket.to_ms,
+                        count: bucket.count.filter(|n| *n > 0)?,
+                    })
+                })
+                .collect();
+            self.panels[at].items = items;
+            for source in wanted {
+                if !self.sources.contains(&source) {
+                    self.sources.push(source);
+                    self.data.push(Loadable::NotAsked);
+                    self.faults.push(None);
+                }
+            }
+        }
+    }
+
+    /// A histogram's columns, oldest first, each with its count once that has arrived.
+    pub fn buckets(&self, panel: usize) -> Vec<Bucket> {
+        self.panels.get(panel).map_or_else(Vec::new, |panel| {
+            self.bucket_sources(panel)
+                .iter()
+                .filter_map(|source| self.bucket_of(source))
+                .collect()
+        })
+    }
+
     /// Why a listed workflow closed, once that has been asked and answered.
     pub fn reason(&self, row: &WorkflowRow) -> Option<&str> {
         let wanted = Self::closing(row)?;
@@ -195,6 +291,7 @@ impl Board {
                 PanelKind::Queues { .. } => "TaskQueue",
                 PanelKind::Counts { .. }
                 | PanelKind::Workflows { .. }
+                | PanelKind::Histogram { .. }
                 | PanelKind::Schedules { .. } => continue,
             };
             let Source::Workflows {
@@ -220,7 +317,10 @@ impl Board {
                         exact,
                         ..
                     }) => (&*name, vec![namespace.clone()], running, exact),
-                    Item::Status { .. } | Item::Workflow(_) | Item::Schedule(_) => continue,
+                    Item::Status { .. }
+                    | Item::Workflow(_)
+                    | Item::Schedule(_)
+                    | Item::Bucket { .. } => continue,
                 };
                 if !partial {
                     *exact = true;
@@ -413,6 +513,7 @@ impl Board {
             PanelKind::Types { .. } | PanelKind::Queues { .. } => true,
             PanelKind::Counts { .. }
             | PanelKind::Workflows { .. }
+            | PanelKind::Histogram { .. }
             | PanelKind::Schedules { .. } => false,
         };
         (tally && !panel.items.is_empty() && !panel.items.iter().any(Item::approximate))
@@ -447,6 +548,7 @@ impl Board {
         self.sync_tallies();
         self.sync_queues();
         self.sync_reasons();
+        self.sync_buckets();
     }
 
     pub fn len(&self) -> usize {
@@ -555,6 +657,22 @@ impl Board {
                 namespaces: vec![queue.namespace.clone()],
                 query: narrowed(&source.query(now_ms), "TaskQueue", &queue.name)?,
             },
+            (Item::Bucket { from_ms, to_ms, .. }, kind) => {
+                let PanelKind::Histogram { query, window, .. } = kind else {
+                    return None;
+                };
+                Drill::Query {
+                    query: Source::Bucket {
+                        namespaces: namespaces.clone(),
+                        query: query.clone(),
+                        by: window.by,
+                        from_ms: *from_ms,
+                        to_ms: *to_ms,
+                    }
+                    .query(now_ms),
+                    namespaces,
+                }
+            }
         })
     }
 }
@@ -901,8 +1019,8 @@ mod tests {
 
         board.apply(a, Err(fault()));
         assert_eq!(board.reason(&row), Some("boom"), "a failed retry keeps it");
-        assert!(board.sources()[a].settles());
-        assert!(!board.sources()[0].settles());
+        assert!(board.sources()[a].settles(NOW));
+        assert!(!board.sources()[0].settles(NOW));
     }
 
     #[test]
@@ -959,6 +1077,113 @@ mod tests {
         board.apply(0, page("x"));
         board.apply(1, page("y"));
         assert_eq!(board.sources().len(), 2 + MAX_REASONS);
+    }
+
+    const HOUR: i64 = 3_600_000;
+
+    /// One histogram of what closed in the last three hours, told it is twenty past.
+    fn charted() -> (Board, i64) {
+        let layout = parse_dashboard(
+            "[[row]]\n[[row.panel]]\nkind = \"histogram\"\nquery = \"A = 'b'\"\n\
+             since = \"3h\"\nbucket = \"1h\"\nby = \"close\"",
+        )
+        .unwrap();
+        let mut board = Board::new(layout, &scope());
+        let now = (NOW / HOUR) * HOUR + HOUR / 3;
+        board.advance(now);
+        (board, now)
+    }
+
+    fn column(board: &Board, from_ms: i64) -> usize {
+        board
+            .sources()
+            .iter()
+            .position(|s| matches!(s, Source::Bucket { from_ms: at, .. } if *at == from_ms))
+            .unwrap()
+    }
+
+    #[test]
+    fn a_histogram_asks_for_a_count_of_each_stretch_once_it_knows_the_time() {
+        let layout =
+            parse_dashboard("[[row]]\n[[row.panel]]\nkind = \"histogram\"\nsince = \"3h\"")
+                .unwrap();
+        let untold = Board::new(layout, &scope());
+        assert_eq!(untold.sources().len(), 1, "only the window's own count");
+        assert!(untold.buckets(0).is_empty());
+
+        let (board, now) = charted();
+        let hour = (now / HOUR) * HOUR;
+        assert_eq!(board.sources().len(), 1 + 4);
+        assert_eq!(
+            board.buckets(0),
+            [3, 2, 1, 0].map(|back| Bucket {
+                from_ms: hour - back * HOUR,
+                to_ms: hour - back * HOUR + HOUR,
+                count: None,
+            })
+        );
+        assert!(
+            board.is_empty(),
+            "nothing counted, nothing to put the cursor on"
+        );
+        assert_eq!(
+            board.sources()[column(&board, hour)].query(now),
+            format!(
+                "A = 'b' AND CloseTime >= '{}' AND CloseTime < '{}'",
+                to_rfc3339(hour),
+                to_rfc3339(hour + HOUR)
+            )
+        );
+    }
+
+    #[test]
+    fn a_stretch_with_something_in_it_is_a_stop_that_opens_its_workflows() {
+        let (mut board, now) = charted();
+        let hour = (now / HOUR) * HOUR;
+        board.apply(column(&board, hour - 2 * HOUR), total(0));
+        board.apply(column(&board, hour - HOUR), total(7));
+        assert_eq!(
+            board.items(0),
+            [Item::Bucket {
+                from_ms: hour - HOUR,
+                to_ms: hour,
+                count: 7,
+            }]
+        );
+        assert_eq!(board.buckets(0)[1].count, Some(0));
+        assert_eq!(
+            board.drill(0, now),
+            Some(Drill::Query {
+                namespaces: scope(),
+                query: format!(
+                    "A = 'b' AND CloseTime >= '{}' AND CloseTime < '{}'",
+                    to_rfc3339(hour - HOUR),
+                    to_rfc3339(hour)
+                ),
+            })
+        );
+    }
+
+    #[test]
+    fn a_stretch_that_has_passed_is_settled_and_time_moving_on_adds_only_the_new_one() {
+        let (mut board, now) = charted();
+        let hour = (now / HOUR) * HOUR;
+        assert!(board.sources()[column(&board, hour - HOUR)].settles(now));
+        assert!(
+            !board.sources()[column(&board, hour)].settles(now),
+            "still filling"
+        );
+        assert!(!board.sources()[0].settles(now));
+
+        board.apply(column(&board, hour - HOUR), total(7));
+        board.advance(now + HOUR / 2);
+        assert_eq!(board.sources().len(), 5, "the same stretches");
+
+        board.advance(now + HOUR);
+        assert_eq!(board.sources().len(), 6, "one new stretch");
+        let shown = board.buckets(0);
+        assert_eq!(shown.len(), 4);
+        assert_eq!(shown[1].count, Some(7), "and what was counted moved along");
     }
 
     #[test]
@@ -1044,7 +1269,7 @@ mod tests {
             [vec!["Status"], vec!["Running"], vec!["Task queues"]]
         );
         assert_eq!(
-            board.sources().iter().filter(|s| !s.settles()).count(),
+            board.sources().iter().filter(|s| !s.settles(NOW)).count(),
             5,
             "the probes, and the one queue they found"
         );
@@ -1073,7 +1298,7 @@ mod tests {
         board.apply(1, rows(vec![wf("x", "Order", "q", 9)]));
         board.apply(2, rows(vec![wf("a", "Order", "orders", 1)]));
         board.apply(3, Ok(SourceData::Schedules(Vec::new())));
-        assert_eq!(board_titles(&board)[1], ["Recent failures"]);
+        assert_eq!(board_titles(&board)[2], ["Recent failures"]);
 
         board.apply(1, rows(Vec::new()));
         assert_eq!(

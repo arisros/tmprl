@@ -64,8 +64,8 @@ project testable:
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
 | `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 81 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 413 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 437 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 422 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 438 |
 | `tmprl-ui` | built | Plain unit tests over the layout tree | 47 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -125,7 +125,7 @@ Every file opens with a `//!` line saying what it is; this is those lines, gathe
 | `config.rs`, `clock.rs`, `loadable.rs` | config parsing, wall-clock rendering, four-state remote data |
 | `fault.rs` | a failed request: the call, the gRPC code, the server's message, and what to try |
 | `theme.rs` | colour depth from the environment, `theme.toml`, hex to the nearest of 16 |
-| `dashboard/` | the dashboard: `layout`, `source` (requests and the items made from them), `board`, `compose` (the adaptive layout), `pacer` (when to ask again), `parse` (`dashboard.toml`) |
+| `dashboard/` | the dashboard: `layout`, `source` (requests and the items made from them), `board`, `compose` (the adaptive layout), `histogram` (a chart's time axis), `pacer` (when to ask again), `parse` (`dashboard.toml`) |
 | `taskqueue.rs` | a task queue's health: backlog, its age, who is polling |
 
 **`tmprl-client`**, all network IO: `conn.rs` connects; `ops/` has one file per area of the
@@ -351,6 +351,11 @@ one `dashboard.toml` parses into, or the builtin one when the file is absent, em
   cancelled gets a `Source::Close`: `GetWorkflowExecutionHistory` filtered to the closing
   event, one small page however long the history. A closed run's last event cannot change,
   so the source `settles` and the pacer never asks again until `R`. At most `MAX_REASONS`.
+- **A histogram is a count per column.** Temporal has no count by time, so each stretch
+  is a `Source::Bucket`, added by the board once `Board::advance` has told it the time.
+  Edges sit on multiples of the step, not on now, so a stretch that has passed is the same
+  source at every refresh; measured by close time it `settles` a minute after it ends and
+  is counted once. The panel's own source is the count of the whole window.
 - **The cursor is one list.** Every panel's items in order, so the motions, counts and search
   that work on a list work here. Across a refresh the cursor is anchored to the item's key,
   as it is in the workflow list.

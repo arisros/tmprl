@@ -116,6 +116,15 @@ impl App {
                         q.running
                     ),
                     Item::Schedule(s) => schedule_json(s),
+                    Item::Bucket {
+                        from_ms,
+                        to_ms,
+                        count,
+                    } => format!(
+                        r#"{{"from":{},"to":{},"count":{count}}}"#,
+                        json_string(&tmprl_core::clock::rfc3339_utc(*from_ms)),
+                        json_string(&tmprl_core::clock::rfc3339_utc(*to_ms)),
+                    ),
                 })
                 .collect(),
         };

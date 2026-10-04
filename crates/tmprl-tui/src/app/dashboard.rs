@@ -47,6 +47,7 @@ impl App {
                 None => Board::adaptive(&self.view.scope),
             },
         };
+        board.advance(now_ms());
         board.begin_refresh();
         let all: Vec<usize> = (0..board.sources().len()).collect();
         self.view.dashboard = Some(board);
@@ -84,11 +85,13 @@ impl App {
             };
             let Some(board) = view
                 .dashboard
-                .as_ref()
+                .as_mut()
                 .filter(|_| view.screen == Screen::Dashboard)
             else {
                 continue;
             };
+            // A histogram's newest column is a stretch of time that may only just have begun.
+            board.advance(now);
             let due = view
                 .dashboard_pacer
                 .take_due(board.sources().len(), now, interval);
@@ -129,7 +132,12 @@ impl App {
             return;
         };
         let fault = result.as_ref().err().cloned();
-        let settles = board.sources().get(source).is_some_and(Source::settles);
+        let asked = board.sources().get(source);
+        let settles = asked.is_some_and(|s| s.settles(now_ms()));
+        // One row's reason or one column's count going missing is not worth a note: the
+        // panel they belong to says when its own request fails.
+        let minor =
+            asked.is_some_and(|s| matches!(s, Source::Close { .. } | Source::Bucket { .. }));
         let outcome = match &fault {
             None if settles => Outcome::Settled,
             None => Outcome::Answered,
@@ -162,8 +170,7 @@ impl App {
             self.clamp_cursor();
             // The timer says a source went bad once, not every interval it stays bad. The
             // panel's title carries it from then on.
-            // A row without its reason is not worth interrupting anyone for.
-            if let Some(fault) = fault.filter(|_| !settles && (!timed || news)) {
+            if let Some(fault) = fault.filter(|_| !minor && (!timed || news)) {
                 self.fail(fault, Note::Error);
             }
         }
@@ -277,7 +284,7 @@ fn ask(
 
 fn operation(source: &Source) -> &'static str {
     match source {
-        Source::Counts { .. } => "CountWorkflowExecutions",
+        Source::Counts { .. } | Source::Bucket { .. } => "CountWorkflowExecutions",
         Source::Workflows { .. } => "ListWorkflowExecutions",
         Source::Schedules { .. } => "ListSchedules",
         Source::Queue { .. } => "DescribeTaskQueue",
@@ -288,7 +295,7 @@ fn operation(source: &Source) -> &'static str {
 async fn fetch(conn: &Conn, source: &Source, now_ms: i64) -> Result<SourceData, Fault> {
     let query = source.query(now_ms);
     match source {
-        Source::Counts { namespaces, .. } => conn
+        Source::Counts { namespaces, .. } | Source::Bucket { namespaces, .. } => conn
             .count_workflows_across(namespaces, &query)
             .await
             .map(SourceData::Counts),

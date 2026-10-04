@@ -9,7 +9,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, Wrap};
 use tmprl_core::Loadable;
-use tmprl_core::dashboard::{Board, Item, PanelKind, QueueRef, Size, TimeField};
+use tmprl_core::dashboard::{Board, Bucket, Item, PanelKind, QueueRef, Size, TimeField};
 use tmprl_core::schedule::time_until;
 use tmprl_core::workflow::humanize_age_ms;
 use tmprl_ui::{Axis, Track, tracks};
@@ -27,6 +27,8 @@ const AGE: usize = 4;
 const ID: usize = 36;
 /// The least room worth giving a reason.
 const REASON: usize = 12;
+/// The lines a histogram is worth: four of columns and the axis under them.
+const CHART: usize = 5;
 /// The lines kept for a panel with nothing in it, whose message may wrap.
 const EMPTY: usize = 2;
 
@@ -184,6 +186,7 @@ fn content(board: &Board, first: usize, panels: usize) -> Option<u16> {
             board.state(panel)?.value()?;
             let lines = match board.spec(panel)?.kind {
                 PanelKind::Counts { .. } => 1,
+                PanelKind::Histogram { .. } => CHART,
                 PanelKind::Workflows { .. }
                 | PanelKind::Types { .. }
                 | PanelKind::Queues { .. }
@@ -220,6 +223,15 @@ impl Panel<'_> {
         } else if let Some(n) = self.board.sampled(self.index) {
             title.push(Span::styled(format!("of {n} sampled "), t.dim));
         }
+        if let Some(peak) = self
+            .board
+            .buckets(self.index)
+            .iter()
+            .filter_map(|b| b.count)
+            .max()
+        {
+            title.push(Span::styled(format!("peak {peak} "), t.dim));
+        }
         if self.board.fault(self.index).is_some() && !self.board.items(self.index).is_empty() {
             let age = self
                 .board
@@ -244,6 +256,11 @@ impl Panel<'_> {
 
     fn body(&self, frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) {
         if area.width == 0 || area.height == 0 {
+            return;
+        }
+        let buckets = self.board.buckets(self.index);
+        if !buckets.is_empty() {
+            self.chart(frame, area, &buckets, app, t);
             return;
         }
         let items = self.board.items(self.index);
@@ -320,7 +337,10 @@ impl Panel<'_> {
             .map(|item| match item {
                 Item::Type { count, exact, .. } => tally(*count, *exact).len(),
                 Item::Queue(q) => tally(q.running, q.exact).len(),
-                Item::Status { .. } | Item::Workflow(_) | Item::Schedule(_) => 0,
+                Item::Status { .. }
+                | Item::Workflow(_)
+                | Item::Schedule(_)
+                | Item::Bucket { .. } => 0,
             })
             .max()
             .unwrap_or(0)
@@ -429,10 +449,106 @@ impl Panel<'_> {
                             style(i, if s.paused { t.warn } else { t.faint }),
                         ));
                     }
+                    // Drawn as columns by `chart`, never as a line.
+                    Item::Bucket { .. } => {}
                 }
                 highlight(Line::from(spans), &app.search, match_style())
             })
             .collect();
+        frame.render_widget(Paragraph::new(lines), area);
+    }
+
+    /// A histogram: one column for each stretch of time, tall as its count against the
+    /// tallest, the newest on the right. When they do not all fit the oldest are left off.
+    fn chart(&self, frame: &mut Frame, area: Rect, buckets: &[Bucket], app: &App, t: &Theme) {
+        const LEVELS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+        let width = (area.width as usize).saturating_sub(2);
+        if width == 0 {
+            return;
+        }
+        let step = (width / buckets.len()).clamp(1, 3);
+        let bar = step.saturating_sub(1).max(1);
+        let shown = &buckets[buckets.len().saturating_sub(width / step)..];
+        let axis = area.height >= 3;
+        let rows = area.height as usize - usize::from(axis);
+        let peak = shown.iter().filter_map(|b| b.count).max().unwrap_or(0);
+        // In eighths of a line, rounded up, so that one workflow still shows.
+        let height = |count: i64| -> usize {
+            if count <= 0 || peak <= 0 {
+                return 0;
+            }
+            let full = (rows * 8) as i64;
+            ((count * full + peak - 1) / peak).clamp(1, full) as usize
+        };
+        let under_cursor = self
+            .cursor
+            .and_then(|i| self.board.items(self.index).get(i))
+            .and_then(|item| match item {
+                Item::Bucket { from_ms, .. } => Some(*from_ms),
+                _ => None,
+            });
+
+        let mut lines: Vec<Line> = (0..rows)
+            .map(|row| {
+                let below = (rows - 1 - row) * 8;
+                let mut spans = vec![Span::raw(" ")];
+                for bucket in shown {
+                    let (symbol, style) = match bucket.count.map(height) {
+                        None if below == 0 => ('░', t.faint),
+                        Some(0) if below == 0 => ('·', t.faint),
+                        Some(tall) if tall > below => (LEVELS[(tall - below).min(8) - 1], t.accent),
+                        None | Some(_) => (' ', t.fg),
+                    };
+                    let style = if under_cursor == Some(bucket.from_ms) {
+                        style.patch(t.sel).add_modifier(Modifier::BOLD)
+                    } else {
+                        style
+                    };
+                    spans.push(Span::styled(symbol.to_string().repeat(bar), style));
+                    if step > bar {
+                        spans.push(Span::raw(" "));
+                    }
+                }
+                Line::from(spans)
+            })
+            .collect();
+
+        if axis && let (Some(first), Some(last)) = (shown.first(), shown.last()) {
+            let label = |ms: i64| -> String {
+                // A time of day says nothing on an axis that runs over several days.
+                if last.to_ms - first.from_ms > 2 * 86_400_000 {
+                    app.clock.stamp(Some(ms)).chars().take(5).collect()
+                } else {
+                    app.clock.time_of_day(ms).chars().take(5).collect()
+                }
+            };
+            let mut cells = vec![' '; shown.len() * step];
+            let mut put = |at: usize, text: &str| {
+                let text: Vec<char> = text.chars().collect();
+                let free = cells
+                    .get(at.saturating_sub(1)..(at + text.len() + 1).min(cells.len()))
+                    .is_some_and(|span| span.iter().all(|c| *c == ' '));
+                if free && at + text.len() <= cells.len() {
+                    cells[at..at + text.len()].copy_from_slice(&text);
+                }
+            };
+            let newest = if last.to_ms > now_ms() {
+                "now".to_string()
+            } else {
+                label(last.to_ms)
+            };
+            put(0, &label(first.from_ms));
+            put(
+                (shown.len() * step).saturating_sub(newest.chars().count()),
+                &newest,
+            );
+            let middle = shown.len() / 2;
+            put(middle * step, &label(shown[middle].from_ms));
+            lines.push(Line::from(Span::styled(
+                format!(" {}", cells.into_iter().collect::<String>()),
+                t.faint,
+            )));
+        }
         frame.render_widget(Paragraph::new(lines), area);
     }
 
@@ -448,6 +564,7 @@ impl Panel<'_> {
                 Some(PanelKind::Workflows { .. }) | Some(PanelKind::Types { .. }) => "none",
                 Some(PanelKind::Queues { .. }) => "no running workflows to find queues on",
                 Some(PanelKind::Schedules { .. }) => "no schedules",
+                Some(PanelKind::Histogram { .. }) => "nothing in this window",
                 None => "",
             }
             .to_string(),

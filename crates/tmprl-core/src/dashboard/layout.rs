@@ -38,7 +38,7 @@ pub enum TimeField {
 }
 
 impl TimeField {
-    fn attribute(self) -> &'static str {
+    pub(super) fn attribute(self) -> &'static str {
         match self {
             TimeField::Start => "StartTime",
             TimeField::Close => "CloseTime",
@@ -79,11 +79,31 @@ impl Window {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PanelKind {
-    Counts { query: String, window: Window },
-    Workflows { query: String, window: Window },
-    Types { query: String, window: Window },
-    Queues { query: String, names: Vec<String> },
-    Schedules { show: Show },
+    Counts {
+        query: String,
+        window: Window,
+    },
+    Workflows {
+        query: String,
+        window: Window,
+    },
+    Types {
+        query: String,
+        window: Window,
+    },
+    Queues {
+        query: String,
+        names: Vec<String>,
+    },
+    /// How many workflows fell in each stretch of the window, as columns.
+    Histogram {
+        query: String,
+        window: Window,
+        bucket_ms: i64,
+    },
+    Schedules {
+        show: Show,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -121,6 +141,7 @@ impl PanelSpec {
             PanelKind::Workflows { .. } => "Workflows",
             PanelKind::Types { .. } => "Workflow types",
             PanelKind::Queues { .. } => "Task queues",
+            PanelKind::Histogram { .. } => "Activity",
             PanelKind::Schedules { show } => match show {
                 Show::All => "Schedules",
                 Show::Paused => "Paused schedules",
@@ -136,11 +157,15 @@ impl PanelSpec {
             self.namespaces.clone()
         };
         match &self.kind {
-            PanelKind::Counts { query, window } => Source::Counts {
-                namespaces,
-                query: query.clone(),
-                window: *window,
-            },
+            // For a histogram, the whole window's count: the total in its title, and what
+            // says the panel is loading or failed. Its columns are sources the board adds.
+            PanelKind::Counts { query, window } | PanelKind::Histogram { query, window, .. } => {
+                Source::Counts {
+                    namespaces,
+                    query: query.clone(),
+                    window: *window,
+                }
+            }
             PanelKind::Workflows { query, window } | PanelKind::Types { query, window } => {
                 Source::Workflows {
                     namespaces,

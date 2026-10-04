@@ -130,8 +130,8 @@ fn gd_is_refused_inside_a_history() {
 fn a_reply_fills_the_panels_that_read_from_it() {
     let mut app = on_dashboard();
     reply(&mut app, 1, Ok(failures()));
-    assert_eq!(board(&app).items(1).len(), 3);
-    assert_eq!(board(&app).items(2).len(), 2, "the tally of the same rows");
+    assert_eq!(board(&app).items(2).len(), 3);
+    assert_eq!(board(&app).items(3).len(), 2, "the tally of the same rows");
     assert_eq!(app.row_count(), 5);
 }
 
@@ -185,8 +185,8 @@ fn a_failed_refresh_keeps_the_panel_and_reports_the_failure() {
     app.run("app.refresh", None);
     assert_eq!(app.row_count(), 10, "a refresh does not blank the screen");
     reply(&mut app, 1, Err(down()));
-    assert_eq!(board(&app).items(1).len(), 3);
-    assert_eq!(board(&app).fault(1), Some(&down()));
+    assert_eq!(board(&app).items(2).len(), 3);
+    assert_eq!(board(&app).fault(2), Some(&down()));
     assert_eq!(app.note.as_ref().unwrap().1, Note::Error);
 }
 
@@ -578,7 +578,7 @@ fn the_timer_reports_a_source_going_bad_once() {
     timed_reply(&mut app, 1, Err(down()));
     let logged = app.messages.len();
     assert_eq!(app.note.as_ref().unwrap().1, Note::Error);
-    assert_eq!(board(&app).items(1).len(), 3, "the old rows stay");
+    assert_eq!(board(&app).items(2).len(), 3, "the old rows stay");
 
     app.tick_dashboards(now_ms() + INTERVAL * 10);
     assert!(out(&app.view)[1], "it is tried again");
@@ -614,24 +614,35 @@ fn a_source_the_server_refuses_is_left_alone_until_r() {
 fn a_queue_found_on_running_workflows_is_described_and_kept_fresh() {
     use tmprl_core::taskqueue::QueueHealth;
     let mut app = filled();
-    assert_eq!(board(&app).sources().len(), 5, "the probes and queue `tq`");
-    assert!(app.view.dashboard_pacer.in_flight(4));
+    let sources = board(&app).sources();
+    let queue = sources
+        .iter()
+        .position(|s| matches!(s, Source::Queue { .. }))
+        .expect("queue `tq`");
+    assert_eq!(
+        sources
+            .iter()
+            .filter(|s| matches!(s, Source::Queue { .. }))
+            .count(),
+        1
+    );
+    assert!(app.view.dashboard_pacer.in_flight(queue));
 
     reply(
         &mut app,
-        4,
+        queue,
         Ok(SourceData::Queue(QueueHealth {
             backlog: Some(12),
             pollers: 0,
             ..QueueHealth::default()
         })),
     );
-    let Item::Queue(queue) = &board(&app).items(3)[0] else {
-        panic!("{:?}", board(&app).items(3));
+    let Item::Queue(described) = &board(&app).items(4)[0] else {
+        panic!("{:?}", board(&app).items(4));
     };
-    assert!(queue.health.as_ref().unwrap().stuck());
+    assert!(described.health.as_ref().unwrap().stuck());
     assert_eq!(app.row_count(), 10, "health adds no rows");
 
     app.tick_dashboards(now_ms() + INTERVAL + 1_000);
-    assert!(app.view.dashboard_pacer.in_flight(4));
+    assert!(app.view.dashboard_pacer.in_flight(queue));
 }

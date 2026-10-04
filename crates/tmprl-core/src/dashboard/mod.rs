@@ -7,6 +7,7 @@ mod board;
 mod compose;
 #[cfg(test)]
 mod fixtures;
+mod histogram;
 mod layout;
 mod pacer;
 mod parse;
@@ -14,6 +15,7 @@ mod source;
 
 pub use board::{Anchor, Board, Drill};
 pub use compose::{Facts, Slot, compose};
+pub use histogram::{Bucket, MAX_BUCKETS, bucket_for};
 pub use layout::{
     DEFAULT_LIMIT, Layout, MAX_LIMIT, MAX_PANELS, PanelKind, PanelSpec, RowSpec, Show, Size,
     TimeField, Window,

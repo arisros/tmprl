@@ -111,6 +111,7 @@ fn a_namespace_with_something_of_everything_draws_every_panel() {
     let out = draw(&mut app_with_dashboard(), 120, 30);
     for title in [
         "Status",
+        "Failures per hour",
         "Recent failures",
         "Failing types",
         "Task queues",
@@ -129,7 +130,7 @@ fn a_namespace_with_something_of_everything_draws_every_panel() {
     assert!(out.contains("paused"), "{out}");
     assert!(!out.contains("hidden"), "{out}");
     assert!(
-        out.lines().next().unwrap().contains("6 panels  auto 30s"),
+        out.lines().next().unwrap().contains("7 panels  auto 30s"),
         "{out}"
     );
 }
@@ -196,7 +197,7 @@ fn panels_that_do_not_fit_are_counted_not_squeezed() {
     let mut app = app_with_dashboard();
     let out = draw(&mut app, 40, 8);
     assert!(out.contains("Status"), "{out}");
-    assert!(out.contains("+4 hidden"), "{out}");
+    assert!(out.contains("+5 hidden"), "{out}");
     assert!(!out.contains("schedules"), "{out}");
 }
 
@@ -507,4 +508,65 @@ fn a_row_with_little_to_show_leaves_its_room_to_a_row_with_more() {
         15,
         "both have all they need, so what is over is shared:\n{out}"
     );
+}
+
+#[test]
+fn a_histogram_draws_a_column_for_each_stretch_and_marks_the_one_under_the_cursor() {
+    use tmprl_core::dashboard::Source;
+    let mut app = app_with_rows();
+    app.apply_dashboard(Some(
+        "[[row]]\n[[row.panel]]\nkind = \"histogram\"\ntitle = \"Failures per hour\"\n\
+         since = \"6h\"\nbucket = \"1h\"\nby = \"close\"\n",
+    ));
+    app.view.screen = Screen::Workflows;
+    app.run("nav.dashboard", None);
+    let out = draw(&mut app, 60, 9);
+    assert!(out.contains('░'), "nothing counted yet:\n{out}");
+
+    let columns: Vec<usize> = app
+        .view
+        .dashboard
+        .as_ref()
+        .unwrap()
+        .sources()
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| matches!(s, Source::Bucket { .. }))
+        .map(|(i, _)| i)
+        .collect();
+    assert!(columns.len() >= 6, "{columns:?}");
+    reply(
+        &mut app,
+        0,
+        Ok(SourceData::Counts(StatusCounts::new(12, []))),
+    );
+    for (n, source) in columns.iter().enumerate() {
+        let count = [0, 8, 0, 4, 0, 0, 0][n];
+        reply(
+            &mut app,
+            *source,
+            Ok(SourceData::Counts(StatusCounts::new(count, []))),
+        );
+    }
+    let out = draw(&mut app, 60, 9);
+    assert!(out.contains("Failures per hour peak 8"), "{out}");
+    assert!(out.contains('█'), "the tallest fills its column:\n{out}");
+    assert!(
+        out.contains('·'),
+        "an empty stretch is marked, not blank:\n{out}"
+    );
+    assert!(!out.contains('░'), "{out}");
+    assert!(out.contains("now"), "the axis ends at now:\n{out}");
+    assert_eq!(
+        app.row_count(),
+        2,
+        "the two stretches with something in them"
+    );
+
+    let tall = out.lines().filter(|l| l.contains('█')).count();
+    let half = out
+        .lines()
+        .filter(|l| l.contains('▄') || l.contains('█'))
+        .count();
+    assert!(tall >= 2 && half >= tall, "{out}");
 }

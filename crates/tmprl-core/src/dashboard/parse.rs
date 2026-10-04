@@ -2,6 +2,7 @@
 
 use std::ops::RangeInclusive;
 
+use super::histogram::{MAX_BUCKETS, bucket_for, span_ms};
 use super::layout::{
     DEFAULT_LIMIT, Layout, MAX_LIMIT, MAX_PANELS, PanelKind, PanelSpec, RUNNING, RowSpec, Show,
     Size, TimeField, Window,
@@ -44,6 +45,20 @@ fn allowed(kind: &str) -> Option<(&'static [&'static str], &'static str)> {
                 "by",
             ],
             "kind, title, width, namespaces, limit, query, since, older or by",
+        ),
+        "histogram" => (
+            &[
+                "kind",
+                "title",
+                "width",
+                "namespaces",
+                "query",
+                "since",
+                "older",
+                "by",
+                "bucket",
+            ],
+            "kind, title, width, namespaces, query, since, older, by or bucket",
         ),
         "queues" => (
             &[
@@ -217,6 +232,31 @@ fn parse_panel(table: &toml::Table, path: &str) -> Result<PanelSpec, ConfigError
             query: filter(table, path, "")?,
             window: window(table, path)?,
         },
+        "histogram" => {
+            let window = window(table, path)?;
+            if window.since_ms.is_none() {
+                return Err(wrong(
+                    format!("{path}.since"),
+                    "given, a histogram covers a stretch of time",
+                ));
+            }
+            let span = span_ms(&window);
+            let bucket_ms = match duration(table, "bucket", path)? {
+                None => bucket_for(span),
+                Some(ms) if (2..=MAX_BUCKETS as i64).contains(&((span + ms - 1) / ms)) => ms,
+                Some(_) => {
+                    return Err(wrong(
+                        format!("{path}.bucket"),
+                        "a step that cuts the window into 2 to 48 columns",
+                    ));
+                }
+            };
+            PanelKind::Histogram {
+                query: filter(table, path, "")?,
+                window,
+                bucket_ms,
+            }
+        }
         "queues" => PanelKind::Queues {
             query: filter(table, path, RUNNING)?,
             names: strings(table, "names", path)?,
@@ -570,6 +610,47 @@ mod tests {
         assert_eq!(
             wrong_path(panel("kind = \"counts\"\nsince = \"1d\"\nby = \"end\"")),
             "row[0].panel[0].by"
+        );
+    }
+
+    #[test]
+    fn a_histogram_needs_a_window_and_takes_or_chooses_a_step() {
+        let histogram = |src: &str| -> Result<(Window, i64), ConfigError> {
+            match &panel(src)?.rows[0].panels[0].kind {
+                PanelKind::Histogram {
+                    window, bucket_ms, ..
+                } => Ok((*window, *bucket_ms)),
+                other => panic!("{other:?}"),
+            }
+        };
+        assert_eq!(
+            histogram("kind = \"histogram\"\nsince = \"2d\""),
+            Ok((Window::since(2 * DAY_MS), DAY_MS / 24))
+        );
+        assert_eq!(
+            histogram("kind = \"histogram\"\nsince = \"1d\"\nbucket = \"2h\"\nby = \"close\"")
+                .map(|(window, step)| (window.by, step)),
+            Ok((TimeField::Close, DAY_MS / 12))
+        );
+        assert_eq!(
+            wrong_path(panel("kind = \"histogram\"")),
+            "row[0].panel[0].since"
+        );
+        assert_eq!(
+            wrong_path(panel(
+                "kind = \"histogram\"\nsince = \"7d\"\nbucket = \"1m\""
+            )),
+            "row[0].panel[0].bucket"
+        );
+        assert_eq!(
+            wrong_path(panel(
+                "kind = \"histogram\"\nsince = \"1h\"\nbucket = \"1h\""
+            )),
+            "row[0].panel[0].bucket"
+        );
+        assert_eq!(
+            unknown_key(panel("kind = \"histogram\"\nsince = \"1h\"\nlimit = 5")),
+            "limit"
         );
     }
 

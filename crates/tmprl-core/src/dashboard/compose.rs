@@ -1,6 +1,8 @@
 //! The adaptive layout: the panels worth showing, chosen from what the namespace holds.
 
-use super::layout::{DAY_MS, Layout, PanelKind, PanelSpec, RUNNING, RowSpec, Show, Size, Window};
+use super::layout::{
+    DAY_MS, Layout, PanelKind, PanelSpec, RUNNING, RowSpec, Show, Size, TimeField, Window,
+};
 use super::source::tally_types;
 use crate::query;
 use crate::schedule::ScheduleRow;
@@ -9,6 +11,8 @@ use crate::workflow::WorkflowRow;
 /// A panel the adaptive layout may or may not show.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Slot {
+    /// When the failures happened, hour by hour.
+    Trend,
     Failures,
     Types,
     Running,
@@ -19,7 +23,8 @@ pub enum Slot {
 }
 
 impl Slot {
-    pub(super) const ALL: [Slot; 7] = [
+    pub(super) const ALL: [Slot; 8] = [
+        Slot::Trend,
         Slot::Failures,
         Slot::Types,
         Slot::Running,
@@ -33,6 +38,16 @@ impl Slot {
         let failures = || (query::PROBLEMS.to_string(), Window::since(DAY_MS));
         let running = || RUNNING.to_string();
         match self {
+            Slot::Trend => PanelSpec::new(PanelKind::Histogram {
+                query: query::PROBLEMS.to_string(),
+                window: Window {
+                    since_ms: Some(DAY_MS),
+                    older_ms: None,
+                    by: TimeField::Close,
+                },
+                bucket_ms: DAY_MS / 24,
+            })
+            .titled("Failures per hour"),
             Slot::Failures => {
                 let (query, window) = failures();
                 let mut spec = PanelSpec::new(PanelKind::Workflows { query, window })
@@ -88,6 +103,8 @@ pub fn compose(facts: &Facts, kept: &[Slot]) -> Layout {
             return true;
         }
         match slot {
+            // Worth its 25 counts only once something is known to have failed.
+            Slot::Trend => facts.failures.is_some_and(|rows| !rows.is_empty()),
             Slot::Failures => facts.failures.is_none_or(|rows| !rows.is_empty()),
             Slot::Types => facts.failures.is_none_or(|rows| distinct_types(rows) > 1),
             Slot::Running => false,
@@ -140,6 +157,11 @@ pub fn compose(facts: &Facts, kept: &[Slot]) -> Layout {
             window: Window::default(),
         })],
     }];
+    if wanted(Slot::Trend) {
+        // A share, not a fixed height: the renderer caps it at what a chart needs, and a
+        // small pane can still squeeze it to make room for the list under it.
+        rows.push(row(Size::Weight(1), vec![Slot::Trend]));
+    }
     if !middle.is_empty() {
         rows.push(row(Size::Weight(3), middle));
     }
@@ -195,9 +217,31 @@ mod tests {
             titles(&compose(&facts, &[])),
             [
                 vec!["Status"],
+                vec!["Failures per hour"],
                 vec!["Recent failures"],
                 vec!["Task queues", "Schedules"]
             ]
+        );
+    }
+
+    #[test]
+    fn failures_bring_the_hours_they_happened_in_and_none_brings_no_chart() {
+        let failures = [wf("a", "Order", "orders", 1)];
+        let with = |failures| {
+            let facts = Facts {
+                failures,
+                running: None,
+                schedules: None,
+            };
+            titles(&compose(&facts, &[]))
+                .concat()
+                .contains(&"Failures per hour")
+        };
+        assert!(with(Some(&failures[..])));
+        assert!(!with(Some(&[])), "nothing failed");
+        assert!(
+            !with(None),
+            "not known yet, and not worth 25 counts to find out"
         );
     }
 
@@ -211,7 +255,7 @@ mod tests {
                 running: Some(&[]),
                 schedules: Some(&[]),
             };
-            titles(&compose(&facts, &[]))[1]
+            titles(&compose(&facts, &[]))[2]
                 .iter()
                 .map(|t| t.to_string())
                 .collect::<Vec<_>>()
