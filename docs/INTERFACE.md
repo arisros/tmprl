@@ -165,21 +165,54 @@ what the item stands for:
 | a schedule | the schedule list, cursor on it |
 
 The query a panel opens lands in the query bar like any other, and `<C-o>` comes back.
-`R` asks for everything again without blanking what is on screen; a panel whose refresh
-failed keeps its last answer and says `stale` in its title. A panel drawn from one page of
+The dashboard asks again by itself, every 30 seconds unless `config.toml` says otherwise,
+and the header says so: `auto 30s`. Each request is asked for again one interval after its
+last answer and never while it is still out, so a slow cluster is not asked faster than it
+answers. Only dashboards in the tab on screen refresh, focused or not; one in another tab
+catches up when its tab is opened. `R` asks for everything at once.
+
+Neither blanks what is on screen. A panel whose refresh failed keeps its last answer and
+says how old it is in its title, `stale 2m`. A request that keeps failing is tried less and
+less often, up to five minutes apart, and the note line reports it once, when it first goes
+bad, not at every try. One the server refuses outright is left alone until `R`. A request
+with no answer after the interval, or ten seconds if that is longer, counts as failed. A panel drawn from one page of
 a longer list says how many rows it saw, `of 50 sampled`, because a tally over a sample is
 not a count.
 
 Task queues are the ones found on running workflows: Temporal has no call that lists them.
+Each of the first eight is described, and its line says what that found: how many tasks are
+waiting and how long the oldest has waited, `backlog 12, oldest 4m`, and how many workers
+polled it lately, `2 pollers`. A backlog with `no pollers` is drawn as an error, because
+work is waiting and nothing is taking it. The numbers cover workflow and activity tasks
+together and are the server's approximations. A server too old to report a backlog shows
+pollers only.
 Nothing on the dashboard is a target for `<leader>m`; open the workflow first.
 
 On a terminal too small for every panel, the ones around the cursor are drawn and the rest
 are counted, `+3 hidden`. Moving the cursor scrolls the dashboard to them.
 
-The panels and their arrangement come from `dashboard.toml`, described under
-[Configuration files](#configuration-files); without one the layout above is used.
-`tmprl --dashboard` opens straight onto it. Panels chosen from what the namespace shows
-are *planned*.
+Without a `dashboard.toml` the panels follow what the namespace shows. Everything is
+drawn while nothing is known yet, and a panel that turns out to have nothing in it gives up
+its room:
+
+| The namespace has | The dashboard shows |
+|---|---|
+| failures in the last day | "Recent failures", and "Failing types" once two or more types are failing |
+| no failures, but running workflows | "Running", in the room the failures would have had |
+| running workflows | "Task queues" |
+| paused schedules | "Paused schedules" |
+| schedules with a next run | "Upcoming schedules", soonest first |
+| schedules that are neither | "Schedules" |
+| nothing at all | every panel, each saying it is empty |
+
+A panel that is still loading, or whose request failed, stays, so the screen says what it
+is waiting for and what went wrong. A panel that had items and has lost them also stays,
+empty, until `R` or until the dashboard is opened again: a layout that rearranges itself
+while it is being read is worse than an empty box.
+
+A `dashboard.toml`, described under [Configuration files](#configuration-files), replaces
+all of this with the panels it names, and those are never rearranged. `tmprl --dashboard`
+opens straight onto the dashboard.
 
 ### Finding
 
@@ -615,7 +648,7 @@ depth rule: nearest named colour on 16, none under `NO_COLOR`.
 
 | File | Holds |
 |---|---|
-| `~/.config/tmprl/config.toml` | codec server endpoint, payload pane position, display timezone and yank limit, **live**; refresh intervals and defaults *planned* |
+| `~/.config/tmprl/config.toml` | codec server endpoint, payload pane position, display timezone, yank limit and the dashboard's refresh interval, **live**; other refresh intervals and defaults *planned* |
 | `~/.config/tmprl/dashboard.toml` | the dashboard's panels and their arrangement, **live** |
 | `~/.config/tmprl/keys.toml` | key chord → command id, **live** |
 | `~/.config/tmprl/theme.toml` | palette slot → colour, **live** |
@@ -654,6 +687,14 @@ payload = "right"       # "bottom" is the default
 
 Either way the list stays on screen and `j` / `k` move the row the pane shows. Below 100
 columns `right` stacks anyway, since neither half would be readable.
+
+The dashboard refreshes every 30 seconds. To change that, or to stop it:
+
+```toml
+[refresh]
+dashboard = "2m"        # "30s" is the default, "5s" the least, "off" leaves it to R
+```
+
 A `views.toml` looks like:
 
 ```toml

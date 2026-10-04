@@ -46,7 +46,7 @@ use tmprl_client::{Codec, Conn, NamespaceInfo};
 use tmprl_core::ScheduleRow;
 use tmprl_core::clock::{Clock, TimeFormat};
 use tmprl_core::complete::{self, Completion};
-use tmprl_core::dashboard::{Board, Drill, Item, Layout, Source, SourceData};
+use tmprl_core::dashboard::{Board, Drill, Item, Layout, Outcome, Source, SourceData};
 use tmprl_core::fault::Fault;
 use tmprl_core::filter::{self, SearchAttribute};
 use tmprl_core::form::Form;
@@ -313,6 +313,8 @@ pub enum Msg {
         view: ViewId,
         generation: u64,
         source: usize,
+        /// Asked for by the refresh timer rather than by a key.
+        timed: bool,
         result: Result<SourceData, Fault>,
     },
     /// The open activities of the run on screen, from describe.
@@ -385,6 +387,8 @@ pub struct App {
     pub views: Vec<SavedView>,
     /// The layout `dashboard.toml` asks for. `None` leaves the dashboard to the builtin one.
     dashboard_layout: Option<Layout>,
+    /// `[refresh] dashboard` from `config.toml`.
+    dashboard_refresh: tmprl_core::config::Refresh,
     /// What this cluster lets you filter on, fetched once per namespace the first time the
     /// filter picker is opened. Session-level rather than per-pane: it is a property of the
     /// cluster, and every pane is on the same one.
@@ -526,6 +530,7 @@ impl App {
             codec: None,
             views: Vec::new(),
             dashboard_layout: None,
+            dashboard_refresh: Default::default(),
             search_attributes: Loadable::default(),
             completion: None,
             attributes_for: None,
@@ -582,6 +587,7 @@ impl App {
                     self.accent = resolved.accent;
                     self.readonly = resolved.readonly;
                     self.payload_pane = cfg.payload_pane;
+                    self.dashboard_refresh = cfg.dashboard_refresh;
                     self.yank_max = cfg.yank_max;
                     // Already validated by `parse_config`, so this cannot be the zone
                     // failing; unwrapping to the system zone here would be unreachable.
@@ -688,7 +694,8 @@ impl App {
         match msg {
             Msg::Key(chord) => self.on_key(chord),
             Msg::Quit => self.should_quit = true,
-            Msg::Tick | Msg::Redraw => {}
+            Msg::Tick => self.tick_dashboards(now_ms()),
+            Msg::Redraw => {}
             Msg::Mutated {
                 mutation,
                 result,
@@ -929,8 +936,9 @@ impl App {
                 view,
                 generation,
                 source,
+                timed,
                 result,
-            } => self.dashboard_reply(view, generation, source, result),
+            } => self.dashboard_reply(view, generation, source, timed, result),
             Msg::Counts { generation, result } => {
                 if generation != self.view.generation {
                     return;
@@ -1244,6 +1252,10 @@ impl App {
     /// Whether mutations are refused, by the profile or by `--readonly`.
     pub fn readonly(&self) -> bool {
         self.readonly || self.readonly_flag
+    }
+
+    pub fn dashboard_refresh(&self) -> tmprl_core::config::Refresh {
+        self.dashboard_refresh
     }
 
     pub fn payload_pane(&self) -> tmprl_core::config::PayloadPane {

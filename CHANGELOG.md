@@ -10,6 +10,15 @@
   status, failures of the last day, the workflow types failing most, the task queues running
   workflows are on, and schedules. `Enter` on an item opens what it stands for, `]p` and `[p`
   step between panels, and a dashboard left in a split keeps receiving its own data.
+- **The dashboard adapts** when there is no `dashboard.toml`: a panel with nothing in it
+  gives up its room, a namespace with no failures shows what is running instead, and
+  schedules appear as the paused ones and the ones about to run. `R` lets emptied panels go.
+- **The dashboard refreshes itself**, every 30 seconds by default: `[refresh] dashboard` in
+  `config.toml` takes a duration or `"off"`. A request that fails keeps the panel's last
+  answer, marked `stale`, is retried less often while it keeps failing, and is reported once.
+- **Task queue health** on the dashboard: each queue with running workflows shows its
+  backlog, how long the oldest task has waited, and how many workers are polling. A backlog
+  nothing is polling stands out as an error.
 - **`dashboard.toml`** lays the dashboard out: rows of panels, each with a kind, a query, a
   time window and a share of the screen. A key it does not know sets the file aside with a
   message, and the built-in layout is used. `--config-path` lists the file.
