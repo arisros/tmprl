@@ -13,6 +13,7 @@
 use std::cell::RefCell;
 
 use tmprl_client::NamespaceInfo;
+use tmprl_core::dashboard::{Board, Item};
 use tmprl_core::history::NormalizedEvent;
 use tmprl_core::outline::{Outline, Row};
 use tmprl_core::payload::FlatCache;
@@ -30,6 +31,11 @@ pub struct View {
     pub counts: Loadable<StatusCounts>,
     pub history: Loadable<Outline>,
     pub schedules: Loadable<Vec<ScheduleRow>>,
+    pub dashboard: Option<Board>,
+    /// Requests the dashboard has out, so leaving it or closing the pane stops them.
+    pub dashboard_tasks: Vec<tokio::task::JoinHandle<()>>,
+    /// The schedule the next schedule list should put the cursor on.
+    pub seek_schedule: Option<String>,
 
     /// The workflow whose history is on screen.
     pub viewing: Option<WorkflowRow>,
@@ -114,6 +120,9 @@ impl View {
             counts: Loadable::NotAsked,
             history: Loadable::NotAsked,
             schedules: Loadable::NotAsked,
+            dashboard: None,
+            dashboard_tasks: Vec::new(),
+            seek_schedule: None,
             viewing: None,
             following: false,
             timeline: false,
@@ -178,6 +187,13 @@ impl View {
         {
             task.abort();
         }
+        self.stop_dashboard();
+    }
+
+    pub fn stop_dashboard(&mut self) {
+        for task in self.dashboard_tasks.drain(..) {
+            task.abort();
+        }
     }
 }
 
@@ -203,6 +219,13 @@ impl View {
 
     pub fn schedule_rows(&self) -> &[ScheduleRow] {
         self.schedules.value().map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    /// Every dashboard item, in cursor order.
+    pub fn dashboard_items(&self) -> impl Iterator<Item = &Item> {
+        self.dashboard
+            .iter()
+            .flat_map(|b| (0..b.panel_count()).flat_map(move |p| b.items(p)))
     }
 
     /// The text `/` matches against, one string per row, in row order.
@@ -265,6 +288,7 @@ impl View {
                 })
                 .collect(),
             Screen::History => self.history_labels(),
+            Screen::Dashboard => self.dashboard_items().map(Item::label).collect(),
         }
     }
 
@@ -355,6 +379,7 @@ impl View {
             Screen::Workflows => self.workflow_rows().len(),
             Screen::History => self.history.value().map(Outline::len).unwrap_or(0),
             Screen::Schedules => self.schedule_rows().len(),
+            Screen::Dashboard => self.dashboard.as_ref().map_or(0, Board::len),
         }
     }
 

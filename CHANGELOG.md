@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **Dashboard**, `gd`: one screen of panels over the namespaces in scope, with workflows by
+  status, failures of the last day, the workflow types failing most, the task queues running
+  workflows are on, and schedules. `Enter` on an item opens what it stands for, `]p` and `[p`
+  step between panels, and a dashboard left in a split keeps receiving its own data.
+
 ## 0.1.5 — 2026-10-03
 
 - No user-visible changes.

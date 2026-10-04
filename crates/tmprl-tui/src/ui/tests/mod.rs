@@ -10,6 +10,7 @@ use tmprl_core::{Chord, Loadable, StatusCounts, WorkflowList, WorkflowRow, Workf
 use tokio::sync::mpsc::unbounded_channel;
 
 mod chrome;
+mod dashboard;
 mod detail;
 mod history;
 mod messages;

@@ -10,6 +10,7 @@
 //! | File | |
 //! |---|---|
 //! | `nav` | opening, going back up, the cursor, the jumplist |
+//! | `dashboard` | the dashboard: opening it, its requests, what an item opens |
 //! | `query` | the workflow list's query bar |
 //! | `find` | the pickers and `/` search |
 //! | `history` | folds, follow, `]f` / `[f` |
@@ -22,6 +23,7 @@
 //! | `startup` | where the command line asked to open |
 //! | `messages` | the note line's history, `:messages` |
 
+mod dashboard;
 mod find;
 mod history;
 mod load;
@@ -44,6 +46,7 @@ use tmprl_client::{Codec, Conn, NamespaceInfo};
 use tmprl_core::ScheduleRow;
 use tmprl_core::clock::{Clock, TimeFormat};
 use tmprl_core::complete::{self, Completion};
+use tmprl_core::dashboard::{Board, Drill, Item, Layout, Source, SourceData};
 use tmprl_core::fault::Fault;
 use tmprl_core::filter::{self, SearchAttribute};
 use tmprl_core::form::Form;
@@ -105,6 +108,7 @@ pub enum Screen {
     Workflows,
     History,
     Schedules,
+    Dashboard,
 }
 
 /// Which mutation a key asked for, before it is turned into a `Mutation` with a target.
@@ -302,6 +306,14 @@ pub enum Msg {
         generation: u64,
         id: String,
         result: Result<Vec<WorkflowRow>, Fault>,
+    },
+    /// What one of a dashboard's requests came back with. It names its pane, because a
+    /// dashboard is what gets left in a split while the focus is elsewhere.
+    Dashboard {
+        view: ViewId,
+        generation: u64,
+        source: usize,
+        result: Result<SourceData, Fault>,
     },
     /// The open activities of the run on screen, from describe.
     Pending {
@@ -886,8 +898,23 @@ impl App {
                         Loadable::Failed(e)
                     }
                 };
+                if let Some(id) = self.view.seek_schedule.take()
+                    && let Some(at) = self
+                        .view
+                        .schedule_rows()
+                        .iter()
+                        .position(|s| s.schedule_id == id)
+                {
+                    self.view.cursor = at;
+                }
                 self.clamp_cursor();
             }
+            Msg::Dashboard {
+                view,
+                generation,
+                source,
+                result,
+            } => self.dashboard_reply(view, generation, source, result),
             Msg::Counts { generation, result } => {
                 if generation != self.view.generation {
                     return;
@@ -1028,6 +1055,9 @@ impl App {
             Action::GoUp => self.go_up(),
             Action::GoSchedules => self.go_to(Screen::Schedules),
             Action::GoWorkflows => self.go_to(Screen::Workflows),
+            Action::GoDashboard => self.open_dashboard(),
+            Action::NextPanel => self.step_panel(true),
+            Action::PrevPanel => self.step_panel(false),
             Action::JumpBack => self.jump(true),
             Action::JumpForward => self.jump(false),
 

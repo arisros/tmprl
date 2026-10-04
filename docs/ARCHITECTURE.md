@@ -2,7 +2,7 @@
 
 > **Read this first.** This document mixes built code with design that is not written yet,
 > and every section says which it is. §§2 to 9 are implemented and tested, with four
-> exceptions marked where they occur: macros and headless mode in §4, the dashboard at the
+> exceptions marked where they occur: macros and headless mode in §4, the dashboard's config file at the
 > end of §5, diff in §§6 and 7, and the query-driven batch at the end of §9. Those are written down in advance so the shape is
 > agreed before there is code sitting on top of it. [ROADMAP.md](ROADMAP.md) says when.
 >
@@ -65,7 +65,7 @@ project testable:
 |---|---|---|---|
 | `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 77 |
 | `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 369 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 375 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 406 |
 | `tmprl-ui` | built | Plain unit tests over the layout tree | 44 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -332,11 +332,12 @@ A `Conn` clone shares a single HTTP/2 channel, so listing several namespaces is 
 and N concurrent streams. Each namespace pages independently and exhausts at a different
 point, so the continuation token is per namespace rather than one token for the merged list.
 
-### The dashboard · PLANNED
+### The dashboard · BUILT (a fixed layout; reading `dashboard.toml` is PLANNED)
 
 One screen of panels over a scope: status counts, recent failures, the workflow types failing
-most, the task queues in use, schedules. The model is built and tested in
-`tmprl-core/src/dashboard.rs`; no screen draws it yet.
+most, the task queues in use, schedules. The model is `tmprl-core/src/dashboard.rs`,
+`app/dashboard.rs` issues its requests and `ui/dashboard.rs` draws it. The parser for
+`dashboard.toml` is built and tested; nothing reads the file from disk yet.
 
 - **A panel does not fetch.** It reads from a `Source`, and panels asking for the same thing
   share one. "Recent failures" and "failing types" are one `ListWorkflowExecutions` and
@@ -351,7 +352,12 @@ most, the task queues in use, schedules. The model is built and tested in
   of panel, sets the file aside: a misspelt `query` would otherwise show every workflow under
   a "failures" title.
 - **Rows and panels are tracks.** `tmprl-ui`'s `tracks` cuts an area into fixed and weighted
-  spans with a minimum, and drops the ones that do not fit from the end.
+  spans with a minimum, and drops the ones that do not fit from the end. The renderer starts
+  the cut far enough along that the cursor's panel is one of those drawn.
+- **A reply names its pane.** `Msg::Dashboard` carries the `ViewId` it was issued for as well
+  as the generation, and is applied to that pane whether or not it is focused. A dashboard is
+  the screen that gets left in a split, and the other replies, which are applied to whichever
+  pane is focused, would paint it into the wrong window.
 
 ---
 

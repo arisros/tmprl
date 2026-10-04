@@ -10,16 +10,7 @@ impl App {
                 // A visual selection opens every namespace in it as one merged list. That
                 // is the whole multi-namespace fan-out: `V j j <CR>`, using the selection
                 // machinery that already exists rather than a separate picker.
-                let (lo, hi) = self
-                    .selection()
-                    .unwrap_or((self.view.cursor, self.view.cursor));
-                let scope: Vec<String> = self
-                    .namespace_rows()
-                    .iter()
-                    .skip(lo)
-                    .take(hi.saturating_sub(lo) + 1)
-                    .map(|n| n.name.clone())
-                    .collect();
+                let scope = self.selected_namespaces();
                 if scope.is_empty() {
                     self.note = Some(("nothing to open".into(), Note::Warn));
                     return;
@@ -59,7 +50,21 @@ impl App {
                     Note::Warn,
                 ));
             }
+            Screen::Dashboard => self.drill(),
         }
+    }
+
+    /// The namespaces under the cursor or the visual selection.
+    pub(super) fn selected_namespaces(&self) -> Vec<String> {
+        let (lo, hi) = self
+            .selection()
+            .unwrap_or((self.view.cursor, self.view.cursor));
+        self.namespace_rows()
+            .iter()
+            .skip(lo)
+            .take(hi.saturating_sub(lo) + 1)
+            .map(|n| n.name.clone())
+            .collect()
     }
 
     pub(super) fn go_up(&mut self) {
@@ -87,8 +92,9 @@ impl App {
                 self.view.anchor = None;
                 self.clamp_cursor();
             }
-            Screen::Schedules => {
+            Screen::Schedules | Screen::Dashboard => {
                 self.mark_jump();
+                self.view.stop_dashboard();
                 self.view.screen = Screen::Namespaces;
                 self.view.cursor = self.view.namespace_cursor;
                 self.view.anchor = None;
@@ -244,6 +250,7 @@ impl App {
             Screen::Namespaces => self.clamp_cursor(),
             Screen::Workflows => self.load_workflows(false),
             Screen::Schedules => self.load_schedules(),
+            Screen::Dashboard => self.load_dashboard(),
             Screen::History => {
                 self.view.history = Loadable::NotAsked;
                 self.view.history_events.clear();
@@ -269,6 +276,7 @@ impl App {
                 self.load_history();
             }
             Screen::Schedules => self.load_schedules(),
+            Screen::Dashboard => self.load_dashboard(),
         }
     }
 
@@ -360,7 +368,7 @@ impl App {
                     self.load_history();
                 }
             }
-            Screen::Namespaces | Screen::Schedules => {}
+            Screen::Namespaces | Screen::Schedules | Screen::Dashboard => {}
         }
     }
 
@@ -371,6 +379,7 @@ impl App {
             Screen::Workflows => self.load_workflows(false),
             Screen::History => self.load_history(),
             Screen::Schedules => self.load_schedules(),
+            Screen::Dashboard => self.load_dashboard(),
         }
     }
 
@@ -388,8 +397,11 @@ impl App {
                 self.note = Some(("go up with `-` first".into(), Note::Warn));
                 return;
             }
-            _ if self.view.screen == screen => return,
-            _ => {}
+            Screen::Workflows | Screen::Schedules | Screen::Dashboard => {
+                if self.view.screen == screen {
+                    return;
+                }
+            }
         }
         self.view.stop_following();
         self.view.screen = screen;

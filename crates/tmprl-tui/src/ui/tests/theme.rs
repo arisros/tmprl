@@ -60,6 +60,11 @@ fn every_screen(depth: ColorDepth) -> Vec<Buffer> {
     payloads.run("history.detail", None);
     out.push(buffer(&mut payloads, 120, 24));
 
+    let mut dashboard = themed(dashboard::app_with_dashboard());
+    dashboard.run("motion.down", Some(2));
+    out.push(buffer(&mut dashboard, 120, 30));
+    out.push(buffer(&mut themed(dashboard::empty_dashboard()), 120, 30));
+
     let mut help = themed(app_with_rows());
     help.show_help = true;
     out.push(buffer(&mut help, 100, 30));

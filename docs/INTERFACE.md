@@ -95,6 +95,8 @@ Leader is `Space`. A which-key-style popup appears as soon as a prefix is incomp
 | `<leader>-` | floating object browser | planned |
 | `<C-o>` / `<C-i>` (or `<Tab>`) | jumplist back / forward | **live** |
 | `<leader>N` | switch namespace | **live** |
+| `gd` | the dashboard, over this pane's namespaces | **live** |
+| `]p` / `[p` | next / previous dashboard panel | **live** |
 | `<leader>P` | switch connection profile | planned |
 
 Multi-namespace is a visual selection rather than a picker: `V j <CR>` on the namespace list
@@ -131,6 +133,40 @@ so a jump shows what is there now rather than reinstating a stale table.
 `-` deserves a note: it is modelled on [oil.nvim](https://github.com/stevearc/oil.nvim)'s
 treatment of a directory as an editable buffer. Temporal's objects form a hierarchy, and
 "go up" is a more useful primitive than a breadcrumb you have to aim at.
+
+### The dashboard
+
+`gd` opens one screen of panels over the namespaces the pane is scoped to: workflows by
+status, failures of the last day, the workflow types failing most, the task queues running
+workflows are on, and schedules. From the namespace list it takes the namespace under the
+cursor, or every namespace in a Visual selection, the way `Enter` does.
+
+The cursor runs through every panel's items as one list, so `j`, `k`, counts, `gg`, `G`,
+`/` and `n` work as they do anywhere, and `]p` / `[p` step a panel at a time. `Enter` opens
+what the item stands for:
+
+| Item | `Enter` opens |
+|---|---|
+| a status | the workflow list, filtered to that status |
+| a failed workflow | its history |
+| a workflow type | the workflow list, the panel's query narrowed to that type |
+| a task queue | the workflow list, running workflows on that queue |
+| a schedule | the schedule list, cursor on it |
+
+The query a panel opens lands in the query bar like any other, and `<C-o>` comes back.
+`R` asks for everything again without blanking what is on screen; a panel whose refresh
+failed keeps its last answer and says `stale` in its title. A panel drawn from one page of
+a longer list says how many rows it saw, `of 50 sampled`, because a tally over a sample is
+not a count.
+
+Task queues are the ones found on running workflows: Temporal has no call that lists them.
+Nothing on the dashboard is a target for `<leader>m`; open the workflow first.
+
+On a terminal too small for every panel, the ones around the cursor are drawn and the rest
+are counted, `+3 hidden`. Moving the cursor scrolls the dashboard to them.
+
+The layout is fixed for now. A `dashboard.toml` and panels chosen from what the namespace
+shows are *planned*.
 
 ### Finding
 

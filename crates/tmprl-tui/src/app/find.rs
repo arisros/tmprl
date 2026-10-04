@@ -618,5 +618,6 @@ pub(super) fn describe_pane(v: &View) -> String {
             None => "history".to_string(),
         },
         Screen::Schedules => format!("schedules  {}", v.scope.join(", ")),
+        Screen::Dashboard => format!("dashboard  {}", v.scope.join(", ")),
     }
 }
