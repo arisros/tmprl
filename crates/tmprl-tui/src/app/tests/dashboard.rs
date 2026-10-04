@@ -130,8 +130,8 @@ fn gd_is_refused_inside_a_history() {
 fn a_reply_fills_the_panels_that_read_from_it() {
     let mut app = on_dashboard();
     reply(&mut app, 1, Ok(failures()));
-    assert_eq!(board(&app).items(1).len(), 3);
-    assert_eq!(board(&app).items(2).len(), 2, "the tally of the same rows");
+    assert_eq!(board(&app).items(2).len(), 3);
+    assert_eq!(board(&app).items(3).len(), 2, "the tally of the same rows");
     assert_eq!(app.row_count(), 5);
 }
 
@@ -185,8 +185,8 @@ fn a_failed_refresh_keeps_the_panel_and_reports_the_failure() {
     app.run("app.refresh", None);
     assert_eq!(app.row_count(), 10, "a refresh does not blank the screen");
     reply(&mut app, 1, Err(down()));
-    assert_eq!(board(&app).items(1).len(), 3);
-    assert_eq!(board(&app).fault(1), Some(&down()));
+    assert_eq!(board(&app).items(2).len(), 3);
+    assert_eq!(board(&app).fault(2), Some(&down()));
     assert_eq!(app.note.as_ref().unwrap().1, Note::Error);
 }
 
@@ -201,7 +201,7 @@ fn a_refresh_makes_the_replies_already_out_stale() {
 #[test]
 fn enter_on_a_status_opens_the_workflows_behind_it_and_c_o_comes_back() {
     let mut app = filled();
-    app.run("motion.down", None);
+    app.run("motion.right", None);
     app.run("nav.open", None);
     assert_eq!(app.view.screen, Screen::Workflows);
     assert_eq!(app.view.query, "ExecutionStatus = 'Failed'");
@@ -216,7 +216,7 @@ fn enter_on_a_status_opens_the_workflows_behind_it_and_c_o_comes_back() {
 #[test]
 fn enter_on_a_workflow_opens_its_history() {
     let mut app = filled();
-    app.run("motion.down", Some(2));
+    app.set_cursor(2);
     app.run("nav.open", None);
     assert_eq!(app.view.screen, Screen::History);
     assert_eq!(app.view.viewing.as_ref().unwrap().run_id, "r1");
@@ -225,7 +225,7 @@ fn enter_on_a_workflow_opens_its_history() {
 #[test]
 fn enter_on_a_type_or_a_queue_narrows_the_panels_own_query() {
     let mut app = filled();
-    app.run("motion.down", Some(5));
+    app.set_cursor(5);
     app.run("nav.open", None);
     assert!(app.view.query.starts_with(PROBLEMS), "{}", app.view.query);
     assert!(
@@ -240,7 +240,7 @@ fn enter_on_a_type_or_a_queue_narrows_the_panels_own_query() {
     );
 
     let mut app = filled();
-    app.run("motion.down", Some(7));
+    app.set_cursor(7);
     app.run("nav.open", None);
     assert_eq!(
         app.view.query,
@@ -325,13 +325,13 @@ fn yank_copies_the_name_and_the_item_as_json() {
     let mut app = filled();
     assert_eq!(app.field_under_cursor(), "Running");
     assert_eq!(app.records_selected(), r#"{"status":"Running","count":4}"#);
-    app.run("motion.down", Some(5));
+    app.set_cursor(5);
     assert_eq!(app.field_under_cursor(), "Checkout");
     assert_eq!(
         app.records_selected(),
         r#"{"workflowType":"Checkout","count":2}"#
     );
-    app.run("motion.down", Some(2));
+    app.set_cursor(7);
     assert_eq!(
         app.records_selected(),
         r#"{"namespace":"default","taskQueue":"tq","running":2}"#
@@ -578,7 +578,7 @@ fn the_timer_reports_a_source_going_bad_once() {
     timed_reply(&mut app, 1, Err(down()));
     let logged = app.messages.len();
     assert_eq!(app.note.as_ref().unwrap().1, Note::Error);
-    assert_eq!(board(&app).items(1).len(), 3, "the old rows stay");
+    assert_eq!(board(&app).items(2).len(), 3, "the old rows stay");
 
     app.tick_dashboards(now_ms() + INTERVAL * 10);
     assert!(out(&app.view)[1], "it is tried again");
@@ -614,24 +614,89 @@ fn a_source_the_server_refuses_is_left_alone_until_r() {
 fn a_queue_found_on_running_workflows_is_described_and_kept_fresh() {
     use tmprl_core::taskqueue::QueueHealth;
     let mut app = filled();
-    assert_eq!(board(&app).sources().len(), 5, "the probes and queue `tq`");
-    assert!(app.view.dashboard_pacer.in_flight(4));
+    let sources = board(&app).sources();
+    let queue = sources
+        .iter()
+        .position(|s| matches!(s, Source::Queue { .. }))
+        .expect("queue `tq`");
+    assert_eq!(
+        sources
+            .iter()
+            .filter(|s| matches!(s, Source::Queue { .. }))
+            .count(),
+        1
+    );
+    assert!(app.view.dashboard_pacer.in_flight(queue));
 
     reply(
         &mut app,
-        4,
+        queue,
         Ok(SourceData::Queue(QueueHealth {
             backlog: Some(12),
             pollers: 0,
             ..QueueHealth::default()
         })),
     );
-    let Item::Queue(queue) = &board(&app).items(3)[0] else {
-        panic!("{:?}", board(&app).items(3));
+    let Item::Queue(described) = &board(&app).items(4)[0] else {
+        panic!("{:?}", board(&app).items(4));
     };
-    assert!(queue.health.as_ref().unwrap().stuck());
+    assert!(described.health.as_ref().unwrap().stuck());
     assert_eq!(app.row_count(), 10, "health adds no rows");
 
     app.tick_dashboards(now_ms() + INTERVAL + 1_000);
-    assert!(app.view.dashboard_pacer.in_flight(4));
+    assert!(app.view.dashboard_pacer.in_flight(queue));
+}
+
+#[test]
+fn h_j_k_l_move_over_the_panels_as_they_sit_and_take_a_count() {
+    let mut app = filled();
+    assert_eq!(app.field_under_cursor(), "Running");
+    app.run("motion.right", None);
+    assert_eq!(app.field_under_cursor(), "Failed");
+    app.run("motion.down", Some(2));
+    let second = app.field_under_cursor();
+    app.run("motion.up", None);
+    assert_ne!(app.field_under_cursor(), second);
+    app.run("motion.up", Some(9));
+    assert_eq!(
+        app.field_under_cursor(),
+        "Running",
+        "back at the top, and no further"
+    );
+
+    app.view.screen = Screen::Workflows;
+    let before = app.view.cursor;
+    app.run("motion.left", None);
+    app.run("motion.right", None);
+    assert_eq!(app.view.cursor, before, "a list has no sideways");
+}
+
+#[test]
+fn a_workflow_a_retrying_panel_stopped_looking_into_is_not_asked_about_again() {
+    let mut app = app();
+    app.apply_dashboard(Some(
+        "[[row]]\n[[row.panel]]\nkind = \"retrying\"\nscan = 1\n",
+    ));
+    app.view.screen = Screen::Workflows;
+    app.run("nav.dashboard", None);
+    let running = |run: &str, start: i64| {
+        let mut row = wf("default", run, start);
+        row.status = WorkflowStatus::Running;
+        row
+    };
+    let page = |rows: Vec<WorkflowRow>| Ok(SourceData::Workflows { rows, more: false });
+    reply(&mut app, 0, page(vec![running("first", 10)]));
+    reply(&mut app, 1, Ok(SourceData::Pending(Vec::new())));
+    assert!(!board(&app).dormant(1));
+
+    reply(&mut app, 0, page(vec![running("second", 5)]));
+    assert!(board(&app).dormant(1), "`first` has left the page");
+    reply(&mut app, 2, Ok(SourceData::Pending(Vec::new())));
+
+    app.tick_dashboards(now_ms() + INTERVAL + 1_000);
+    assert!(!app.view.dashboard_pacer.in_flight(1), "left to sleep");
+    assert!(
+        app.view.dashboard_pacer.in_flight(2),
+        "`second` is asked about"
+    );
 }

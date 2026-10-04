@@ -2,6 +2,7 @@
 
 use super::*;
 use tmprl_core::fault::Code;
+use tmprl_core::history::close_reason;
 use tmprl_core::taskqueue::TaskQueueKind;
 
 impl App {
@@ -46,6 +47,7 @@ impl App {
                 None => Board::adaptive(&self.view.scope),
             },
         };
+        board.advance(now_ms());
         board.begin_refresh();
         let all: Vec<usize> = (0..board.sources().len()).collect();
         self.view.dashboard = Some(board);
@@ -83,14 +85,26 @@ impl App {
             };
             let Some(board) = view
                 .dashboard
-                .as_ref()
+                .as_mut()
                 .filter(|_| view.screen == Screen::Dashboard)
             else {
                 continue;
             };
-            let due = view
+            // A histogram's newest column is a stretch of time that may only just have begun.
+            board.advance(now);
+            let mut due = view
                 .dashboard_pacer
                 .take_due(board.sources().len(), now, interval);
+            // A source nothing reads any more is marked as answered, not asked: it costs
+            // nothing while it sleeps, and is due again the moment something wants it.
+            due.retain(|source| {
+                let dormant = board.dormant(*source);
+                if dormant {
+                    view.dashboard_pacer
+                        .answered(*source, Outcome::Answered, now);
+                }
+                !dormant
+            });
             if !due.is_empty() {
                 ask(view, id, due, conn.clone(), &tx, true, deadline);
             }
@@ -128,7 +142,18 @@ impl App {
             return;
         };
         let fault = result.as_ref().err().cloned();
+        let asked = board.sources().get(source);
+        let settles = asked.is_some_and(|s| s.settles(now_ms()));
+        // One row's reason or one column's count going missing is not worth a note: the
+        // panel they belong to says when its own request fails.
+        let minor = asked.is_some_and(|s| {
+            matches!(
+                s,
+                Source::Close { .. } | Source::Bucket { .. } | Source::Pending { .. }
+            )
+        });
         let outcome = match &fault {
+            None if settles => Outcome::Settled,
             None => Outcome::Answered,
             Some(f)
                 if f.is_refusal()
@@ -159,10 +184,23 @@ impl App {
             self.clamp_cursor();
             // The timer says a source went bad once, not every interval it stays bad. The
             // panel's title carries it from then on.
-            if let Some(fault) = fault.filter(|_| !timed || news) {
+            if let Some(fault) = fault.filter(|_| !minor && (!timed || news)) {
                 self.fail(fault, Note::Error);
             }
         }
+    }
+
+    pub(super) fn on_dashboard(&self) -> bool {
+        self.view.screen == Screen::Dashboard && self.view.dashboard.is_some()
+    }
+
+    /// `h` `j` `k` `l` on the dashboard: `count` steps the way the key points.
+    pub(super) fn step_dashboard(&mut self, direction: Heading, count: usize) {
+        let Some(board) = self.view.dashboard.as_ref() else {
+            return;
+        };
+        let at = (0..count.max(1)).fold(self.view.cursor, |at, _| board.step(at, direction));
+        self.set_cursor(at);
     }
 
     pub(super) fn step_panel(&mut self, forward: bool) {
@@ -273,17 +311,19 @@ fn ask(
 
 fn operation(source: &Source) -> &'static str {
     match source {
-        Source::Counts { .. } => "CountWorkflowExecutions",
+        Source::Counts { .. } | Source::Bucket { .. } => "CountWorkflowExecutions",
         Source::Workflows { .. } => "ListWorkflowExecutions",
         Source::Schedules { .. } => "ListSchedules",
         Source::Queue { .. } => "DescribeTaskQueue",
+        Source::Close { .. } => "GetWorkflowExecutionHistory",
+        Source::Pending { .. } => "DescribeWorkflowExecution",
     }
 }
 
 async fn fetch(conn: &Conn, source: &Source, now_ms: i64) -> Result<SourceData, Fault> {
     let query = source.query(now_ms);
     match source {
-        Source::Counts { namespaces, .. } => conn
+        Source::Counts { namespaces, .. } | Source::Bucket { namespaces, .. } => conn
             .count_workflows_across(namespaces, &query)
             .await
             .map(SourceData::Counts),
@@ -308,5 +348,21 @@ async fn fetch(conn: &Conn, source: &Source, now_ms: i64) -> Result<SourceData, 
             )?;
             Ok(SourceData::Queue(workflow.merge(activity)))
         }
+        Source::Close {
+            namespace,
+            workflow_id,
+            run_id,
+        } => conn
+            .close_event(namespace, workflow_id, run_id)
+            .await
+            .map(|event| SourceData::Close(event.as_ref().and_then(close_reason))),
+        Source::Pending {
+            namespace,
+            workflow_id,
+            run_id,
+        } => conn
+            .pending_activities(namespace, workflow_id, run_id)
+            .await
+            .map(SourceData::Pending),
     }
 }

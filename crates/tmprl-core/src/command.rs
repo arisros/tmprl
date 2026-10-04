@@ -45,6 +45,8 @@ pub enum Action {
     // Motion
     MoveDown,
     MoveUp,
+    MoveLeft,
+    MoveRight,
     MoveTop,
     MoveBottom,
     HalfPageDown,
@@ -171,6 +173,8 @@ impl Registry {
 
             "motion.down",        "Motion",      "Move down"                 => MoveDown;
             "motion.up",          "Motion",      "Move up"                   => MoveUp;
+            "motion.left",        "Motion",      "Move left"                 => MoveLeft;
+            "motion.right",       "Motion",      "Move right"                => MoveRight;
             "motion.top",         "Motion",      "Go to first item"          => MoveTop;
             "motion.bottom",      "Motion",      "Go to last item"           => MoveBottom;
             "motion.half-down",   "Motion",      "Half page down"            => HalfPageDown;

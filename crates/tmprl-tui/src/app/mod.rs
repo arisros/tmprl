@@ -46,7 +46,7 @@ use tmprl_client::{Codec, Conn, NamespaceInfo};
 use tmprl_core::ScheduleRow;
 use tmprl_core::clock::{Clock, TimeFormat};
 use tmprl_core::complete::{self, Completion};
-use tmprl_core::dashboard::{Board, Drill, Item, Layout, Outcome, Source, SourceData};
+use tmprl_core::dashboard::{Board, Drill, Heading, Item, Layout, Outcome, Source, SourceData};
 use tmprl_core::fault::Fault;
 use tmprl_core::filter::{self, SearchAttribute};
 use tmprl_core::form::Form;
@@ -1060,6 +1060,17 @@ impl App {
                 self.scroll_overlay(-((self.view.page / 2).max(1) as isize))
             }
 
+            // A dashboard is panels side by side and one over another, so the motions go
+            // where they point there. Everywhere else there is one list, and no sideways.
+            Action::MoveDown if self.on_dashboard() => self.step_dashboard(Heading::Down, n),
+            Action::MoveUp if self.on_dashboard() => self.step_dashboard(Heading::Up, n),
+            Action::MoveLeft if self.on_dashboard() && !self.overlay_open() => {
+                self.step_dashboard(Heading::Left, n)
+            }
+            Action::MoveRight if self.on_dashboard() && !self.overlay_open() => {
+                self.step_dashboard(Heading::Right, n)
+            }
+            Action::MoveLeft | Action::MoveRight => {}
             Action::MoveDown => self.move_cursor(n as isize),
             Action::MoveUp => self.move_cursor(-(n as isize)),
             // `gg` and `G` are jumps, as they are in vim: they are how you leave where

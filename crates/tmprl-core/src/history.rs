@@ -243,6 +243,35 @@ impl NormalizedEvent {
     }
 }
 
+/// Why a workflow closed, in one line: the failure it ended on, at its root, or the reason
+/// someone gave for ending it. `None` when the event says nothing, as a timeout does.
+pub fn close_reason(event: &NormalizedEvent) -> Option<String> {
+    let text = match &event.failure {
+        Some(failure) => {
+            let root = failure.root().headline();
+            if root.trim().is_empty() {
+                failure.headline()
+            } else {
+                root
+            }
+        }
+        None => event
+            .fields
+            .iter()
+            .find(|(name, _)| *name == "reason")
+            .map(|(_, value)| value.clone())
+            .unwrap_or_default(),
+    };
+    // Server text on one line of a list: a newline or an escape in it must not be drawn.
+    let line = text
+        .split(|c: char| c.is_control())
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    (!line.is_empty()).then_some(line)
+}
+
 /// Several events that are one thing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Group {
@@ -642,6 +671,37 @@ mod tests {
             .with_subject("other"),
         ];
         assert_eq!(group_events(&events)[0].subject, "real");
+    }
+
+    #[test]
+    fn a_closing_event_says_why_in_one_line() {
+        let close = |name| ev(9, name, GroupRef::Workflow, Role::Closes, 50);
+
+        let mut failed = close("WorkflowExecutionFailed");
+        let mut outer = Failure::new("activity error");
+        let mut root = Failure::new("nik not found\n  at validate()\u{1b}[31m");
+        root.kind = Some("ValidationError".into());
+        outer.cause = Some(Box::new(root));
+        failed.failure = Some(outer);
+        assert_eq!(
+            close_reason(&failed).as_deref(),
+            Some("ValidationError: nik not found at validate() [31m")
+        );
+
+        let mut terminated = close("WorkflowExecutionTerminated");
+        terminated.fields = vec![
+            ("reason", "stuck since Monday".into()),
+            ("identity", "me".into()),
+        ];
+        assert_eq!(
+            close_reason(&terminated).as_deref(),
+            Some("stuck since Monday")
+        );
+
+        assert_eq!(close_reason(&close("WorkflowExecutionTimedOut")), None);
+        let mut blank = close("WorkflowExecutionTerminated");
+        blank.fields = vec![("reason", " ".into())];
+        assert_eq!(close_reason(&blank), None);
     }
 
     #[test]

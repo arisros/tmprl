@@ -51,6 +51,15 @@ impl HistoryPage {
     }
 }
 
+/// How a history is being read: a page of it, the long poll for what comes next, or only
+/// the event it closed on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Read {
+    Page,
+    Follow,
+    CloseEvent,
+}
+
 impl Conn {
     /// One long-poll step of follow mode.
     ///
@@ -82,8 +91,41 @@ impl Conn {
         run_id: &str,
         next_page_token: Vec<u8>,
     ) -> Result<HistoryPage, OpError> {
-        self.history_request(namespace, workflow_id, run_id, 100, next_page_token, true)
-            .await
+        self.history_request(
+            namespace,
+            workflow_id,
+            run_id,
+            100,
+            next_page_token,
+            Read::Follow,
+        )
+        .await
+    }
+
+    /// The event a workflow closed on, and nothing else: `None` while it is still running.
+    ///
+    /// One small page however long the history is, which is what makes it affordable to
+    /// ask of every row in a list.
+    pub async fn close_event(
+        &self,
+        namespace: &str,
+        workflow_id: &str,
+        run_id: &str,
+    ) -> Result<Option<NormalizedEvent>, OpError> {
+        let page = self
+            .history_request(
+                namespace,
+                workflow_id,
+                run_id,
+                1,
+                Vec::new(),
+                Read::CloseEvent,
+            )
+            .await?;
+        Ok(page
+            .events
+            .into_iter()
+            .find(|e| e.group == GroupRef::Workflow && e.role == Role::Closes))
     }
 
     /// One page of history, normalised.
@@ -106,7 +148,7 @@ impl Conn {
             run_id,
             page_size,
             next_page_token,
-            false,
+            Read::Page,
         )
         .await
     }
@@ -118,7 +160,7 @@ impl Conn {
         run_id: &str,
         page_size: i32,
         next_page_token: Vec<u8>,
-        wait_new_event: bool,
+        read: Read,
     ) -> Result<HistoryPage, OpError> {
         let resp = self
             .wf()
@@ -130,8 +172,11 @@ impl Conn {
                 }),
                 maximum_page_size: page_size,
                 next_page_token,
-                wait_new_event,
-                history_event_filter_type: HistoryEventFilterType::AllEvent as i32,
+                wait_new_event: read == Read::Follow,
+                history_event_filter_type: match read {
+                    Read::Page | Read::Follow => HistoryEventFilterType::AllEvent,
+                    Read::CloseEvent => HistoryEventFilterType::CloseEvent,
+                } as i32,
                 skip_archival: false,
             }))
             .await

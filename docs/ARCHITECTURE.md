@@ -63,10 +63,10 @@ project testable:
 
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
-| `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 80 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 408 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 434 |
-| `tmprl-ui` | built | Plain unit tests over the layout tree | 44 |
+| `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 81 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 428 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 441 |
+| `tmprl-ui` | built | Plain unit tests over the layout tree | 47 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
 arrangement working as intended.
@@ -125,7 +125,7 @@ Every file opens with a `//!` line saying what it is; this is those lines, gathe
 | `config.rs`, `clock.rs`, `loadable.rs` | config parsing, wall-clock rendering, four-state remote data |
 | `fault.rs` | a failed request: the call, the gRPC code, the server's message, and what to try |
 | `theme.rs` | colour depth from the environment, `theme.toml`, hex to the nearest of 16 |
-| `dashboard/` | the dashboard: `layout`, `source` (requests and the items made from them), `board`, `compose` (the adaptive layout), `pacer` (when to ask again), `parse` (`dashboard.toml`) |
+| `dashboard/` | the dashboard: `layout`, `source` (requests and the items made from them), `board`, `compose` (the adaptive layout), `histogram` (a chart's time axis), `pacer` (when to ask again), `parse` (`dashboard.toml`) |
 | `taskqueue.rs` | a task queue's health: backlog, its age, who is polling |
 
 **`tmprl-client`**, all network IO: `conn.rs` connects; `ops/` has one file per area of the
@@ -347,9 +347,25 @@ one `dashboard.toml` parses into, or the builtin one when the file is absent, em
   queues that are there but miscounts them, so the board adds a count for each name it
   shows, at most `MAX_TALLIES`, the way it adds a describe for each queue. Until a count
   arrives the number is drawn as a tally, `~26`.
-- **The cursor is one list.** Every panel's items in order, so the motions, counts and search
-  that work on a list work here. Across a refresh the cursor is anchored to the item's key,
-  as it is in the workflow list.
+- **A failure is asked why, once.** Each listed workflow that failed, was terminated or was
+  cancelled gets a `Source::Close`: `GetWorkflowExecutionHistory` filtered to the closing
+  event, one small page however long the history. A closed run's last event cannot change,
+  so the source `settles` and the pacer never asks again until `R`. At most `MAX_REASONS`.
+- **Retries are found by asking each workflow.** An activity's attempt is not a search
+  attribute, so a retrying panel reads a `Source::Workflows` like a list and the board adds
+  a `Source::Pending`, one `DescribeWorkflowExecution`, for each of the first `scan` rows.
+  A workflow that leaves that page is `dormant`: the timer skips it, so a board open all
+  day does not keep describing what it once listed.
+- **A histogram is a count per column.** Temporal has no count by time, so each stretch
+  is a `Source::Bucket`, added by the board once `Board::advance` has told it the time.
+  Edges sit on multiples of the step, not on now, so a stretch that has passed is the same
+  source at every refresh; measured by close time it `settles` a minute after it ends and
+  is counted once. The panel's own source is the count of the whole window.
+- **The cursor is one list, moved over as a grid.** Every panel's items in order, so search,
+  selection and `gg` / `G` work as on any list, and across a refresh the cursor is anchored
+  to the item's key. `h` `j` `k` `l` do not walk that list: `Board::step` takes a heading and
+  answers from the layout, which rows hold which panels and how wide, so it needs no
+  terminal size and lives in core.
 - **Every item opens what it stands for.** A status, a type or a queue becomes a visibility
   query, a `since` or `older` window compiled to the literal instants it means, and that text lands in
   the query bar like any other.
@@ -375,7 +391,9 @@ one `dashboard.toml` parses into, or the builtin one when the file is absent, em
   a "failures" title.
 - **Rows and panels are tracks.** `tmprl-ui`'s `tracks` cuts an area into fixed and weighted
   spans with a minimum, and drops the ones that do not fit from the end. The renderer starts
-  the cut far enough along that the cursor's panel is one of those drawn.
+  the cut far enough along that the cursor's panel is one of those drawn. A weighted row
+  whose panels have all answered is a `Track::Fit`, capped at what its tallest panel shows,
+  so a row of two lines gives its share to a row of thirty.
 - **A reply names its pane.** `Msg::Dashboard` carries the `ViewId` it was issued for as well
   as the generation, and is applied to that pane whether or not it is focused. A dashboard is
   the screen that gets left in a split, and the other replies, which are applied to whichever

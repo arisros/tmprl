@@ -100,6 +100,7 @@ Leader is `Space`. A which-key-style popup appears as soon as a prefix is incomp
 |---|---|---|
 | `j` `k` `gg` `G` `<C-d>` `<C-u>` | move; `j` and `k` take a count | **live** |
 | `<Down>` `<Up>` | move | **live** |
+| `h` `l` `<Left>` `<Right>` | move sideways on the dashboard, between panels and along a strip of statuses or a chart; nothing on a list | **live** |
 | `Enter` | open the focused item, namespace → workflows → history | **live** |
 | `Enter` (in Visual) | open every selected namespace as one merged list | **live** |
 | `-` | **go up a level**, run → workflow → namespace → cluster | **live** |
@@ -152,9 +153,15 @@ status, failures of the last day, the workflow types failing most, the task queu
 workflows are on, and schedules. From the namespace list it takes the namespace under the
 cursor, or every namespace in a Visual selection, the way `Enter` does.
 
-The cursor runs through every panel's items as one list, so `j`, `k`, counts, `gg`, `G`,
-`/` and `n` work as they do anywhere, and `]p` / `[p` step a panel at a time. `Enter` opens
-what the item stands for:
+`h` `j` `k` `l` and the arrows move the way they point, over the panels as they sit on
+screen. In a list `j` and `k` go down and up its lines and, past its end, on to the panel
+under or over it; `h` and `l` go to the panel beside it, keeping the line. A strip of
+statuses and a chart run sideways, so there `h` and `l` step along it and `j` and `k`
+leave it. A chart is entered from above or below at its newest column. A panel with
+nothing in it is passed over, and all four take a count.
+
+Underneath, every panel's items are still one list, so `gg`, `G`, `/` and `n` work as they
+do anywhere, and `]p` / `[p` step a panel at a time. `Enter` opens what the item stands for:
 
 | Item | `Enter` opens |
 |---|---|
@@ -163,6 +170,8 @@ what the item stands for:
 | a workflow type | the workflow list, the panel's query narrowed to that type |
 | a task queue | the workflow list, running workflows on that queue |
 | a schedule | the schedule list, cursor on it |
+| a column of a histogram | the workflow list, the panel's query within that stretch of time |
+| a retrying workflow | its history |
 
 The query a panel opens lands in the query bar like any other, and `<C-o>` comes back.
 The dashboard asks again by itself, every 30 seconds unless `config.toml` says otherwise,
@@ -180,6 +189,12 @@ a longer one says how many rows it saw, `of 50 sampled`. A tally of types or tas
 over such a page is not a count, so each name it found is counted on the server: until that
 count arrives the number reads `~26`, and afterwards the panel says `names from 50`, since
 a name the page missed is still missing. At most 24 names a dashboard are counted this way.
+
+A workflow in a list that failed, was terminated or was cancelled says why beside its id,
+when the panel is wide enough: the failure at the root of the chain, or the reason given for
+ending it. It is read once from the workflow's closing event, for at most 40 workflows a
+dashboard. A timeout has no reason to give. The type column is left out when every row has
+the same type.
 
 Task queues are the ones found on running workflows: Temporal has no call that lists them.
 Each of the first eight is described, and its line says what that found: how many tasks are
@@ -738,19 +753,39 @@ since = "24h"
 
 | Key | On | Value | Default | |
 |---|---|---|---|---|
-| `height` | row | 1 to 100 | 1 | the row's share of the height left over |
+| `height` | row | 1 to 100 | 1 | the row's share of the height left over. A row whose panels need less than their share takes only that, and rows with more to show get the rest |
 | `lines` | row | 3 to 50 | | a fixed height instead, borders included; not with `height` |
-| `kind` | panel | `counts` `workflows` `types` `queues` `schedules` | required | what the panel shows |
+| `kind` | panel | `counts` `workflows` `types` `queues` `histogram` `retrying` `schedules` | required | what the panel shows |
 | `title` | panel | text | from the kind | the title on its border |
 | `width` | panel | 1 to 100 | 1 | the panel's share of the row |
 | `namespaces` | panel | list of names | the pane's scope | the namespaces it asks |
 | `query` | `counts` `workflows` `types` `queues` | a visibility query | none; `queues`: running workflows | what it counts, lists or tallies. No `ORDER BY`: a panel sorts its own rows |
-| `since` | `counts` `workflows` `types` | `30m` `24h` `7d` `2w` | | only workflows started within this long, worked out at each refresh |
-| `older` | `counts` `workflows` `types` | a duration, as `since` | | only workflows started longer ago than this. With `since` the two bound a stretch, and `since` must be the longer |
-| `by` | `counts` `workflows` `types` | `start` `close` | `start` | the time `since` and `older` measure. `close` lists the last to close first and shows how long ago each closed; a workflow still running has no close time and is left out |
+| `since` | `counts` `workflows` `types` `histogram` `retrying` | `30m` `24h` `7d` `2w` | | only workflows started within this long, worked out at each refresh |
+| `older` | `counts` `workflows` `types` `histogram` `retrying` | a duration, as `since` | | only workflows started longer ago than this. With `since` the two bound a stretch, and `since` must be the longer |
+| `attempts` | `retrying` | 2 to 1000 | 3 | the try an activity must be on for its workflow to be listed |
+| `scan` | `retrying` | 1 to 50 | 50 | how many of the listed workflows are looked into, the longest running first. Each is one request a refresh |
+| `bucket` | `histogram` | a duration, as `since` | the finest round step giving at most 48 columns | the stretch of time one column stands for. It must cut the window into 2 to 48 columns |
+| `by` | `counts` `workflows` `types` `histogram` | `start` `close` | `start` | the time `since` and `older` measure. `close` lists the last to close first and shows how long ago each closed; a workflow still running has no close time and is left out |
 | `limit` | every kind but `counts` | 1 to 50 | 10 | the most items it holds |
 | `names` | `queues` | list of names | | task queues to list even when nothing is running on them |
 | `show` | `schedules` | `all` `paused` `upcoming` | `all` | which schedules; `upcoming` sorts by next run |
+
+`retrying` lists running workflows that have an activity on its `attempts`th try or later:
+the workflow, the activity furthest along, its tries against the most its retry policy
+allows (`7/∞` when there is no limit), the failure it last ended on and when the next try
+is due. No query can find these, since the number of tries is not a search attribute, so
+the panel lists workflows with its `query` (running ones, by default) and asks each of the
+first `scan` what it is waiting on. It is a look into one page, not the namespace: narrow
+the query, and use `older` to leave out workflows too young to be stuck. `limit` is how
+many it shows.
+
+`histogram` draws how many workflows fell in each stretch of its window as columns, the
+newest on the right, each as tall as its count against the tallest; the title gives the
+peak. It needs `since`. A stretch still to be counted is drawn `░`, an empty one `·`, and
+only stretches with something in them are stops for the cursor. Each column is one count:
+with `by = "close"` a stretch that has passed is counted once and kept, otherwise every
+column is counted again at each refresh. When the panel is narrower than its columns the
+oldest are left off.
 
 `workflows` lists the newest first, `types` tallies workflow types over the same rows, and
 `queues` tallies the task queues those rows are on. Two panels with the same query, window

@@ -32,6 +32,28 @@
   Each name is now counted on the server, so the number is the real one. A number still
   waiting for its count is drawn `~26`, and the panel says `names from 50` because a type the
   page missed is still missing.
+- **Dashboard failures say why**: a failed, terminated or cancelled workflow in a dashboard
+  list shows its reason beside the id, the root of the failure chain or the reason it was
+  ended with, read once from the workflow's closing event. A type that every row shares is
+  no longer repeated down the list. With a failure converter that encodes failures the
+  reason is whatever the server holds, since it is not sent through the codec.
+- **Dashboard rows fit what they show**: a row whose panels hold two lines no longer takes
+  a third of the screen. It keeps what it needs and the rest goes to the rows with more to
+  list. A row given a fixed height with `lines` is left as it is.
+- **Dashboard histograms**: a `histogram` panel draws how many workflows started or closed
+  in each stretch of its window as columns, so a spike in failures shows as one.
+  `since = "24h"` with `bucket = "1h"` is a column an hour, and without `bucket` the step
+  is chosen to fit. `Enter` on a column opens the workflows in that stretch. With no
+  `dashboard.toml`, a namespace where something failed today gets a "Failures per hour"
+  chart under the status line.
+- **Dashboard navigation**: `h` `j` `k` `l` and the four arrows now move the way they
+  point. `j` at the foot of a list goes to the panel under it, not to the one beside it,
+  `h` and `l` cross between panels and step along a chart or the status line. `h`, `l`,
+  `<Left>` and `<Right>` are new bindings, `motion.left` and `motion.right`.
+- **Dashboard retries**: a `retrying` panel lists running workflows with an activity that
+  keeps failing: which activity, how many tries (`7/∞`), the last failure and when the next
+  try is due. `attempts` sets the threshold and `scan` how many workflows it looks into,
+  50 at most, since each is a request of its own.
 - **`--dashboard`** opens tmprl straight onto the dashboard, in the profile's namespace or
   the one `-n` names.
 

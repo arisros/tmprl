@@ -1,12 +1,15 @@
 //! A board: a layout, the requests behind it, what has come back, and the cursor over it.
 
 use super::compose::{Facts, Slot, compose};
+use super::histogram::{Bucket, edges};
 use super::layout::{Layout, PanelKind, PanelSpec};
-use super::source::{Item, MAX_QUEUES, MAX_TALLIES, QueueRef, Source, SourceData, items};
+use super::source::{
+    Item, MAX_QUEUES, MAX_REASONS, MAX_TALLIES, QueueRef, Source, SourceData, items,
+};
 use crate::fault::Fault;
 use crate::loadable::Loadable;
 use crate::query;
-use crate::workflow::WorkflowRow;
+use crate::workflow::{WorkflowRow, WorkflowStatus, by_start_time_desc};
 
 /// Where `<CR>` on an item leads.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,6 +23,15 @@ pub enum Drill {
         namespace: String,
         schedule_id: String,
     },
+}
+
+/// A way for the cursor to go.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Heading {
+    Left,
+    Right,
+    Up,
+    Down,
 }
 
 /// The item under the cursor, remembered across a refresh by what it is, not where it was.
@@ -52,6 +64,11 @@ pub struct Board {
     kept: Vec<Slot>,
     /// How many of the sources are counts of one name, added by `sync_tallies`.
     tallies: usize,
+    /// When the board was last told the time. Its histograms are cut against it.
+    clock: i64,
+    /// The workflows a retrying panel is looking into now. One it has stopped looking
+    /// into is not asked about again.
+    watching: Vec<Source>,
 }
 
 impl Board {
@@ -67,6 +84,8 @@ impl Board {
             adaptive: false,
             kept: Vec::new(),
             tallies: 0,
+            clock: 0,
+            watching: Vec::new(),
         };
         board.lay_out(layout);
         board
@@ -114,6 +133,252 @@ impl Board {
         self.layout = layout;
         self.sync_tallies();
         self.sync_queues();
+        self.sync_reasons();
+        self.sync_buckets();
+        self.sync_pending();
+    }
+
+    fn closing(row: &WorkflowRow) -> Option<Source> {
+        match row.status {
+            WorkflowStatus::Failed | WorkflowStatus::Terminated | WorkflowStatus::Canceled => {
+                Some(Source::Close {
+                    namespace: row.namespace.clone(),
+                    workflow_id: row.workflow_id.clone(),
+                    run_id: row.run_id.clone(),
+                })
+            }
+            // A timeout's closing event carries no reason, and the rest did not end badly.
+            WorkflowStatus::TimedOut
+            | WorkflowStatus::Running
+            | WorkflowStatus::Completed
+            | WorkflowStatus::ContinuedAsNew
+            | WorkflowStatus::Paused
+            | WorkflowStatus::Unspecified => None,
+        }
+    }
+
+    /// Add a request for why each listed workflow that ended badly did.
+    fn sync_reasons(&mut self) {
+        let asked = self
+            .sources
+            .iter()
+            .filter(|s| matches!(s, Source::Close { .. }))
+            .count();
+        let mut missing: Vec<Source> = Vec::new();
+        for item in self.panels.iter().flat_map(|p| p.items.iter()) {
+            let Item::Workflow(row) = item else {
+                continue;
+            };
+            if let Some(wanted) = Self::closing(row)
+                && !self.sources.contains(&wanted)
+                && !missing.contains(&wanted)
+            {
+                missing.push(wanted);
+            }
+        }
+        for wanted in missing.into_iter().take(MAX_REASONS.saturating_sub(asked)) {
+            self.sources.push(wanted);
+            self.data.push(Loadable::NotAsked);
+            self.faults.push(None);
+        }
+    }
+
+    /// Tell the board the time, so its histograms cover the stretches that end now. A
+    /// stretch that has just begun gets a request of its own.
+    pub fn advance(&mut self, now_ms: i64) {
+        self.clock = now_ms;
+        self.sync_buckets();
+        self.sync_pending();
+    }
+
+    fn bucket_sources(&self, panel: &Panel) -> Vec<Source> {
+        let PanelKind::Histogram {
+            query,
+            window,
+            bucket_ms,
+        } = &panel.spec.kind
+        else {
+            return Vec::new();
+        };
+        if self.clock == 0 {
+            return Vec::new();
+        }
+        let namespaces = self.sources[panel.source].namespaces().to_vec();
+        edges(window, *bucket_ms, self.clock)
+            .into_iter()
+            .map(|(from_ms, to_ms)| Source::Bucket {
+                namespaces: namespaces.clone(),
+                query: query.clone(),
+                by: window.by,
+                from_ms,
+                to_ms,
+            })
+            .collect()
+    }
+
+    fn bucket_of(&self, wanted: &Source) -> Option<Bucket> {
+        let Source::Bucket { from_ms, to_ms, .. } = wanted else {
+            return None;
+        };
+        let count = self
+            .sources
+            .iter()
+            .position(|s| s == wanted)
+            .and_then(|at| match self.data[at].value() {
+                Some(SourceData::Counts(counts)) => Some(counts.total),
+                _ => None,
+            });
+        Some(Bucket {
+            from_ms: *from_ms,
+            to_ms: *to_ms,
+            count,
+        })
+    }
+
+    /// Add a request for each stretch of a histogram that has none, and make a cursor stop
+    /// of each stretch with something in it.
+    fn sync_buckets(&mut self) {
+        for at in 0..self.panels.len() {
+            let wanted = self.bucket_sources(&self.panels[at]);
+            if wanted.is_empty() {
+                continue;
+            }
+            let items = wanted
+                .iter()
+                .filter_map(|source| self.bucket_of(source))
+                .filter_map(|bucket| {
+                    Some(Item::Bucket {
+                        from_ms: bucket.from_ms,
+                        to_ms: bucket.to_ms,
+                        count: bucket.count.filter(|n| *n > 0)?,
+                    })
+                })
+                .collect();
+            self.panels[at].items = items;
+            for source in wanted {
+                if !self.sources.contains(&source) {
+                    self.sources.push(source);
+                    self.data.push(Loadable::NotAsked);
+                    self.faults.push(None);
+                }
+            }
+        }
+    }
+
+    /// Look into the workflows a retrying panel lists: add a request for what each is
+    /// waiting on, and make a line of each one with an activity tried often enough.
+    fn sync_pending(&mut self) {
+        let mut watching = Vec::new();
+        for at in 0..self.panels.len() {
+            let PanelKind::Retrying { attempts, scan, .. } = self.panels[at].spec.kind else {
+                continue;
+            };
+            let mut rows: Vec<WorkflowRow> = match self.data[self.panels[at].source].value() {
+                Some(SourceData::Workflows { rows, .. }) => rows
+                    .iter()
+                    .filter(|row| row.status == WorkflowStatus::Running)
+                    .cloned()
+                    .collect(),
+                _ => Vec::new(),
+            };
+            // The longest running first: of one page, they are the likeliest to be stuck.
+            rows.sort_by(|a, b| by_start_time_desc(b, a));
+            rows.truncate(scan);
+
+            let mut found: Vec<Item> = Vec::new();
+            for row in rows {
+                let wanted = Source::Pending {
+                    namespace: row.namespace.clone(),
+                    workflow_id: row.workflow_id.clone(),
+                    run_id: row.run_id.clone(),
+                };
+                match self.sources.iter().position(|s| *s == wanted) {
+                    Some(source) => {
+                        if let Some(SourceData::Pending(pending)) = self.data[source].value()
+                            && let Some(activity) = pending
+                                .iter()
+                                .filter(|activity| activity.attempt >= attempts)
+                                .max_by_key(|activity| activity.attempt)
+                        {
+                            found.push(Item::Retry {
+                                row,
+                                activity: Box::new(activity.clone()),
+                            });
+                        }
+                    }
+                    None => {
+                        self.sources.push(wanted.clone());
+                        self.data.push(Loadable::NotAsked);
+                        self.faults.push(None);
+                    }
+                }
+                watching.push(wanted);
+            }
+            found.sort_by(|a, b| match (a, b) {
+                (
+                    Item::Retry {
+                        activity: x,
+                        row: p,
+                    },
+                    Item::Retry {
+                        activity: y,
+                        row: q,
+                    },
+                ) => y
+                    .attempt
+                    .cmp(&x.attempt)
+                    .then_with(|| by_start_time_desc(q, p)),
+                _ => std::cmp::Ordering::Equal,
+            });
+            found.truncate(self.panels[at].spec.limit);
+            self.panels[at].items = found;
+        }
+        self.watching = watching;
+    }
+
+    /// Whether nothing on the board reads this source any more, so that asking for it
+    /// again would be a request wasted. A workflow that has left the page a retrying panel
+    /// looks into is the case.
+    pub fn dormant(&self, source: usize) -> bool {
+        matches!(
+            self.sources.get(source),
+            Some(wanted @ Source::Pending { .. }) if !self.watching.contains(wanted)
+        )
+    }
+
+    /// Whether a retrying panel has yet to hear about some of the workflows it looks into,
+    /// so that an empty one is not read as "nothing is retrying".
+    pub fn looking(&self) -> bool {
+        self.watching.iter().any(|wanted| {
+            self.sources
+                .iter()
+                .position(|s| s == wanted)
+                .is_none_or(|at| self.data[at].value().is_none() && self.data[at].error().is_none())
+        })
+    }
+
+    /// A histogram's columns, oldest first, each with its count once that has arrived.
+    pub fn buckets(&self, panel: usize) -> Vec<Bucket> {
+        self.panels.get(panel).map_or_else(Vec::new, |panel| {
+            self.bucket_sources(panel)
+                .iter()
+                .filter_map(|source| self.bucket_of(source))
+                .collect()
+        })
+    }
+
+    /// Why a listed workflow closed, once that has been asked and answered.
+    pub fn reason(&self, row: &WorkflowRow) -> Option<&str> {
+        let wanted = Self::closing(row)?;
+        let at = self.sources.iter().position(|s| *s == wanted)?;
+        match self.data[at].value()? {
+            SourceData::Close(reason) => reason.as_deref(),
+            SourceData::Counts(_)
+            | SourceData::Workflows { .. }
+            | SourceData::Schedules(_)
+            | SourceData::Pending(_)
+            | SourceData::Queue(_) => None,
+        }
     }
 
     /// A tally over one page of a longer list names what is there but miscounts it. Give
@@ -134,6 +399,8 @@ impl Board {
                 PanelKind::Queues { .. } => "TaskQueue",
                 PanelKind::Counts { .. }
                 | PanelKind::Workflows { .. }
+                | PanelKind::Histogram { .. }
+                | PanelKind::Retrying { .. }
                 | PanelKind::Schedules { .. } => continue,
             };
             let Source::Workflows {
@@ -159,7 +426,11 @@ impl Board {
                         exact,
                         ..
                     }) => (&*name, vec![namespace.clone()], running, exact),
-                    Item::Status { .. } | Item::Workflow(_) | Item::Schedule(_) => continue,
+                    Item::Status { .. }
+                    | Item::Retry { .. }
+                    | Item::Workflow(_)
+                    | Item::Schedule(_)
+                    | Item::Bucket { .. } => continue,
                 };
                 if !partial {
                     *exact = true;
@@ -338,7 +609,9 @@ impl Board {
             SourceData::Workflows { more: false, .. }
             | SourceData::Counts(_)
             | SourceData::Schedules(_)
-            | SourceData::Queue(_) => None,
+            | SourceData::Queue(_)
+            | SourceData::Pending(_)
+            | SourceData::Close(_) => None,
         }
     }
 
@@ -351,6 +624,8 @@ impl Board {
             PanelKind::Types { .. } | PanelKind::Queues { .. } => true,
             PanelKind::Counts { .. }
             | PanelKind::Workflows { .. }
+            | PanelKind::Histogram { .. }
+            | PanelKind::Retrying { .. }
             | PanelKind::Schedules { .. } => false,
         };
         (tally && !panel.items.is_empty() && !panel.items.iter().any(Item::approximate))
@@ -384,6 +659,9 @@ impl Board {
         self.recompose();
         self.sync_tallies();
         self.sync_queues();
+        self.sync_reasons();
+        self.sync_buckets();
+        self.sync_pending();
     }
 
     pub fn len(&self) -> usize {
@@ -414,6 +692,144 @@ impl Board {
     pub fn item(&self, cursor: usize) -> Option<&Item> {
         let (panel, index) = self.locate(cursor)?;
         self.panels[panel].items.get(index)
+    }
+
+    /// Whether a panel's items run left to right, as statuses and columns do, not down.
+    fn across(&self, panel: usize) -> bool {
+        match self.panels[panel].spec.kind {
+            PanelKind::Counts { .. } | PanelKind::Histogram { .. } => true,
+            PanelKind::Workflows { .. }
+            | PanelKind::Types { .. }
+            | PanelKind::Queues { .. }
+            | PanelKind::Retrying { .. }
+            | PanelKind::Schedules { .. } => false,
+        }
+    }
+
+    /// Each row's first panel and how many it has.
+    fn row_spans(&self) -> Vec<(usize, usize)> {
+        self.layout
+            .rows
+            .iter()
+            .scan(0, |next, row| {
+                let first = *next;
+                *next += row.panels.len();
+                Some((first, row.panels.len()))
+            })
+            .collect()
+    }
+
+    /// The nearest panel with items in the same row, to the right or to the left.
+    fn beside(&self, panel: usize, forward: bool) -> Option<usize> {
+        let (first, len) = self
+            .row_spans()
+            .into_iter()
+            .find(|(first, len)| (*first..first + len).contains(&panel))?;
+        let has_items = |i: &usize| !self.panels[*i].items.is_empty();
+        if forward {
+            (panel + 1..first + len).find(has_items)
+        } else {
+            (first..panel).rev().find(has_items)
+        }
+    }
+
+    /// The panel with items under or over this one: in the nearest row that has any, the
+    /// one standing closest to this panel's middle.
+    fn beyond(&self, panel: usize, forward: bool) -> Option<usize> {
+        let rows = self.row_spans();
+        let row = rows
+            .iter()
+            .position(|(first, len)| (*first..first + len).contains(&panel))?;
+        // Where a panel's middle is across its row, from 0 to 1, by the widths it shares.
+        let middle = |(first, len): (usize, usize), of: usize| -> f64 {
+            let width = |i: usize| f64::from(self.panels[i].spec.width.max(1));
+            let total: f64 = (first..first + len).map(width).sum();
+            let before: f64 = (first..of).map(width).sum();
+            (before + width(of) / 2.0) / total
+        };
+        let here = middle(rows[row], panel);
+        let candidates: Box<dyn Iterator<Item = &(usize, usize)>> = if forward {
+            Box::new(rows[row + 1..].iter())
+        } else {
+            Box::new(rows[..row].iter().rev())
+        };
+        for &(first, len) in candidates {
+            let nearest = (first..first + len)
+                .filter(|i| !self.panels[*i].items.is_empty())
+                .min_by(|a, b| {
+                    let away = |i: usize| (middle((first, len), i) - here).abs();
+                    away(*a).total_cmp(&away(*b))
+                });
+            if nearest.is_some() {
+                return nearest;
+            }
+        }
+        None
+    }
+
+    /// Where the cursor goes from `cursor` one step that way, as the panels sit on screen.
+    ///
+    /// Along a panel it moves through the items: down a list, across a strip of statuses
+    /// or columns. Against it, or past its end, it leaves for the panel on that side. It
+    /// stays put when there is nothing that way.
+    pub fn step(&self, cursor: usize, direction: Heading) -> usize {
+        let Some((panel, index)) = self.locate(cursor) else {
+            return cursor;
+        };
+        let len = self.panels[panel].items.len();
+        let across = self.across(panel);
+        let sideways = matches!(direction, Heading::Left | Heading::Right);
+        let forward = matches!(direction, Heading::Right | Heading::Down);
+        if sideways == across {
+            if forward && index + 1 < len {
+                return cursor + 1;
+            }
+            if !forward && index > 0 {
+                return cursor - 1;
+            }
+        }
+        let target = if sideways {
+            self.beside(panel, forward)
+        } else {
+            self.beyond(panel, forward)
+        };
+        let Some(target) = target else {
+            return cursor;
+        };
+        let last = self.panels[target].items.len() - 1;
+        let at = match (sideways, self.across(target)) {
+            // Into a strip from its side: the near end.
+            (true, true) => {
+                if forward {
+                    0
+                } else {
+                    last
+                }
+            }
+            // Into a list from its side: the line the cursor was on, when it came from one.
+            (true, false) => {
+                if across {
+                    0
+                } else {
+                    index.min(last)
+                }
+            }
+            // Into a strip from above or below: the newest column of a chart, the first
+            // status of a count.
+            (false, true) => match self.panels[target].spec.kind {
+                PanelKind::Histogram { .. } => last,
+                _ => 0,
+            },
+            // Into a list from above or below: the near end.
+            (false, false) => {
+                if forward {
+                    0
+                } else {
+                    last
+                }
+            }
+        };
+        self.first_of(target) + at
     }
 
     /// The first item of the next panel that has any, or of the previous one. The cursor
@@ -471,7 +887,7 @@ impl Board {
         let namespaces = source.namespaces().to_vec();
 
         Some(match (&panel.items[index], &panel.spec.kind) {
-            (Item::Workflow(row), _) => Drill::Workflow(row.clone()),
+            (Item::Workflow(row), _) | (Item::Retry { row, .. }, _) => Drill::Workflow(row.clone()),
             (Item::Schedule(row), _) => Drill::Schedule {
                 namespace: row.namespace.clone(),
                 schedule_id: row.schedule_id.clone(),
@@ -492,6 +908,22 @@ impl Board {
                 namespaces: vec![queue.namespace.clone()],
                 query: narrowed(&source.query(now_ms), "TaskQueue", &queue.name)?,
             },
+            (Item::Bucket { from_ms, to_ms, .. }, kind) => {
+                let PanelKind::Histogram { query, window, .. } = kind else {
+                    return None;
+                };
+                Drill::Query {
+                    query: Source::Bucket {
+                        namespaces: namespaces.clone(),
+                        query: query.clone(),
+                        by: window.by,
+                        from_ms: *from_ms,
+                        to_ms: *to_ms,
+                    }
+                    .query(now_ms),
+                    namespaces,
+                }
+            }
         })
     }
 }
@@ -503,6 +935,7 @@ mod tests {
     use crate::dashboard::layout::{DAY_MS, MAX_LIMIT, RUNNING, Window};
     use crate::dashboard::parse_dashboard;
     use crate::dashboard::source::QueueRef;
+    use crate::pending::PendingActivity;
     use crate::taskqueue::QueueHealth;
     use crate::timerange::to_rfc3339;
     use crate::workflow::{StatusCounts, WorkflowStatus};
@@ -691,6 +1124,14 @@ mod tests {
             .unwrap_or_else(|| panic!("nothing counts {name}"))
     }
 
+    fn names_counted(board: &Board) -> usize {
+        board
+            .sources()
+            .iter()
+            .filter(|s| matches!(s, Source::Counts { query, .. } if query.contains("WorkflowType")))
+            .count()
+    }
+
     fn total(n: i64) -> Result<SourceData, Fault> {
         Ok(SourceData::Counts(StatusCounts::new(n, [])))
     }
@@ -709,7 +1150,7 @@ mod tests {
     #[test]
     fn a_tally_of_a_whole_list_is_already_a_count() {
         let board = loaded();
-        assert_eq!(board.sources().len(), 4);
+        assert_eq!(names_counted(&board), 0);
         assert_eq!(
             tallies(&board, 2),
             [
@@ -723,7 +1164,7 @@ mod tests {
     #[test]
     fn a_tally_of_a_sample_asks_for_a_count_of_each_name_it_found() {
         let board = sampled();
-        assert_eq!(board.sources().len(), 6);
+        assert_eq!(names_counted(&board), 2);
         assert_eq!(
             board.sources()[count_of(&board, "Order")],
             Source::Counts {
@@ -780,7 +1221,7 @@ mod tests {
             }),
         );
         assert_eq!(tallies(&board, 2), [("Order".to_string(), 40, true)]);
-        assert_eq!(board.sources().len(), 6, "nothing is asked for twice");
+        assert_eq!(names_counted(&board), 2, "nothing is asked for twice");
     }
 
     #[test]
@@ -809,6 +1250,361 @@ mod tests {
                 .iter()
                 .any(|s| matches!(s, Source::Counts { query, .. } if query.contains("Brien")))
         );
+    }
+
+    fn closing(board: &Board, run: &str) -> Option<usize> {
+        board
+            .sources()
+            .iter()
+            .position(|s| matches!(s, Source::Close { run_id, .. } if run_id == run))
+    }
+
+    #[test]
+    fn a_listed_failure_is_asked_why_it_closed() {
+        let mut board = loaded();
+        let a = closing(&board, "a").expect("a failed");
+        let row = wf("a", "Order", "orders", 10);
+        assert_eq!(board.reason(&row), None, "not answered yet");
+
+        board.apply(a, Ok(SourceData::Close(Some("boom".into()))));
+        assert_eq!(board.reason(&row), Some("boom"));
+
+        board.apply(a, Err(fault()));
+        assert_eq!(board.reason(&row), Some("boom"), "a failed retry keeps it");
+        assert!(board.sources()[a].settles(NOW));
+        assert!(!board.sources()[0].settles(NOW));
+    }
+
+    #[test]
+    fn only_a_workflow_that_ended_badly_with_a_reason_to_give_is_asked() {
+        let layout = parse_dashboard("[[row]]\n[[row.panel]]\nkind = \"workflows\"").unwrap();
+        let mut board = Board::new(layout, &scope());
+        let with = |run: &str, status: WorkflowStatus| WorkflowRow {
+            status,
+            ..wf(run, "T", "q", 1)
+        };
+        board.apply(
+            0,
+            rows(vec![
+                with("failed", WorkflowStatus::Failed),
+                with("terminated", WorkflowStatus::Terminated),
+                with("canceled", WorkflowStatus::Canceled),
+                with("timedout", WorkflowStatus::TimedOut),
+                with("running", WorkflowStatus::Running),
+                with("completed", WorkflowStatus::Completed),
+            ]),
+        );
+        let asked: Vec<bool> = [
+            "failed",
+            "terminated",
+            "canceled",
+            "timedout",
+            "running",
+            "completed",
+        ]
+        .iter()
+        .map(|run| closing(&board, run).is_some())
+        .collect();
+        assert_eq!(asked, [true, true, true, false, false, false]);
+
+        board.apply(0, rows(vec![with("failed", WorkflowStatus::Failed)]));
+        assert_eq!(board.sources().len(), 4, "the same run is not asked twice");
+    }
+
+    #[test]
+    fn a_board_asks_why_of_a_bounded_number_of_workflows() {
+        let layout = parse_dashboard(
+            "[[row]]\n[[row.panel]]\nkind = \"workflows\"\nlimit = 50\n\
+             [[row.panel]]\nkind = \"workflows\"\nquery = \"A = 'b'\"\nlimit = 50",
+        )
+        .unwrap();
+        let mut board = Board::new(layout, &scope());
+        let page = |prefix: &str| {
+            rows(
+                (0..30)
+                    .map(|i| wf(&format!("{prefix}{i}"), "T", "q", i))
+                    .collect(),
+            )
+        };
+        board.apply(0, page("x"));
+        board.apply(1, page("y"));
+        assert_eq!(board.sources().len(), 2 + MAX_REASONS);
+    }
+
+    #[test]
+    fn the_cursor_goes_the_way_the_key_points() {
+        // Status over failures (wide) and types, over queues (empty) and schedules.
+        // 0 1: statuses. 2 3 4: failures. 5 6: types. 7 8: schedules.
+        let board = loaded();
+        let go = |from: usize, path: &[Heading]| path.iter().fold(from, |at, h| board.step(at, *h));
+        use Heading::{Down, Left, Right, Up};
+
+        assert_eq!(go(0, &[Right]), 1, "along the strip of statuses");
+        assert_eq!(go(0, &[Right, Right]), 1, "and no further than its end");
+        assert_eq!(go(1, &[Left]), 0);
+        assert_eq!(go(0, &[Left]), 0);
+
+        assert_eq!(
+            go(1, &[Down]),
+            2,
+            "out of the strip, onto the list under it"
+        );
+        assert_eq!(go(2, &[Down, Down]), 4, "down the list");
+        assert_eq!(go(4, &[Down]), 7, "past its end, to the row below");
+        assert_eq!(go(8, &[Down]), 8, "nothing under the last row");
+        assert_eq!(go(7, &[Up]), 6, "up into the panel over it, at its foot");
+        assert_eq!(go(5, &[Up]), 0);
+        assert_eq!(go(0, &[Up]), 0);
+
+        assert_eq!(go(3, &[Right]), 6, "sideways keeps the line");
+        assert_eq!(go(4, &[Right]), 6, "or the last one, in a shorter list");
+        assert_eq!(go(6, &[Left]), 3);
+        assert_eq!(go(3, &[Left]), 3, "nothing to the left of the first panel");
+        assert_eq!(go(7, &[Left]), 7, "an empty panel is not a place to go");
+    }
+
+    fn retrying() -> Board {
+        let layout =
+            parse_dashboard("[[row]]\n[[row.panel]]\nkind = \"retrying\"\nattempts = 3\nscan = 2")
+                .unwrap();
+        let mut board = Board::new(layout, &scope());
+        let running = |run: &str, start: i64| WorkflowRow {
+            status: WorkflowStatus::Running,
+            ..wf(run, "T", "q", start)
+        };
+        board.apply(
+            0,
+            rows(vec![
+                running("new", 30),
+                running("old", 10),
+                running("mid", 20),
+            ]),
+        );
+        board
+    }
+
+    fn pending_of(board: &Board, run: &str) -> Option<usize> {
+        board
+            .sources()
+            .iter()
+            .position(|s| matches!(s, Source::Pending { run_id, .. } if run_id == run))
+    }
+
+    fn tried(kind: &str, attempt: i32) -> PendingActivity {
+        PendingActivity {
+            activity_type: kind.into(),
+            attempt,
+            ..PendingActivity::default()
+        }
+    }
+
+    #[test]
+    fn a_retrying_panel_looks_into_the_longest_running_of_what_it_lists() {
+        let board = retrying();
+        assert!(pending_of(&board, "old").is_some());
+        assert!(pending_of(&board, "mid").is_some());
+        assert!(pending_of(&board, "new").is_none(), "past `scan`");
+        assert!(board.is_empty(), "nothing is known to be retrying yet");
+    }
+
+    #[test]
+    fn a_workflow_is_listed_once_an_activity_has_been_tried_often_enough() {
+        let mut board = retrying();
+        let (old, mid) = (
+            pending_of(&board, "old").unwrap(),
+            pending_of(&board, "mid").unwrap(),
+        );
+        board.apply(
+            old,
+            Ok(SourceData::Pending(vec![
+                tried("Charge", 2),
+                tried("Notify", 1),
+            ])),
+        );
+        assert!(board.is_empty(), "two tries is under the threshold");
+
+        board.apply(
+            mid,
+            Ok(SourceData::Pending(vec![
+                tried("Charge", 3),
+                tried("Score", 9),
+            ])),
+        );
+        board.apply(old, Ok(SourceData::Pending(vec![tried("Charge", 4)])));
+        let shown: Vec<(&str, &str, i32)> = board
+            .items(0)
+            .iter()
+            .map(|item| match item {
+                Item::Retry { row, activity } => (
+                    row.run_id.as_str(),
+                    activity.activity_type.as_str(),
+                    activity.attempt,
+                ),
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            shown,
+            [("mid", "Score", 9), ("old", "Charge", 4)],
+            "the furthest along first, and of one workflow its worst activity"
+        );
+        assert!(matches!(board.drill(0, NOW), Some(Drill::Workflow(row)) if row.run_id == "mid"));
+    }
+
+    #[test]
+    fn a_workflow_that_leaves_the_list_is_no_longer_asked_about() {
+        let mut board = retrying();
+        let old = pending_of(&board, "old").unwrap();
+        assert!(!board.dormant(old));
+        assert!(
+            !board.dormant(0),
+            "only what the board added can go dormant"
+        );
+
+        let running = WorkflowRow {
+            status: WorkflowStatus::Running,
+            ..wf("mid", "T", "q", 20)
+        };
+        board.apply(0, rows(vec![running]));
+        assert!(board.dormant(old));
+        assert!(!board.dormant(pending_of(&board, "mid").unwrap()));
+    }
+
+    const HOUR: i64 = 3_600_000;
+
+    #[test]
+    fn a_chart_is_walked_sideways_and_entered_at_its_newest_column() {
+        let layout = parse_dashboard(
+            "[[row]]\n[[row.panel]]\nkind = \"counts\"\n\
+             [[row]]\n[[row.panel]]\nkind = \"histogram\"\nsince = \"3h\"\nbucket = \"1h\"",
+        )
+        .unwrap();
+        let mut board = Board::new(layout, &scope());
+        let now = (NOW / HOUR) * HOUR + HOUR / 3;
+        board.advance(now);
+        board.apply(
+            0,
+            Ok(SourceData::Counts(StatusCounts::new(
+                9,
+                [(WorkflowStatus::Running, 9)],
+            ))),
+        );
+        let hour = (now / HOUR) * HOUR;
+        for back in [3, 1, 0] {
+            board.apply(column(&board, hour - back * HOUR), total(4));
+        }
+        // 0: the status. 1 2 3: the columns with something in them, oldest first.
+        assert_eq!(board.len(), 4);
+        assert_eq!(board.step(0, Heading::Down), 3, "the newest column");
+        assert_eq!(board.step(3, Heading::Left), 2);
+        assert_eq!(board.step(1, Heading::Left), 1);
+        assert_eq!(board.step(2, Heading::Down), 2, "a chart has no down");
+        assert_eq!(board.step(2, Heading::Up), 0);
+    }
+
+    /// One histogram of what closed in the last three hours, told it is twenty past.
+    fn charted() -> (Board, i64) {
+        let layout = parse_dashboard(
+            "[[row]]\n[[row.panel]]\nkind = \"histogram\"\nquery = \"A = 'b'\"\n\
+             since = \"3h\"\nbucket = \"1h\"\nby = \"close\"",
+        )
+        .unwrap();
+        let mut board = Board::new(layout, &scope());
+        let now = (NOW / HOUR) * HOUR + HOUR / 3;
+        board.advance(now);
+        (board, now)
+    }
+
+    fn column(board: &Board, from_ms: i64) -> usize {
+        board
+            .sources()
+            .iter()
+            .position(|s| matches!(s, Source::Bucket { from_ms: at, .. } if *at == from_ms))
+            .unwrap()
+    }
+
+    #[test]
+    fn a_histogram_asks_for_a_count_of_each_stretch_once_it_knows_the_time() {
+        let layout =
+            parse_dashboard("[[row]]\n[[row.panel]]\nkind = \"histogram\"\nsince = \"3h\"")
+                .unwrap();
+        let untold = Board::new(layout, &scope());
+        assert_eq!(untold.sources().len(), 1, "only the window's own count");
+        assert!(untold.buckets(0).is_empty());
+
+        let (board, now) = charted();
+        let hour = (now / HOUR) * HOUR;
+        assert_eq!(board.sources().len(), 1 + 4);
+        assert_eq!(
+            board.buckets(0),
+            [3, 2, 1, 0].map(|back| Bucket {
+                from_ms: hour - back * HOUR,
+                to_ms: hour - back * HOUR + HOUR,
+                count: None,
+            })
+        );
+        assert!(
+            board.is_empty(),
+            "nothing counted, nothing to put the cursor on"
+        );
+        assert_eq!(
+            board.sources()[column(&board, hour)].query(now),
+            format!(
+                "A = 'b' AND CloseTime >= '{}' AND CloseTime < '{}'",
+                to_rfc3339(hour),
+                to_rfc3339(hour + HOUR)
+            )
+        );
+    }
+
+    #[test]
+    fn a_stretch_with_something_in_it_is_a_stop_that_opens_its_workflows() {
+        let (mut board, now) = charted();
+        let hour = (now / HOUR) * HOUR;
+        board.apply(column(&board, hour - 2 * HOUR), total(0));
+        board.apply(column(&board, hour - HOUR), total(7));
+        assert_eq!(
+            board.items(0),
+            [Item::Bucket {
+                from_ms: hour - HOUR,
+                to_ms: hour,
+                count: 7,
+            }]
+        );
+        assert_eq!(board.buckets(0)[1].count, Some(0));
+        assert_eq!(
+            board.drill(0, now),
+            Some(Drill::Query {
+                namespaces: scope(),
+                query: format!(
+                    "A = 'b' AND CloseTime >= '{}' AND CloseTime < '{}'",
+                    to_rfc3339(hour - HOUR),
+                    to_rfc3339(hour)
+                ),
+            })
+        );
+    }
+
+    #[test]
+    fn a_stretch_that_has_passed_is_settled_and_time_moving_on_adds_only_the_new_one() {
+        let (mut board, now) = charted();
+        let hour = (now / HOUR) * HOUR;
+        assert!(board.sources()[column(&board, hour - HOUR)].settles(now));
+        assert!(
+            !board.sources()[column(&board, hour)].settles(now),
+            "still filling"
+        );
+        assert!(!board.sources()[0].settles(now));
+
+        board.apply(column(&board, hour - HOUR), total(7));
+        board.advance(now + HOUR / 2);
+        assert_eq!(board.sources().len(), 5, "the same stretches");
+
+        board.advance(now + HOUR);
+        assert_eq!(board.sources().len(), 6, "one new stretch");
+        let shown = board.buckets(0);
+        assert_eq!(shown.len(), 4);
+        assert_eq!(shown[1].count, Some(7), "and what was counted moved along");
     }
 
     #[test]
@@ -894,7 +1690,7 @@ mod tests {
             [vec!["Status"], vec!["Running"], vec!["Task queues"]]
         );
         assert_eq!(
-            board.sources().len(),
+            board.sources().iter().filter(|s| !s.settles(NOW)).count(),
             5,
             "the probes, and the one queue they found"
         );
@@ -923,7 +1719,7 @@ mod tests {
         board.apply(1, rows(vec![wf("x", "Order", "q", 9)]));
         board.apply(2, rows(vec![wf("a", "Order", "orders", 1)]));
         board.apply(3, Ok(SourceData::Schedules(Vec::new())));
-        assert_eq!(board_titles(&board)[1], ["Recent failures"]);
+        assert_eq!(board_titles(&board)[2], ["Recent failures"]);
 
         board.apply(1, rows(Vec::new()));
         assert_eq!(

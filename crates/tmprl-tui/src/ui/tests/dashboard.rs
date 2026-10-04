@@ -111,6 +111,7 @@ fn a_namespace_with_something_of_everything_draws_every_panel() {
     let out = draw(&mut app_with_dashboard(), 120, 30);
     for title in [
         "Status",
+        "Failures per hour",
         "Recent failures",
         "Failing types",
         "Task queues",
@@ -129,7 +130,7 @@ fn a_namespace_with_something_of_everything_draws_every_panel() {
     assert!(out.contains("paused"), "{out}");
     assert!(!out.contains("hidden"), "{out}");
     assert!(
-        out.lines().next().unwrap().contains("6 panels  auto 30s"),
+        out.lines().next().unwrap().contains("7 panels  auto 30s"),
         "{out}"
     );
 }
@@ -196,7 +197,7 @@ fn panels_that_do_not_fit_are_counted_not_squeezed() {
     let mut app = app_with_dashboard();
     let out = draw(&mut app, 40, 8);
     assert!(out.contains("Status"), "{out}");
-    assert!(out.contains("+4 hidden"), "{out}");
+    assert!(out.contains("+5 hidden"), "{out}");
     assert!(!out.contains("schedules"), "{out}");
 }
 
@@ -221,7 +222,7 @@ fn a_pane_too_small_for_a_box_shows_the_cursors_panel_bare() {
 #[test]
 fn the_cursor_row_is_marked_in_its_panel() {
     let mut app = app_with_dashboard();
-    app.run("motion.down", Some(2));
+    app.run("motion.down", None);
     let buf = {
         let mut term = Terminal::new(TestBackend::new(120, 30)).unwrap();
         term.draw(|f| render(f, &mut app)).unwrap();
@@ -298,10 +299,19 @@ fn a_task_queue_says_whether_anything_is_taking_its_work() {
     let mut app = app_with_dashboard();
     let out = draw(&mut app, 120, 30);
     assert!(!out.contains("pollers"), "not described yet:\n{out}");
+    let queue = app
+        .view
+        .dashboard
+        .as_ref()
+        .unwrap()
+        .sources()
+        .iter()
+        .position(|s| matches!(s, tmprl_core::dashboard::Source::Queue { .. }))
+        .unwrap();
 
     reply(
         &mut app,
-        4,
+        queue,
         Ok(SourceData::Queue(QueueHealth {
             backlog: Some(12),
             backlog_age_ms: Some(240_000),
@@ -319,7 +329,7 @@ fn a_task_queue_says_whether_anything_is_taking_its_work() {
 
     reply(
         &mut app,
-        4,
+        queue,
         Ok(SourceData::Queue(QueueHealth {
             backlog: Some(0),
             pollers: 2,
@@ -391,4 +401,251 @@ fn a_tally_of_a_sample_is_marked_until_its_counts_arrive() {
     assert!(!out.contains('~'), "{out}");
     assert!(out.contains("Failing types names from 3"), "{out}");
     assert!(out.contains("Recent failures of 3 sampled"), "{out}");
+}
+
+#[test]
+fn a_failure_says_why_once_its_closing_event_is_read() {
+    use tmprl_core::dashboard::Source;
+    let mut app = app_with_dashboard();
+    let out = draw(&mut app, 140, 30);
+    assert!(out.contains("CheckoutWorkflow"), "{out}");
+
+    let closing = |app: &App, id: &str| {
+        app.view
+            .dashboard
+            .as_ref()
+            .unwrap()
+            .sources()
+            .iter()
+            .position(|s| matches!(s, Source::Close { workflow_id, .. } if workflow_id == id))
+    };
+    assert!(
+        closing(&app, "refund-9").is_none(),
+        "a timeout has no reason to ask for"
+    );
+    let source = closing(&app, "order-1001").unwrap();
+    reply(
+        &mut app,
+        source,
+        Ok(SourceData::Close(Some(
+            "ValidationError: nik not found".into(),
+        ))),
+    );
+    let out = draw(&mut app, 200, 30);
+    let row = out.lines().find(|l| l.contains("order-1001")).unwrap();
+    assert!(row.contains("ValidationError: nik not found"), "{out}");
+    let out = draw(&mut app, 140, 30);
+    assert!(out.contains("ValidationError:…"), "cut to fit:\n{out}");
+
+    let out = draw(&mut app, 70, 30);
+    assert!(
+        !out.contains("ValidationError"),
+        "no room beside an id:\n{out}"
+    );
+}
+
+#[test]
+fn a_type_every_row_shares_is_not_repeated_down_the_list() {
+    let mut app = app_with_dashboard();
+    reply(
+        &mut app,
+        1,
+        Ok(SourceData::Workflows {
+            rows: vec![
+                wf("default", "order-1", WorkflowStatus::Failed, now() - 1_000),
+                wf("default", "order-2", WorkflowStatus::Failed, now() - 2_000),
+            ],
+            more: false,
+        }),
+    );
+    let out = draw(&mut app, 140, 30);
+    let row = out.lines().find(|l| l.contains("order-1")).unwrap();
+    let list = row.split("││").next().unwrap();
+    assert!(!list.contains("CheckoutWorkflow"), "{out}");
+}
+
+#[test]
+fn a_row_with_little_to_show_leaves_its_room_to_a_row_with_more() {
+    let mut app = app_with_rows();
+    app.apply_dashboard(Some(
+        "[[row]]\n[[row.panel]]\nkind = \"types\"\n\
+         [[row]]\n[[row.panel]]\nkind = \"workflows\"\ntitle = \"Stuck\"\nquery = \"A = 'b'\"\nlimit = 50\n",
+    ));
+    app.view.screen = Screen::Workflows;
+    app.run("nav.dashboard", None);
+    let top_of = |out: &str, title: &str| out.lines().position(|l| l.contains(title)).unwrap();
+
+    let out = draw(&mut app, 100, 30);
+    assert_eq!(top_of(&out, "┌ Stuck"), 15, "even, while loading:\n{out}");
+
+    let rows = |n: i64| SourceData::Workflows {
+        rows: (0..n)
+            .map(|i| {
+                wf(
+                    "default",
+                    &format!("order-{i}"),
+                    WorkflowStatus::Running,
+                    now() - i,
+                )
+            })
+            .collect(),
+        more: false,
+    };
+    reply(&mut app, 0, Ok(rows(2)));
+    reply(&mut app, 1, Ok(rows(40)));
+    let out = draw(&mut app, 100, 30);
+    assert_eq!(
+        top_of(&out, "┌ Stuck"),
+        5,
+        "one type, two lines kept:\n{out}"
+    );
+    assert!(out.lines().nth(28).unwrap().starts_with('└'), "{out}");
+
+    reply(&mut app, 1, Ok(rows(3)));
+    let out = draw(&mut app, 100, 30);
+    assert_eq!(
+        top_of(&out, "┌ Stuck"),
+        15,
+        "both have all they need, so what is over is shared:\n{out}"
+    );
+}
+
+#[test]
+fn a_histogram_draws_a_column_for_each_stretch_and_marks_the_one_under_the_cursor() {
+    use tmprl_core::dashboard::Source;
+    let mut app = app_with_rows();
+    app.apply_dashboard(Some(
+        "[[row]]\n[[row.panel]]\nkind = \"histogram\"\ntitle = \"Failures per hour\"\n\
+         since = \"6h\"\nbucket = \"1h\"\nby = \"close\"\n",
+    ));
+    app.view.screen = Screen::Workflows;
+    app.run("nav.dashboard", None);
+    let out = draw(&mut app, 60, 9);
+    assert!(out.contains('░'), "nothing counted yet:\n{out}");
+
+    let columns: Vec<usize> = app
+        .view
+        .dashboard
+        .as_ref()
+        .unwrap()
+        .sources()
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| matches!(s, Source::Bucket { .. }))
+        .map(|(i, _)| i)
+        .collect();
+    assert!(columns.len() >= 6, "{columns:?}");
+    reply(
+        &mut app,
+        0,
+        Ok(SourceData::Counts(StatusCounts::new(12, []))),
+    );
+    for (n, source) in columns.iter().enumerate() {
+        let count = [0, 8, 0, 4, 0, 0, 0][n];
+        reply(
+            &mut app,
+            *source,
+            Ok(SourceData::Counts(StatusCounts::new(count, []))),
+        );
+    }
+    let out = draw(&mut app, 60, 9);
+    assert!(out.contains("Failures per hour peak 8"), "{out}");
+    assert!(out.contains('█'), "the tallest fills its column:\n{out}");
+    assert!(
+        out.contains('·'),
+        "an empty stretch is marked, not blank:\n{out}"
+    );
+    assert!(!out.contains('░'), "{out}");
+    assert!(out.contains("now"), "the axis ends at now:\n{out}");
+    assert_eq!(
+        app.row_count(),
+        2,
+        "the two stretches with something in them"
+    );
+
+    let tall = out.lines().filter(|l| l.contains('█')).count();
+    let half = out
+        .lines()
+        .filter(|l| l.contains('▄') || l.contains('█'))
+        .count();
+    assert!(tall >= 2 && half >= tall, "{out}");
+}
+
+#[test]
+fn a_retrying_panel_lists_what_is_being_tried_again_and_why() {
+    use tmprl_core::dashboard::Source;
+    use tmprl_core::history::Failure;
+    use tmprl_core::pending::PendingActivity;
+
+    let mut app = app_with_rows();
+    app.apply_dashboard(Some(
+        "[[row]]\n[[row.panel]]\nkind = \"retrying\"\ntitle = \"Retrying\"\nattempts = 3\n",
+    ));
+    app.view.screen = Screen::Workflows;
+    app.run("nav.dashboard", None);
+    reply(
+        &mut app,
+        0,
+        Ok(SourceData::Workflows {
+            rows: vec![
+                wf(
+                    "default",
+                    "loan-1",
+                    WorkflowStatus::Running,
+                    now() - 9_000_000,
+                ),
+                wf(
+                    "default",
+                    "loan-2",
+                    WorkflowStatus::Running,
+                    now() - 8_000_000,
+                ),
+            ],
+            more: false,
+        }),
+    );
+    let out = draw(&mut app, 120, 8);
+    assert!(out.contains("looking…"), "{out}");
+
+    let pending = |app: &App, id: &str| {
+        app.view
+            .dashboard
+            .as_ref()
+            .unwrap()
+            .sources()
+            .iter()
+            .position(|s| matches!(s, Source::Pending { workflow_id, .. } if workflow_id == id))
+            .unwrap()
+    };
+    let mut failure = Failure::new("connection refused");
+    failure.kind = Some("UpstreamError".into());
+    let source = pending(&app, "loan-1");
+    reply(
+        &mut app,
+        source,
+        Ok(SourceData::Pending(vec![PendingActivity {
+            activity_type: "check_pefindo".into(),
+            attempt: 7,
+            maximum_attempts: 0,
+            last_failure: Some(failure),
+            next_attempt_at: Some(now() + 45_000),
+            ..PendingActivity::default()
+        }])),
+    );
+    let source = pending(&app, "loan-2");
+    reply(&mut app, source, Ok(SourceData::Pending(Vec::new())));
+
+    let out = draw(&mut app, 120, 8);
+    let row = out.lines().find(|l| l.contains("loan-1")).unwrap();
+    for part in [
+        "↻",
+        "check_pefindo",
+        "7/∞",
+        "UpstreamError: connection refused",
+        "next 4",
+    ] {
+        assert!(row.contains(part), "no `{part}`:\n{out}");
+    }
+    assert!(!out.contains("loan-2"), "it is retrying nothing:\n{out}");
+    assert_eq!(app.row_count(), 1);
 }
