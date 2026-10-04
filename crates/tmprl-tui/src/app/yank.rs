@@ -23,6 +23,10 @@ impl App {
                 .get(self.view.cursor)
                 .map(|s| s.schedule_id.clone())
                 .unwrap_or_default(),
+            Screen::Dashboard => self
+                .dashboard_item()
+                .map(|i| i.field().to_string())
+                .unwrap_or_default(),
         }
     }
 
@@ -77,18 +81,7 @@ impl App {
                 .iter()
                 .skip(lo)
                 .take(take)
-                .map(|w| {
-                    format!(
-                        r#"{{"namespace":{},"workflowId":{},"runId":{},"type":{},"taskQueue":{},"status":{},"historyLength":{}}}"#,
-                        json_string(&w.namespace),
-                        json_string(&w.workflow_id),
-                        json_string(&w.run_id),
-                        json_string(&w.workflow_type),
-                        json_string(&w.task_queue),
-                        json_string(w.status.query_name()),
-                        w.history_length
-                    )
-                })
+                .map(workflow_json)
                 .collect(),
             Screen::History => self.history_records(lo, take),
             Screen::Schedules => self
@@ -97,15 +90,32 @@ impl App {
                 .iter()
                 .skip(lo)
                 .take(take)
-                .map(|s| {
-                    format!(
-                        r#"{{"namespace":{},"scheduleId":{},"workflowType":{},"paused":{},"spec":{}}}"#,
-                        json_string(&s.namespace),
-                        json_string(&s.schedule_id),
-                        json_string(&s.workflow_type),
-                        s.paused,
-                        json_string(&s.spec)
-                    )
+                .map(schedule_json)
+                .collect(),
+            Screen::Dashboard => self
+                .view
+                .dashboard_items()
+                .skip(lo)
+                .take(take)
+                .map(|item| match item {
+                    Item::Status { status, count } => format!(
+                        r#"{{"status":{},"count":{count}}}"#,
+                        json_string(status.query_name())
+                    ),
+                    Item::Workflow(w) => workflow_json(w),
+                    Item::Type { name, count } => {
+                        format!(
+                            r#"{{"workflowType":{},"count":{count}}}"#,
+                            json_string(name)
+                        )
+                    }
+                    Item::Queue(q) => format!(
+                        r#"{{"namespace":{},"taskQueue":{},"running":{}}}"#,
+                        json_string(&q.namespace),
+                        json_string(&q.name),
+                        q.running
+                    ),
+                    Item::Schedule(s) => schedule_json(s),
                 })
                 .collect(),
         };
@@ -288,4 +298,28 @@ pub(super) fn json_string(s: &str) -> String {
     }
     out.push('"');
     out
+}
+
+fn workflow_json(w: &WorkflowRow) -> String {
+    format!(
+        r#"{{"namespace":{},"workflowId":{},"runId":{},"type":{},"taskQueue":{},"status":{},"historyLength":{}}}"#,
+        json_string(&w.namespace),
+        json_string(&w.workflow_id),
+        json_string(&w.run_id),
+        json_string(&w.workflow_type),
+        json_string(&w.task_queue),
+        json_string(w.status.query_name()),
+        w.history_length
+    )
+}
+
+fn schedule_json(s: &ScheduleRow) -> String {
+    format!(
+        r#"{{"namespace":{},"scheduleId":{},"workflowType":{},"paused":{},"spec":{}}}"#,
+        json_string(&s.namespace),
+        json_string(&s.schedule_id),
+        json_string(&s.workflow_type),
+        s.paused,
+        json_string(&s.spec)
+    )
 }

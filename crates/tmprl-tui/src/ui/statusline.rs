@@ -6,6 +6,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
+use super::status_style;
 use crate::app::{App, Note, Screen};
 use crate::theme::Theme;
 
@@ -18,6 +19,7 @@ pub fn render_header(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
         Screen::Workflows => workflow_summary(app, t),
         Screen::History => history_summary(app, t),
         Screen::Schedules => schedule_summary(app, t),
+        Screen::Dashboard => dashboard_summary(app, t),
     };
     let right_width: usize = right.iter().map(|s| s.content.chars().count()).sum();
 
@@ -83,6 +85,22 @@ fn namespace_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
         format!("{} namespaces", app.namespace_rows().len())
     };
     vec![Span::styled(text, t.dim)]
+}
+
+fn dashboard_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
+    let Some(board) = &app.view.dashboard else {
+        return Vec::new();
+    };
+    let panels = board.panel_count();
+    let loading = (0..panels).any(|p| board.state(p).is_some_and(|s| s.is_loading()));
+    vec![Span::styled(
+        if loading {
+            "loading…".to_string()
+        } else {
+            format!("dashboard  {panels} panels")
+        },
+        t.dim,
+    )]
 }
 
 /// Per-status counts, from one `CountWorkflowExecutions ... GROUP BY ExecutionStatus`.
@@ -179,18 +197,6 @@ fn schedule_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
     }
     spans.push(Span::styled(format!("{} schedules", rows.len()), t.dim));
     spans
-}
-
-fn status_style(s: tmprl_core::WorkflowStatus, t: &Theme) -> Style {
-    use tmprl_core::WorkflowStatus as W;
-    match s {
-        W::Running => t.accent,
-        W::Completed => t.ok,
-        W::Failed | W::TimedOut => t.err,
-        W::Terminated | W::Canceled => t.warn,
-        W::ContinuedAsNew | W::Paused => t.dim,
-        W::Unspecified => t.faint,
-    }
 }
 
 pub fn render_status(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {

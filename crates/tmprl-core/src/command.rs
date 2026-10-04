@@ -36,6 +36,9 @@ pub enum Action {
     GoUp,
     GoSchedules,
     GoWorkflows,
+    GoDashboard,
+    NextPanel,
+    PrevPanel,
     JumpBack,
     JumpForward,
 
@@ -182,6 +185,9 @@ impl Registry {
             "nav.up",             "Navigation",  "Go up a level"             => GoUp;
             "nav.schedules",      "Navigation",  "Go to schedules"           => GoSchedules;
             "nav.workflows",      "Navigation",  "Go to workflows"           => GoWorkflows;
+            "nav.dashboard",      "Navigation",  "Go to the dashboard"       => GoDashboard;
+            "dashboard.next-panel","Navigation", "Next dashboard panel"      => NextPanel;
+            "dashboard.prev-panel","Navigation", "Previous dashboard panel"  => PrevPanel;
             "nav.jump-back",      "Navigation",  "Jump back"                 => JumpBack;
             "nav.jump-forward",   "Navigation",  "Jump forward"              => JumpForward;
 

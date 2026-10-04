@@ -4,6 +4,7 @@
 mod cmdline;
 mod complete;
 mod confirm;
+mod dashboard;
 mod detail;
 mod form;
 mod help;
@@ -27,8 +28,10 @@ pub(crate) use history::category_label;
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::layout::{Constraint, Layout};
+use ratatui::style::Style;
 use ratatui::widgets::{Block, Borders, Scrollbar, ScrollbarOrientation, ScrollbarState};
 
+use tmprl_core::WorkflowStatus;
 use tmprl_core::config::PayloadPane;
 
 use crate::app::{App, PromptKind, Screen};
@@ -152,7 +155,7 @@ fn pane_body(
     // on screen so the query is never something you have to go and open.
     let query_height = match screen {
         Screen::Workflows => 1,
-        Screen::Namespaces | Screen::History | Screen::Schedules => 0,
+        Screen::Namespaces | Screen::History | Screen::Schedules | Screen::Dashboard => 0,
     };
     let [query, rest] =
         Layout::vertical([Constraint::Length(query_height), Constraint::Min(1)]).areas(area);
@@ -217,6 +220,7 @@ fn render_pane(
             }
         }
         Screen::Schedules => schedules::render(frame, areas.list, view, app, theme),
+        Screen::Dashboard => dashboard::render(frame, areas.list, view, app, theme, focused),
         Screen::History => {
             history::render(frame, areas.list, view, app, theme);
             if let Some(mut pane) = areas.detail {
@@ -309,6 +313,18 @@ fn draw_scrollbar(
         area,
         &mut state,
     );
+}
+
+/// Colour reinforces the glyph; it never carries information on its own.
+fn status_style(s: WorkflowStatus, t: &Theme) -> Style {
+    match s {
+        WorkflowStatus::Running => t.accent,
+        WorkflowStatus::Completed => t.ok,
+        WorkflowStatus::Failed | WorkflowStatus::TimedOut => t.err,
+        WorkflowStatus::Terminated | WorkflowStatus::Canceled => t.warn,
+        WorkflowStatus::ContinuedAsNew | WorkflowStatus::Paused => t.dim,
+        WorkflowStatus::Unspecified => t.faint,
+    }
 }
 
 /// The hybrid relative/absolute gutter, matching `set relativenumber number`: the cursor

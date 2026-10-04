@@ -265,6 +265,41 @@ pub enum Item {
 }
 
 impl Item {
+    /// What `y` copies: the name you would paste into a query or a command.
+    pub fn field(&self) -> &str {
+        match self {
+            Item::Status { status, .. } => status.query_name(),
+            Item::Workflow(row) => &row.workflow_id,
+            Item::Type { name, .. } => name,
+            Item::Queue(q) => &q.name,
+            Item::Schedule(s) => &s.schedule_id,
+        }
+    }
+
+    /// The text `/` matches against.
+    pub fn label(&self) -> String {
+        match self {
+            Item::Status { status, count } => format!("{} {count}", status.query_name()),
+            Item::Workflow(w) => format!(
+                "{} {} {} {} {} {}",
+                w.workflow_id,
+                w.workflow_type,
+                w.task_queue,
+                w.status.query_name(),
+                w.namespace,
+                w.run_id,
+            ),
+            Item::Type { name, count } => format!("{name} {count}"),
+            Item::Queue(q) => format!("{} {} {}", q.name, q.namespace, q.running),
+            Item::Schedule(s) => format!(
+                "{} {} {}",
+                s.schedule_id,
+                s.workflow_type,
+                if s.paused { "paused" } else { "running" },
+            ),
+        }
+    }
+
     fn key(&self) -> String {
         match self {
             Item::Status { status, .. } => status.query_name().to_string(),

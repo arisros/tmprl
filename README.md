@@ -72,7 +72,7 @@ tmprl --config-path                         # every file tmprl reads, and whethe
 | `]f` `[f` | next / previous failure | `F` | follow, like `tail -f` |
 | `K` | payloads and the full failure | `!` | pipe them through `jq` |
 | `y` `Y` | yank value / row | `<Space>y{a,i,r}` | yank payloads |
-| `<Space>m…` | cancel, terminate, signal, delete, reset, update | `gs` `gw` | schedules / workflows |
+| `<Space>m…` | cancel, terminate, signal, delete, reset, update | `gs` `gw` `gd` | schedules / workflows / dashboard |
 | `<Space>s…` `<C-w>hjkl` | splits | `<Space>t…` | tabs |
 | `<Space>T` | times as a clock or an age | `R` | reload from the server |
 | `?` `:` | help / command line | `<Space>q` | quit |
@@ -179,7 +179,7 @@ flowchart LR
 |---|---|---|
 | `tmprl-client` | 77 | all network IO |
 | `tmprl-core` | 372 | no terminal, no server |
-| `tmprl-tui` | 379 | ratatui |
+| `tmprl-tui` | 410 | ratatui |
 | `tmprl-ui` | 44 | window tree |
 
 ```sh
@@ -195,6 +195,7 @@ TMPRL_REQUIRE_SERVER=1 cargo test  # what CI runs
 - [x] histories, follow mode, retries in progress, the timeline, `jq`, codec server
 - [x] search that reaches the server, pickers, jumplist, splits and tabs
 - [x] mutations, schedules, batch over a selection of rows
+- [x] a dashboard: counts, recent failures, failing types, task queues in use, schedules
 
 | Next | |
 |---|---|

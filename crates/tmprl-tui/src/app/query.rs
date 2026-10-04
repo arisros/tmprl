@@ -67,7 +67,8 @@ impl App {
         } else {
             format!("{current} AND {clause}")
         };
-        if self.view.screen == Screen::Namespaces {
+        if matches!(self.view.screen, Screen::Namespaces | Screen::Dashboard) {
+            self.view.stop_dashboard();
             self.view.screen = Screen::Workflows;
         }
         self.note = Some((format!("query: {}", self.view.query), Note::Info));
@@ -83,7 +84,8 @@ impl App {
         self.mark_jump();
         // A view is a bookmark, not a mode: it fills the query bar, which stays editable.
         self.view.query = query;
-        if self.view.screen == Screen::Namespaces {
+        if matches!(self.view.screen, Screen::Namespaces | Screen::Dashboard) {
+            self.view.stop_dashboard();
             self.view.screen = Screen::Workflows;
         }
         self.note = Some((format!("view: {name}"), Note::Info));

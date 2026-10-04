@@ -7,6 +7,7 @@ use tmprl_core::{Key, WorkflowStatus};
 use tokio::sync::mpsc::unbounded_channel;
 
 mod config;
+mod dashboard;
 mod find;
 mod history;
 mod messages;

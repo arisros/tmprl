@@ -42,7 +42,7 @@ impl App {
         match self.view.screen {
             Screen::Workflows => self.view.workflow_rows().get(self.view.cursor).cloned(),
             Screen::History => self.view.viewing.clone(),
-            Screen::Namespaces | Screen::Schedules => None,
+            Screen::Namespaces | Screen::Schedules | Screen::Dashboard => None,
         }
     }
 

@@ -7,15 +7,14 @@
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
-use tmprl_core::WorkflowStatus;
 use tmprl_core::clock::STAMP_WIDTH;
 use tmprl_core::workflow::humanize_age_ms;
 
-use super::truncate;
 use super::{highlight, match_style};
+use super::{status_style, truncate};
 use crate::app::{App, now_ms};
 use crate::theme::Theme;
 use crate::view::View;
@@ -154,16 +153,4 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
         .collect();
 
     frame.render_widget(Paragraph::new(lines), area);
-}
-
-/// Colour reinforces the glyph; it never carries information on its own.
-fn status_style(s: WorkflowStatus, t: &Theme) -> Style {
-    match s {
-        WorkflowStatus::Running => t.accent,
-        WorkflowStatus::Completed => t.ok,
-        WorkflowStatus::Failed | WorkflowStatus::TimedOut => t.err,
-        WorkflowStatus::Terminated | WorkflowStatus::Canceled => t.warn,
-        WorkflowStatus::ContinuedAsNew | WorkflowStatus::Paused => t.dim,
-        WorkflowStatus::Unspecified => t.faint,
-    }
 }

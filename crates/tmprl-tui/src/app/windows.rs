@@ -161,6 +161,15 @@ impl App {
         self.frame = area;
     }
 
+    /// A pane's state by id, focused or not: where a reply addressed to a pane lands.
+    pub(super) fn pane_mut(&mut self, id: ViewId) -> Option<&mut View> {
+        if id == self.tabs.current().focused() {
+            Some(&mut self.view)
+        } else {
+            self.parked.get_mut(&id)
+        }
+    }
+
     /// A non-focused pane's state, for rendering it.
     pub fn parked_view(&self, id: ViewId) -> Option<&View> {
         self.parked.get(&id)

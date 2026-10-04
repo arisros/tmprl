@@ -57,6 +57,7 @@ broken.
 
 | Item | Today | Effort |
 |---|---|---|
+| Dashboard | Built with a fixed layout, `gd`: counts by status, recent failures, the types failing most, task queues in use and schedules, each item one `Enter` from the workflows it stands for. Still wanted: `dashboard.toml`, panels chosen from what the namespace shows, auto-refresh, task queue health on the panel, arranging panels in the app | L |
 | Task queue describe | Nothing. `DescribeTaskQueue` gives pollers, backlog count and age, and rates. Reached from a workflow's task queue or a typed name | M |
 | Build id display | Nothing. Shown on the info pane and on pollers; no browser, see below | S |
 | Open a history from a file | The app cannot start without a server. Wanted: `tmprl --history <file>` and a capture command. This also gives a demo with no server and fixtures for tests | M to L |
@@ -89,7 +90,7 @@ broken.
 | Each failed attempt of an activity | The server keeps the last failure only. tmprl shows that |
 | Steps a workflow has not reached yet | A history records what happened. Nothing in it describes what will |
 | Deployment and versioning screens, a Nexus screen, archival | Out of scope. Build ids are displayed where a workflow or a poller carries one |
-| Restoring a session's layout | Opening straight onto a query or a workflow covers most of the need |
+| Restoring a session's layout | Opening straight onto a query or a workflow covers most of the need. This is the windows of a session; the dashboard's own layout is a config file |
 | Plugins | Not while command ids, config keys and the client boundary are still moving |
 | Built-in AI | `!` already pipes a payload to any tool the user chooses |
 
