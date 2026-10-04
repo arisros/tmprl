@@ -183,7 +183,9 @@ impl Panel<'_> {
             return;
         };
         let mut title = vec![Span::styled(format!(" {} ", spec.title()), t.accent)];
-        if let Some(n) = self.board.sampled(self.index) {
+        if let Some(n) = self.board.discovered(self.index) {
+            title.push(Span::styled(format!("names from {n} "), t.dim));
+        } else if let Some(n) = self.board.sampled(self.index) {
             title.push(Span::styled(format!("of {n} sampled "), t.dim));
         }
         if self.board.fault(self.index).is_some() && !self.board.items(self.index).is_empty() {
@@ -265,6 +267,23 @@ impl Panel<'_> {
         let width = (area.width as usize).saturating_sub(1);
         let now = now_ms();
         let fanned_out = view.is_fanned_out();
+        let tally = |n: usize, exact: bool| {
+            if exact {
+                n.to_string()
+            } else {
+                format!("~{n}")
+            }
+        };
+        let num = items
+            .iter()
+            .map(|item| match item {
+                Item::Type { count, exact, .. } => tally(*count, *exact).len(),
+                Item::Queue(q) => tally(q.running, q.exact).len(),
+                Item::Status { .. } | Item::Workflow(_) | Item::Schedule(_) => 0,
+            })
+            .max()
+            .unwrap_or(0)
+            .max(4);
 
         let lines: Vec<Line> = items
             .iter()
@@ -308,18 +327,24 @@ impl Panel<'_> {
                         let age = stamp.map(|s| humanize_age_ms(now - s)).unwrap_or_default();
                         spans.push(Span::styled(format!("{age:>AGE$}"), style(i, t.faint)));
                     }
-                    Item::Type { name, count } => {
-                        spans.push(Span::styled(format!("{count:>4}  "), style(i, t.err)));
-                        spans.push(Span::styled(truncate(name, width.saturating_sub(6)), base));
+                    Item::Type { name, count, exact } => {
+                        spans.push(Span::styled(
+                            format!("{:>num$}  ", tally(*count, *exact)),
+                            style(i, if *exact { t.err } else { t.dim }),
+                        ));
+                        spans.push(Span::styled(
+                            truncate(name, width.saturating_sub(num + 2)),
+                            base,
+                        ));
                     }
                     Item::Queue(q) => {
-                        // Six for the count, two before the health, eight for a name.
+                        // The count and its gap, two before the health, eight for a name.
                         let (health, health_style) =
-                            queue_health(q, width.saturating_sub(6 + 2 + 8), t);
-                        let name_width = width.saturating_sub(6 + health.chars().count() + 2);
+                            queue_health(q, width.saturating_sub(num + 2 + 2 + 8), t);
+                        let name_width = width.saturating_sub(num + 2 + health.chars().count() + 2);
                         spans.push(Span::styled(
-                            format!("{:>4}  ", q.running),
-                            style(i, t.accent),
+                            format!("{:>num$}  ", tally(q.running, q.exact)),
+                            style(i, if q.exact { t.accent } else { t.dim }),
                         ));
                         spans.push(Span::styled(truncate(&q.name, name_width.max(4)), base));
                         if !health.is_empty() {

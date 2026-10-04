@@ -175,9 +175,11 @@ Neither blanks what is on screen. A panel whose refresh failed keeps its last an
 says how old it is in its title, `stale 2m`. A request that keeps failing is tried less and
 less often, up to five minutes apart, and the note line reports it once, when it first goes
 bad, not at every try. One the server refuses outright is left alone until `R`. A request
-with no answer after the interval, or ten seconds if that is longer, counts as failed. A panel drawn from one page of
-a longer list says how many rows it saw, `of 50 sampled`, because a tally over a sample is
-not a count.
+with no answer after the interval, or ten seconds if that is longer, counts as failed. A list drawn from one page of
+a longer one says how many rows it saw, `of 50 sampled`. A tally of types or task queues
+over such a page is not a count, so each name it found is counted on the server: until that
+count arrives the number reads `~26`, and afterwards the panel says `names from 50`, since
+a name the page missed is still missing. At most 24 names a dashboard are counted this way.
 
 Task queues are the ones found on running workflows: Temporal has no call that lists them.
 Each of the first eight is described, and its line says what that found: how many tasks are

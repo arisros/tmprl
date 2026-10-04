@@ -1,8 +1,8 @@
 //! A board: a layout, the requests behind it, what has come back, and the cursor over it.
 
 use super::compose::{Facts, Slot, compose};
-use super::layout::{Layout, PanelSpec};
-use super::source::{Item, MAX_QUEUES, Source, SourceData, items};
+use super::layout::{Layout, PanelKind, PanelSpec};
+use super::source::{Item, MAX_QUEUES, MAX_TALLIES, QueueRef, Source, SourceData, items};
 use crate::fault::Fault;
 use crate::loadable::Loadable;
 use crate::query;
@@ -50,6 +50,8 @@ pub struct Board {
     /// Whether the layout follows the data, and the panels it has shown with items in them.
     adaptive: bool,
     kept: Vec<Slot>,
+    /// How many of the sources are counts of one name, added by `sync_tallies`.
+    tallies: usize,
 }
 
 impl Board {
@@ -64,6 +66,7 @@ impl Board {
             panels: Vec::new(),
             adaptive: false,
             kept: Vec::new(),
+            tallies: 0,
         };
         board.lay_out(layout);
         board
@@ -109,7 +112,106 @@ impl Board {
         }
         self.panels = panels;
         self.layout = layout;
+        self.sync_tallies();
         self.sync_queues();
+    }
+
+    /// A tally over one page of a longer list names what is there but miscounts it. Give
+    /// each name the count on record for it, and add a request for the ones that have none.
+    fn sync_tallies(&mut self) {
+        let Self {
+            panels,
+            sources,
+            data,
+            faults,
+            tallies,
+            ..
+        } = self;
+        let mut missing: Vec<Source> = Vec::new();
+        for panel in panels.iter_mut() {
+            let field = match panel.spec.kind {
+                PanelKind::Types { .. } => "WorkflowType",
+                PanelKind::Queues { .. } => "TaskQueue",
+                PanelKind::Counts { .. }
+                | PanelKind::Workflows { .. }
+                | PanelKind::Schedules { .. } => continue,
+            };
+            let Source::Workflows {
+                namespaces,
+                query: filter,
+                window,
+            } = &sources[panel.source]
+            else {
+                continue;
+            };
+            let (namespaces, filter, window) = (namespaces.clone(), filter.clone(), *window);
+            let partial = matches!(
+                data[panel.source].value(),
+                Some(SourceData::Workflows { more: true, .. })
+            );
+            for item in panel.items.iter_mut() {
+                let (name, namespaces, count, exact) = match item {
+                    Item::Type { name, count, exact } => (&*name, namespaces.clone(), count, exact),
+                    Item::Queue(QueueRef {
+                        namespace,
+                        name,
+                        running,
+                        exact,
+                        ..
+                    }) => (&*name, vec![namespace.clone()], running, exact),
+                    Item::Status { .. } | Item::Workflow(_) | Item::Schedule(_) => continue,
+                };
+                if !partial {
+                    *exact = true;
+                    continue;
+                }
+                let Some(value) = query::quotable(name) else {
+                    continue;
+                };
+                let wanted = Source::Counts {
+                    namespaces,
+                    query: query::and(&filter, &format!("{field} = '{value}'")),
+                    window,
+                };
+                match sources.iter().position(|s| *s == wanted) {
+                    Some(at) => {
+                        if let Some(SourceData::Counts(counts)) = data[at].value() {
+                            *count = usize::try_from(counts.total).unwrap_or(0);
+                            *exact = true;
+                        }
+                    }
+                    None if !missing.contains(&wanted) => missing.push(wanted),
+                    None => {}
+                }
+            }
+            if partial {
+                panel.items.sort_by(|a, b| match (a, b) {
+                    (
+                        Item::Type {
+                            name: a, count: x, ..
+                        },
+                        Item::Type {
+                            name: b, count: y, ..
+                        },
+                    ) => y.cmp(x).then_with(|| a.cmp(b)),
+                    (Item::Queue(a), Item::Queue(b)) => b
+                        .running
+                        .cmp(&a.running)
+                        .then_with(|| a.name.cmp(&b.name))
+                        .then_with(|| a.namespace.cmp(&b.namespace)),
+                    _ => std::cmp::Ordering::Equal,
+                });
+            }
+        }
+        for wanted in missing
+            .into_iter()
+            .take(MAX_TALLIES.saturating_sub(*tallies))
+        {
+            sources.push(wanted);
+            data.push(Loadable::NotAsked);
+            faults.push(None);
+            *tallies += 1;
+        }
     }
 
     /// Give each listed queue the health on record for it, and add a request for the ones
@@ -240,6 +342,21 @@ impl Board {
         }
     }
 
+    /// How many rows a tally found its names in, once every number beside them is a count.
+    /// The counts are then true, but a name the sample missed is still missing.
+    pub fn discovered(&self, panel: usize) -> Option<usize> {
+        let sampled = self.sampled(panel)?;
+        let panel = self.panels.get(panel)?;
+        let tally = match panel.spec.kind {
+            PanelKind::Types { .. } | PanelKind::Queues { .. } => true,
+            PanelKind::Counts { .. }
+            | PanelKind::Workflows { .. }
+            | PanelKind::Schedules { .. } => false,
+        };
+        (tally && !panel.items.is_empty() && !panel.items.iter().any(Item::approximate))
+            .then_some(sampled)
+    }
+
     pub fn begin_refresh(&mut self) {
         for slot in &mut self.data {
             slot.begin_refresh();
@@ -265,6 +382,7 @@ impl Board {
             panel.items = items(&panel.spec, data, namespace);
         }
         self.recompose();
+        self.sync_tallies();
         self.sync_queues();
     }
 
@@ -382,7 +500,7 @@ impl Board {
 mod tests {
     use super::*;
     use crate::dashboard::fixtures::*;
-    use crate::dashboard::layout::{DAY_MS, MAX_LIMIT, RUNNING};
+    use crate::dashboard::layout::{DAY_MS, MAX_LIMIT, RUNNING, Window};
     use crate::dashboard::parse_dashboard;
     use crate::dashboard::source::QueueRef;
     use crate::taskqueue::QueueHealth;
@@ -545,6 +663,152 @@ mod tests {
         board.begin_refresh();
         assert!(board.state(0).unwrap().value().is_some());
         assert!(board.state(3).unwrap().is_loading());
+    }
+
+    /// The builtin board whose failures came back as one page of more.
+    fn sampled() -> Board {
+        let mut board = loaded();
+        board.apply(
+            1,
+            Ok(SourceData::Workflows {
+                rows: vec![
+                    wf("a", "Order", "orders", 10),
+                    wf("b", "Order", "orders", 30),
+                    wf("c", "Refund", "billing", 20),
+                ],
+                more: true,
+            }),
+        );
+        board
+    }
+
+    fn count_of(board: &Board, name: &str) -> usize {
+        let wanted = format!("{} AND WorkflowType = '{name}'", query::PROBLEMS);
+        board
+            .sources()
+            .iter()
+            .position(|s| matches!(s, Source::Counts { query, .. } if *query == wanted))
+            .unwrap_or_else(|| panic!("nothing counts {name}"))
+    }
+
+    fn total(n: i64) -> Result<SourceData, Fault> {
+        Ok(SourceData::Counts(StatusCounts::new(n, [])))
+    }
+
+    fn tallies(board: &Board, panel: usize) -> Vec<(String, usize, bool)> {
+        board
+            .items(panel)
+            .iter()
+            .map(|item| match item {
+                Item::Type { name, count, exact } => (name.clone(), *count, *exact),
+                other => panic!("{other:?}"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_tally_of_a_whole_list_is_already_a_count() {
+        let board = loaded();
+        assert_eq!(board.sources().len(), 4);
+        assert_eq!(
+            tallies(&board, 2),
+            [
+                ("Order".to_string(), 2, true),
+                ("Refund".to_string(), 1, true)
+            ]
+        );
+        assert_eq!(board.discovered(2), None);
+    }
+
+    #[test]
+    fn a_tally_of_a_sample_asks_for_a_count_of_each_name_it_found() {
+        let board = sampled();
+        assert_eq!(board.sources().len(), 6);
+        assert_eq!(
+            board.sources()[count_of(&board, "Order")],
+            Source::Counts {
+                namespaces: scope(),
+                query: format!("{} AND WorkflowType = 'Order'", query::PROBLEMS),
+                window: Window::since(DAY_MS),
+            }
+        );
+        assert!(board.items(2).iter().all(Item::approximate));
+        assert_eq!(board.discovered(2), None);
+    }
+
+    #[test]
+    fn the_counts_replace_the_tally_and_put_the_most_first() {
+        let mut board = sampled();
+        let (order, refund) = (count_of(&board, "Order"), count_of(&board, "Refund"));
+        board.apply(refund, total(900));
+        assert_eq!(
+            tallies(&board, 2),
+            [
+                ("Refund".to_string(), 900, true),
+                ("Order".to_string(), 2, false)
+            ]
+        );
+        assert_eq!(board.discovered(2), None, "one is still a tally");
+
+        board.apply(order, total(40));
+        assert_eq!(
+            tallies(&board, 2),
+            [
+                ("Refund".to_string(), 900, true),
+                ("Order".to_string(), 40, true)
+            ]
+        );
+        assert_eq!(board.discovered(2), Some(3));
+        assert_eq!(
+            board.sampled(1),
+            Some(3),
+            "the list beside it is still a sample"
+        );
+        assert_eq!(board.discovered(1), None);
+    }
+
+    #[test]
+    fn a_refreshed_sample_keeps_the_counts_it_already_has() {
+        let mut board = sampled();
+        let order = count_of(&board, "Order");
+        board.apply(order, total(40));
+        board.apply(
+            1,
+            Ok(SourceData::Workflows {
+                rows: vec![wf("d", "Order", "orders", 40)],
+                more: true,
+            }),
+        );
+        assert_eq!(tallies(&board, 2), [("Order".to_string(), 40, true)]);
+        assert_eq!(board.sources().len(), 6, "nothing is asked for twice");
+    }
+
+    #[test]
+    fn a_count_that_fails_leaves_the_tally_marked_as_one() {
+        let mut board = sampled();
+        let order = count_of(&board, "Order");
+        board.apply(order, Err(fault()));
+        assert_eq!(tallies(&board, 2)[0], ("Order".to_string(), 2, false));
+    }
+
+    #[test]
+    fn a_name_a_query_cannot_hold_and_names_past_the_cap_stay_tallies() {
+        let layout =
+            parse_dashboard("[[row]]\n[[row.panel]]\nkind = \"types\"\nlimit = 50").unwrap();
+        let mut board = Board::new(layout, &scope());
+        let mut rows = vec![wf("q", "O'Brien", "q", 1)];
+        rows.extend(
+            (0..MAX_TALLIES + 5).map(|i| wf(&format!("r{i}"), &format!("T{i:02}"), "q", 2)),
+        );
+        board.apply(0, Ok(SourceData::Workflows { rows, more: true }));
+        assert_eq!(board.items(0).len(), MAX_TALLIES + 6);
+        assert_eq!(board.sources().len(), 1 + MAX_TALLIES);
+        assert!(
+            !board
+                .sources()
+                .iter()
+                .any(|s| matches!(s, Source::Counts { query, .. } if query.contains("Brien")))
+        );
     }
 
     #[test]

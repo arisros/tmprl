@@ -103,7 +103,7 @@ impl App {
                         json_string(status.query_name())
                     ),
                     Item::Workflow(w) => workflow_json(w),
-                    Item::Type { name, count } => {
+                    Item::Type { name, count, .. } => {
                         format!(
                             r#"{{"workflowType":{},"count":{count}}}"#,
                             json_string(name)

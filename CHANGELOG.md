@@ -27,6 +27,11 @@
   that started more than three days ago and are still running. `by = "close"` measures both
   from when a workflow closed, so "failures, last 24h" includes one that started last week
   and failed ten minutes ago.
+- **Dashboard tallies are counted**: on a namespace with more workflows than one page, the
+  types and task queues panels used to show how many of the first 50 rows each name had.
+  Each name is now counted on the server, so the number is the real one. A number still
+  waiting for its count is drawn `~26`, and the panel says `names from 50` because a type the
+  page missed is still missing.
 - **`--dashboard`** opens tmprl straight onto the dashboard, in the profile's namespace or
   the one `-n` names.
 
