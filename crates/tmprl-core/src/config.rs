@@ -225,6 +225,32 @@ impl PayloadPane {
     }
 }
 
+/// How often a screen that refreshes itself does so.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Refresh {
+    Off,
+    /// Milliseconds between one answer and the next request.
+    Every(i64),
+}
+
+impl Refresh {
+    /// Below this a dashboard is a load test of the visibility store.
+    pub const FLOOR_MS: i64 = 5_000;
+
+    pub fn interval_ms(self) -> Option<i64> {
+        match self {
+            Refresh::Off => None,
+            Refresh::Every(ms) => Some(ms),
+        }
+    }
+}
+
+impl Default for Refresh {
+    fn default() -> Self {
+        Refresh::Every(30_000)
+    }
+}
+
 /// `config.toml`. Everything in it is optional.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Config {
@@ -236,6 +262,8 @@ pub struct Config {
     /// `[layout] payload`. Global rather than per profile: it is about your terminal, not
     /// the cluster.
     pub payload_pane: PayloadPane,
+    /// `[refresh] dashboard`.
+    pub dashboard_refresh: Refresh,
 }
 
 impl Config {
@@ -268,6 +296,9 @@ impl Config {
 ///
 /// [layout]
 /// payload = "right"              # or "bottom", the default
+///
+/// [refresh]
+/// dashboard = "30s"              # or "off"; the default is 30s, the least is 5s
 ///
 /// [codec]
 /// endpoint = "http://localhost:8081"
@@ -331,11 +362,41 @@ pub fn parse_config(src: &str) -> Result<Config, ConfigError> {
         Some(raw) => parse_layout(raw)?,
     };
 
+    let dashboard_refresh = match table.get("refresh") {
+        None => Refresh::default(),
+        Some(raw) => parse_refresh(raw)?,
+    };
+
     Ok(Config {
         codec,
         timezone,
         profiles,
         payload_pane,
+        dashboard_refresh,
+    })
+}
+
+fn parse_refresh(raw: &toml::Value) -> Result<Refresh, ConfigError> {
+    const FILE: &str = "config.toml";
+    let table = raw.as_table().ok_or(ConfigError::Type {
+        file: FILE,
+        path: "refresh".into(),
+        expected: "a table",
+    })?;
+    let Some(value) = table.get("dashboard") else {
+        return Ok(Refresh::default());
+    };
+    match value.as_str() {
+        Some("off") => Some(Refresh::Off),
+        Some(text) => crate::timerange::parse_offset(text)
+            .filter(|ms| *ms >= Refresh::FLOOR_MS)
+            .map(Refresh::Every),
+        None => None,
+    }
+    .ok_or(ConfigError::Type {
+        file: FILE,
+        path: "refresh.dashboard".into(),
+        expected: "\"off\" or a duration of at least 5s, such as \"30s\" or \"2m\"",
     })
 }
 
@@ -928,5 +989,43 @@ accent = "green"
             "{err}"
         );
         assert!(err.to_string().contains("Asia/Jakata"), "{err}");
+    }
+
+    #[test]
+    fn the_dashboard_refreshes_every_thirty_seconds_unless_told_otherwise() {
+        assert_eq!(
+            parse_config("").unwrap().dashboard_refresh,
+            Refresh::Every(30_000)
+        );
+        assert_eq!(
+            parse_config("[refresh]\ndashboard = \"2m\"")
+                .unwrap()
+                .dashboard_refresh,
+            Refresh::Every(120_000)
+        );
+        assert_eq!(
+            parse_config("[refresh]\ndashboard = \"off\"")
+                .unwrap()
+                .dashboard_refresh
+                .interval_ms(),
+            None
+        );
+    }
+
+    #[test]
+    fn a_refresh_interval_must_be_a_duration_of_five_seconds_or_more() {
+        for value in ["\"2s\"", "\"soon\"", "30", "\"\""] {
+            let result = parse_config(&format!("[refresh]\ndashboard = {value}"));
+            assert!(
+                matches!(&result, Err(ConfigError::Type { path, .. }) if path == "refresh.dashboard"),
+                "{value}: {result:?}"
+            );
+        }
+        assert_eq!(
+            parse_config("[refresh]\ndashboard = \"5s\"")
+                .unwrap()
+                .dashboard_refresh,
+            Refresh::Every(5_000)
+        );
     }
 }

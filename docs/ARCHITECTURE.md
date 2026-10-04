@@ -64,8 +64,8 @@ project testable:
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
 | `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 77 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 380 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 419 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 387 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 426 |
 | `tmprl-ui` | built | Plain unit tests over the layout tree | 44 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -353,6 +353,13 @@ one `dashboard.toml` parses into, or the builtin one when the file is absent, em
   file parses into. The probes are the builtin layout's own sources, so adapting costs no
   request. "Not known yet" and "failed" keep a panel; only a loaded, empty answer collapses
   it, and a panel that has shown items is kept until `R`.
+- **Refresh rides the tick.** The one-second `Msg::Tick` asks each dashboard in the current
+  tab which of its sources are due; there is no timer task to leak. `Pacer` in
+  `tmprl-core` decides, from the time of each source's last answer: one interval later,
+  never while a request is out, doubling up to five minutes while it fails, and not at all
+  once the server has refused it. A timed round does not bump the generation, so an answer
+  slower than the interval still lands. Each request is wrapped in a timeout, because no
+  RPC has a deadline yet and a request that never answered would never be asked again.
 - **`dashboard.toml` is strict.** A key that does not exist, or that belongs to another kind
   of panel, sets the file aside: a misspelt `query` would otherwise show every workflow under
   a "failures" title.

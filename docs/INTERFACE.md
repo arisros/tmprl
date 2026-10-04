@@ -154,8 +154,17 @@ what the item stands for:
 | a schedule | the schedule list, cursor on it |
 
 The query a panel opens lands in the query bar like any other, and `<C-o>` comes back.
-`R` asks for everything again without blanking what is on screen; a panel whose refresh
-failed keeps its last answer and says `stale` in its title. A panel drawn from one page of
+The dashboard asks again by itself, every 30 seconds unless `config.toml` says otherwise,
+and the header says so: `auto 30s`. Each request is asked for again one interval after its
+last answer and never while it is still out, so a slow cluster is not asked faster than it
+answers. Only dashboards in the tab on screen refresh, focused or not; one in another tab
+catches up when its tab is opened. `R` asks for everything at once.
+
+Neither blanks what is on screen. A panel whose refresh failed keeps its last answer and
+says how old it is in its title, `stale 2m`. A request that keeps failing is tried less and
+less often, up to five minutes apart, and the note line reports it once, when it first goes
+bad, not at every try. One the server refuses outright is left alone until `R`. A request
+with no answer after the interval, or ten seconds if that is longer, counts as failed. A panel drawn from one page of
 a longer list says how many rows it saw, `of 50 sampled`, because a tally over a sample is
 not a count.
 
@@ -622,7 +631,7 @@ depth rule: nearest named colour on 16, none under `NO_COLOR`.
 
 | File | Holds |
 |---|---|
-| `~/.config/tmprl/config.toml` | codec server endpoint and payload pane position and display timezone, **live**; refresh intervals and defaults *planned* |
+| `~/.config/tmprl/config.toml` | codec server endpoint, payload pane position, display timezone and the dashboard's refresh interval, **live**; other refresh intervals and defaults *planned* |
 | `~/.config/tmprl/dashboard.toml` | the dashboard's panels and their arrangement, **live** |
 | `~/.config/tmprl/keys.toml` | key chord → command id, **live** |
 | `~/.config/tmprl/theme.toml` | palette slot → colour, **live** |
@@ -661,6 +670,14 @@ payload = "right"       # "bottom" is the default
 
 Either way the list stays on screen and `j` / `k` move the row the pane shows. Below 100
 columns `right` stacks anyway, since neither half would be readable.
+
+The dashboard refreshes every 30 seconds. To change that, or to stop it:
+
+```toml
+[refresh]
+dashboard = "2m"        # "30s" is the default, "5s" the least, "off" leaves it to R
+```
+
 A `views.toml` looks like:
 
 ```toml

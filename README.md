@@ -130,6 +130,9 @@ api_key   = "…"
 [layout]
 payload = "right"         # K opens beside the list; "bottom" is the default
 
+[refresh]
+dashboard = "1m"          # the dashboard asks again this often; "off" leaves it to R
+
 [profile.sit]
 accent = "green"
 
@@ -188,8 +191,8 @@ flowchart LR
 | Crate | Tests | |
 |---|---|---|
 | `tmprl-client` | 77 | all network IO |
-| `tmprl-core` | 380 | no terminal, no server |
-| `tmprl-tui` | 419 | ratatui |
+| `tmprl-core` | 387 | no terminal, no server |
+| `tmprl-tui` | 426 | ratatui |
 | `tmprl-ui` | 44 | window tree |
 
 ```sh

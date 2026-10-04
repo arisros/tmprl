@@ -97,7 +97,13 @@ fn dashboard_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
         if loading {
             "loading…".to_string()
         } else {
-            format!("dashboard  {panels} panels")
+            match app.dashboard_refresh().interval_ms() {
+                Some(ms) => format!(
+                    "dashboard  {panels} panels  auto {}",
+                    tmprl_core::workflow::humanize_age_ms(ms)
+                ),
+                None => format!("dashboard  {panels} panels"),
+            }
         },
         t.dim,
     )]

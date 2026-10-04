@@ -1,6 +1,7 @@
 //! The dashboard: opening it, the requests behind its panels, and what an item opens.
 
 use super::*;
+use tmprl_core::fault::Code;
 
 impl App {
     /// `gd`. From the namespace list it takes the namespaces under the cursor as its scope,
@@ -45,29 +46,61 @@ impl App {
             },
         };
         board.begin_refresh();
-        let sources = board.sources().to_vec();
+        let all: Vec<usize> = (0..board.sources().len()).collect();
         self.view.dashboard = Some(board);
+        self.view.dashboard_pacer.restart(all.len());
 
-        let Some(conn) = self.conn.clone() else {
+        let id = self.tabs.current().focused();
+        let deadline = self.dashboard_deadline();
+        ask(
+            &mut self.view,
+            id,
+            all,
+            self.conn.clone(),
+            &self.tx,
+            false,
+            deadline,
+        );
+    }
+
+    /// The refresh timer, once a second: ask again for whatever is due on every dashboard
+    /// in the tab being looked at, focused or not.
+    ///
+    /// The generation is left alone, so an answer slower than the interval still lands.
+    pub(super) fn tick_dashboards(&mut self, now: i64) {
+        let Some(interval) = self.dashboard_refresh.interval_ms() else {
             return;
         };
-        let (view, generation, now) = (
-            self.tabs.current().focused(),
-            self.view.generation,
-            now_ms(),
+        let (conn, tx, deadline) = (
+            self.conn.clone(),
+            self.tx.clone(),
+            self.dashboard_deadline(),
         );
-        for (source, wanted) in sources.into_iter().enumerate() {
-            let (conn, tx) = (conn.clone(), self.tx.clone());
-            self.view.dashboard_tasks.push(tokio::spawn(async move {
-                let result = fetch(&conn, &wanted, now).await;
-                let _ = tx.send(Msg::Dashboard {
-                    view,
-                    generation,
-                    source,
-                    result,
-                });
-            }));
+        for id in self.tabs.current().views() {
+            let Some(view) = self.pane_mut(id) else {
+                continue;
+            };
+            let Some(board) = view
+                .dashboard
+                .as_ref()
+                .filter(|_| view.screen == Screen::Dashboard)
+            else {
+                continue;
+            };
+            let due = view
+                .dashboard_pacer
+                .take_due(board.sources().len(), now, interval);
+            if !due.is_empty() {
+                ask(view, id, due, conn.clone(), &tx, true, deadline);
+            }
         }
+    }
+
+    /// How long a dashboard request may take. No request has a deadline of its own, and
+    /// one that never answered would never be asked again.
+    fn dashboard_deadline(&self) -> std::time::Duration {
+        let interval = self.dashboard_refresh.interval_ms().unwrap_or(0);
+        std::time::Duration::from_millis(interval.max(10_000) as u64)
     }
 
     pub(super) fn dashboard_reply(
@@ -75,6 +108,7 @@ impl App {
         id: ViewId,
         generation: u64,
         source: usize,
+        timed: bool,
         result: Result<SourceData, Fault>,
     ) {
         let focused = id == self.tabs.current().focused();
@@ -88,6 +122,17 @@ impl App {
             return;
         };
         let fault = result.as_ref().err().cloned();
+        let outcome = match &fault {
+            None => Outcome::Answered,
+            Some(f)
+                if f.is_refusal()
+                    || matches!(f.code, Code::Unimplemented | Code::InvalidArgument) =>
+            {
+                Outcome::Refused
+            }
+            Some(_) => Outcome::Failed,
+        };
+        let news = view.dashboard_pacer.answered(source, outcome, now_ms());
         // A cursor still at the top has not been put anywhere, and should not be carried
         // down the screen by panels filling in above the item it happened to be on.
         let anchor = (view.cursor > 0)
@@ -101,7 +146,9 @@ impl App {
         }
         if focused {
             self.clamp_cursor();
-            if let Some(fault) = fault {
+            // The timer says a source went bad once, not every interval it stays bad. The
+            // panel's title carries it from then on.
+            if let Some(fault) = fault.filter(|_| !timed || news) {
                 self.fail(fault, Note::Error);
             }
         }
@@ -170,6 +217,54 @@ impl App {
 
     pub(super) fn dashboard_item(&self) -> Option<&Item> {
         self.view.dashboard.as_ref()?.item(self.view.cursor)
+    }
+}
+
+/// Send the requests for `sources` of the dashboard in `view`, which is pane `id`.
+fn ask(
+    view: &mut View,
+    id: ViewId,
+    sources: Vec<usize>,
+    conn: Option<Arc<Conn>>,
+    tx: &UnboundedSender<Msg>,
+    timed: bool,
+    deadline: std::time::Duration,
+) {
+    let (Some(conn), Some(board)) = (conn, view.dashboard.as_ref()) else {
+        return;
+    };
+    let (generation, now) = (view.generation, now_ms());
+    for source in sources {
+        let Some(wanted) = board.sources().get(source).cloned() else {
+            continue;
+        };
+        let (conn, tx) = (conn.clone(), tx.clone());
+        view.dashboard_tasks.push(tokio::spawn(async move {
+            let result = match tokio::time::timeout(deadline, fetch(&conn, &wanted, now)).await {
+                Ok(result) => result,
+                Err(_) => Err(Fault::rpc(
+                    operation(&wanted),
+                    Code::DeadlineExceeded,
+                    format!("no answer in {}s", deadline.as_secs()),
+                )),
+            };
+            let _ = tx.send(Msg::Dashboard {
+                view: id,
+                generation,
+                source,
+                timed,
+                result,
+            });
+        }));
+    }
+    view.dashboard_tasks.retain(|task| !task.is_finished());
+}
+
+fn operation(source: &Source) -> &'static str {
+    match source {
+        Source::Counts { .. } => "CountWorkflowExecutions",
+        Source::Workflows { .. } => "ListWorkflowExecutions",
+        Source::Schedules { .. } => "ListSchedules",
     }
 }
 

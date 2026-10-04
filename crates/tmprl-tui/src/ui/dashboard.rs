@@ -151,7 +151,13 @@ impl Panel<'_> {
             title.push(Span::styled(format!("of {n} sampled "), t.dim));
         }
         if self.board.fault(self.index).is_some() && !self.board.items(self.index).is_empty() {
-            title.push(Span::styled("stale ", t.warn));
+            let age = self
+                .board
+                .state(self.index)
+                .and_then(Loadable::age)
+                .map(|age| humanize_age_ms(age.as_millis() as i64))
+                .unwrap_or_default();
+            title.push(Span::styled(format!("stale {age} "), t.warn));
         }
         let block =
             Block::bordered()

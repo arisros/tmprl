@@ -16,6 +16,7 @@ fn reply(app: &mut App, source: usize, result: Result<SourceData, Fault>) {
         view: app.tabs.current().focused(),
         generation: app.view.generation,
         source,
+        timed: false,
         result,
     });
 }
@@ -147,6 +148,7 @@ fn a_reply_for_a_parked_dashboard_lands_in_it_and_nowhere_else() {
         view: parked,
         generation,
         source: 0,
+        timed: false,
         result: Ok(counts()),
     });
     let there = app.parked_view(parked).unwrap().dashboard.as_ref().unwrap();
@@ -164,12 +166,14 @@ fn a_reply_nobody_is_waiting_for_is_dropped() {
         view: app.tabs.current().focused(),
         generation: app.view.generation.wrapping_sub(1),
         source: 0,
+        timed: false,
         result: Ok(counts()),
     });
     app.handle(Msg::Dashboard {
         view: ViewId(99),
         generation: app.view.generation,
         source: 0,
+        timed: false,
         result: Ok(counts()),
     });
     assert!(board(&app).items(0).is_empty());
@@ -491,4 +495,117 @@ fn a_dashboard_file_is_never_rearranged() {
     );
     app.run("app.refresh", None);
     assert_eq!(titles(&app), ["Stuck"]);
+}
+
+const INTERVAL: i64 = 30_000;
+
+fn timed_reply(app: &mut App, source: usize, result: Result<SourceData, Fault>) {
+    app.handle(Msg::Dashboard {
+        view: app.tabs.current().focused(),
+        generation: app.view.generation,
+        source,
+        timed: true,
+        result,
+    });
+}
+
+fn out(view: &View) -> Vec<bool> {
+    (0..4).map(|s| view.dashboard_pacer.in_flight(s)).collect()
+}
+
+#[test]
+fn nothing_is_asked_for_again_before_the_interval_is_up() {
+    let mut app = filled();
+    assert_eq!(out(&app.view), [false; 4], "every answer is in");
+    app.tick_dashboards(now_ms() + INTERVAL - 2_000);
+    assert_eq!(out(&app.view), [false; 4]);
+}
+
+#[test]
+fn once_the_interval_is_up_everything_is_asked_for_again_once() {
+    let mut app = filled();
+    let generation = app.view.generation;
+    app.tick_dashboards(now_ms() + INTERVAL + 1_000);
+    assert_eq!(out(&app.view), [true; 4]);
+    assert_eq!(
+        app.view.generation, generation,
+        "so a slow answer to the last round still lands"
+    );
+    assert_eq!(app.row_count(), 10, "and nothing on screen was blanked");
+
+    timed_reply(&mut app, 0, Ok(counts()));
+    assert_eq!(out(&app.view), [false, true, true, true]);
+    app.tick_dashboards(now_ms() + 2_000);
+    assert_eq!(out(&app.view), [false, true, true, true]);
+}
+
+#[test]
+fn a_dashboard_left_in_a_split_is_refreshed_and_one_in_another_tab_is_not() {
+    let mut app = filled();
+    let parked = app.tabs.current().focused();
+    app.run("window.split-right", None);
+    app.run("nav.workflows", None);
+    app.tick_dashboards(now_ms() + INTERVAL + 1_000);
+    assert_eq!(out(app.parked_view(parked).unwrap()), [true; 4]);
+
+    let mut app = filled();
+    let parked = app.tabs.current().focused();
+    app.run("tab.new", None);
+    app.tick_dashboards(now_ms() + INTERVAL + 1_000);
+    assert_eq!(out(app.parked_view(parked).unwrap()), [false; 4]);
+}
+
+#[test]
+fn a_dashboard_that_was_left_is_not_refreshed() {
+    let mut app = filled();
+    app.run("nav.workflows", None);
+    app.tick_dashboards(now_ms() + INTERVAL + 1_000);
+    assert_eq!(out(&app.view), [false; 4]);
+}
+
+#[test]
+fn refresh_can_be_turned_off() {
+    let mut app = filled();
+    app.apply_config(None, None, Some("[refresh]\ndashboard = \"off\""));
+    app.tick_dashboards(now_ms() + INTERVAL * 100);
+    assert_eq!(out(&app.view), [false; 4]);
+}
+
+#[test]
+fn the_timer_reports_a_source_going_bad_once() {
+    let mut app = filled();
+    app.tick_dashboards(now_ms() + INTERVAL + 1_000);
+    timed_reply(&mut app, 1, Err(down()));
+    let logged = app.messages.len();
+    assert_eq!(app.note.as_ref().unwrap().1, Note::Error);
+    assert_eq!(board(&app).items(1).len(), 3, "the old rows stay");
+
+    app.tick_dashboards(now_ms() + INTERVAL * 10);
+    assert!(out(&app.view)[1], "it is tried again");
+    timed_reply(&mut app, 1, Err(down()));
+    assert_eq!(
+        app.messages.len(),
+        logged,
+        "and failing again is not said again"
+    );
+
+    app.run("app.refresh", None);
+    reply(&mut app, 1, Err(down()));
+    assert_eq!(app.messages.len(), logged + 1, "R always answers");
+}
+
+#[test]
+fn a_source_the_server_refuses_is_left_alone_until_r() {
+    let mut app = filled();
+    app.tick_dashboards(now_ms() + INTERVAL + 1_000);
+    timed_reply(
+        &mut app,
+        3,
+        Err(Fault::rpc("ListSchedules", Code::PermissionDenied, "no")),
+    );
+    app.tick_dashboards(now_ms() + INTERVAL * 1_000);
+    assert!(!out(&app.view)[3]);
+
+    app.run("app.refresh", None);
+    assert!(out(&app.view)[3]);
 }

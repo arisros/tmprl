@@ -18,6 +18,7 @@ fn reply(app: &mut App, source: usize, result: Result<SourceData, Fault>) {
         view: app.tabs.current().focused(),
         generation: app.view.generation,
         source,
+        timed: false,
         result,
     });
 }
@@ -127,7 +128,10 @@ fn a_namespace_with_something_of_everything_draws_every_panel() {
     assert!(out.contains("nightly-recon"), "{out}");
     assert!(out.contains("paused"), "{out}");
     assert!(!out.contains("hidden"), "{out}");
-    assert!(out.lines().next().unwrap().contains("6 panels"), "{out}");
+    assert!(
+        out.lines().next().unwrap().contains("6 panels  auto 30s"),
+        "{out}"
+    );
 }
 
 #[test]
