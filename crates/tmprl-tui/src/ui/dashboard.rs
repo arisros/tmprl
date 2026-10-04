@@ -27,6 +27,10 @@ const AGE: usize = 4;
 const ID: usize = 36;
 /// The least room worth giving a reason.
 const REASON: usize = 12;
+/// An attempt count, `12/∞`.
+const TRIES: usize = 7;
+/// When the next try is, `next 45s`, or the state the activity is in.
+const NEXT: usize = 10;
 /// The lines a histogram is worth: four of columns and the axis under them.
 const CHART: usize = 5;
 /// The lines kept for a panel with nothing in it, whose message may wrap.
@@ -190,6 +194,7 @@ fn content(board: &Board, first: usize, panels: usize) -> Option<u16> {
                 PanelKind::Workflows { .. }
                 | PanelKind::Types { .. }
                 | PanelKind::Queues { .. }
+                | PanelKind::Retrying { .. }
                 | PanelKind::Schedules { .. } => board.items(panel).len().max(EMPTY),
             };
             Some(u16::try_from(lines).unwrap_or(u16::MAX))
@@ -316,6 +321,15 @@ impl Panel<'_> {
         let width = (area.width as usize).saturating_sub(1);
         let now = now_ms();
         let fanned_out = view.is_fanned_out();
+        let longest_activity = items
+            .iter()
+            .filter_map(|item| match item {
+                Item::Retry { activity, .. } => Some(activity.activity_type.chars().count()),
+                _ => None,
+            })
+            .max()
+            .unwrap_or(0)
+            .min(TYPE + 8);
         // A column that says the same thing on every line says nothing.
         let mut types = items.iter().filter_map(|item| match item {
             Item::Workflow(w) => Some(w.workflow_type.as_str()),
@@ -340,6 +354,7 @@ impl Panel<'_> {
                 Item::Status { .. }
                 | Item::Workflow(_)
                 | Item::Schedule(_)
+                | Item::Retry { .. }
                 | Item::Bucket { .. } => 0,
             })
             .max()
@@ -447,6 +462,49 @@ impl Panel<'_> {
                         spans.push(Span::styled(
                             format!("{next:>7}"),
                             style(i, if s.paused { t.warn } else { t.faint }),
+                        ));
+                    }
+                    Item::Retry { row, activity } => {
+                        let tries = if activity.maximum_attempts > 0 {
+                            format!("{}/{}", activity.attempt, activity.maximum_attempts)
+                        } else {
+                            format!("{}/∞", activity.attempt)
+                        };
+                        let next = time_until(activity.next_attempt_at, now)
+                            .map(|until| format!("next {until}"))
+                            .unwrap_or_else(|| activity.state.label().to_string());
+                        let why = activity
+                            .last_failure
+                            .as_ref()
+                            .map(|failure| failure.root().headline())
+                            .unwrap_or_default();
+                        // The id, the activity and its tries always. The failure takes what
+                        // is left, and when to expect the next try closes the line.
+                        let fixed = 2 + TRIES + 1 + NEXT;
+                        let room = width.saturating_sub(fixed).max(8);
+                        let id_width = room.min(ID).max(room / 3).min(room);
+                        let name_width = room.saturating_sub(id_width + 1).min(longest_activity);
+                        let why_width = room.saturating_sub(id_width + 1 + name_width + 1);
+                        spans.push(Span::styled("↻ ", style(i, t.warn)));
+                        spans.push(Span::styled(
+                            format!("{:<id_width$} ", truncate(&row.workflow_id, id_width)),
+                            base,
+                        ));
+                        spans.push(Span::styled(
+                            format!(
+                                "{:<name_width$} ",
+                                truncate(&activity.activity_type, name_width)
+                            ),
+                            style(i, t.accent),
+                        ));
+                        spans.push(Span::styled(format!("{tries:>TRIES$} "), style(i, t.err)));
+                        spans.push(Span::styled(
+                            format!("{:<why_width$}", truncate(&why, why_width)),
+                            style(i, t.dim),
+                        ));
+                        spans.push(Span::styled(
+                            format!("{:>NEXT$}", truncate(&next, NEXT)),
+                            style(i, t.faint),
                         ));
                     }
                     // Drawn as columns by `chart`, never as a line.
@@ -565,6 +623,8 @@ impl Panel<'_> {
                 Some(PanelKind::Queues { .. }) => "no running workflows to find queues on",
                 Some(PanelKind::Schedules { .. }) => "no schedules",
                 Some(PanelKind::Histogram { .. }) => "nothing in this window",
+                Some(PanelKind::Retrying { .. }) if self.board.looking() => "looking…",
+                Some(PanelKind::Retrying { .. }) => "nothing retrying that often",
                 None => "",
             }
             .to_string(),

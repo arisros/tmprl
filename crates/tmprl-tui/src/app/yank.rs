@@ -116,6 +116,20 @@ impl App {
                         q.running
                     ),
                     Item::Schedule(s) => schedule_json(s),
+                    Item::Retry { row, activity } => format!(
+                        r#"{{"workflow":{},"activityType":{},"attempt":{},"maximumAttempts":{},"lastFailure":{}}}"#,
+                        workflow_json(row),
+                        json_string(&activity.activity_type),
+                        activity.attempt,
+                        activity.maximum_attempts,
+                        json_string(
+                            &activity
+                                .last_failure
+                                .as_ref()
+                                .map(|f| f.root().headline())
+                                .unwrap_or_default()
+                        ),
+                    ),
                     Item::Bucket {
                         from_ms,
                         to_ms,

@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 
 use super::layout::{PanelKind, PanelSpec, Show, TimeField, Window};
+use crate::pending::PendingActivity;
 use crate::query;
 use crate::schedule::ScheduleRow;
 use crate::taskqueue::QueueHealth;
@@ -21,6 +22,10 @@ const SETTLE_MS: i64 = 60_000;
 
 /// The most closed workflows a board asks the reason of. Each costs one request, once.
 pub const MAX_REASONS: usize = 40;
+
+/// The most workflows a retrying panel looks into at a time. Each costs one request a
+/// refresh.
+pub const MAX_SCAN: usize = 50;
 
 /// The most names a board counts exactly. Each costs one request a refresh.
 pub const MAX_TALLIES: usize = 24;
@@ -63,6 +68,13 @@ pub enum Source {
         from_ms: i64,
         to_ms: i64,
     },
+    /// What one running workflow is waiting on. Added by the board, one for each workflow
+    /// a retrying panel looks into.
+    Pending {
+        namespace: String,
+        workflow_id: String,
+        run_id: String,
+    },
 }
 
 impl Source {
@@ -72,9 +84,9 @@ impl Source {
             | Source::Bucket { namespaces, .. }
             | Source::Workflows { namespaces, .. }
             | Source::Schedules { namespaces } => namespaces,
-            Source::Queue { namespace, .. } | Source::Close { namespace, .. } => {
-                std::slice::from_ref(namespace)
-            }
+            Source::Queue { namespace, .. }
+            | Source::Close { namespace, .. }
+            | Source::Pending { namespace, .. } => std::slice::from_ref(namespace),
         }
     }
 
@@ -101,7 +113,10 @@ impl Source {
                     ),
                 )
             }
-            Source::Schedules { .. } | Source::Queue { .. } | Source::Close { .. } => String::new(),
+            Source::Schedules { .. }
+            | Source::Queue { .. }
+            | Source::Close { .. }
+            | Source::Pending { .. } => String::new(),
         }
     }
 
@@ -119,7 +134,8 @@ impl Source {
             Source::Counts { .. }
             | Source::Workflows { .. }
             | Source::Schedules { .. }
-            | Source::Queue { .. } => false,
+            | Source::Queue { .. }
+            | Source::Pending { .. } => false,
         }
     }
 }
@@ -136,6 +152,7 @@ pub enum SourceData {
     Queue(QueueHealth),
     /// `None` when the closing event gives no reason.
     Close(Option<String>),
+    Pending(Vec<PendingActivity>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,6 +182,11 @@ pub enum Item {
     },
     Queue(QueueRef),
     Schedule(ScheduleRow),
+    /// A workflow with an activity that keeps being retried, and the one furthest along.
+    Retry {
+        row: WorkflowRow,
+        activity: Box<PendingActivity>,
+    },
     /// A column of a histogram with something in it.
     Bucket {
         from_ms: i64,
@@ -178,7 +200,7 @@ impl Item {
     pub fn field(&self) -> &str {
         match self {
             Item::Status { status, .. } => status.query_name(),
-            Item::Workflow(row) => &row.workflow_id,
+            Item::Workflow(row) | Item::Retry { row, .. } => &row.workflow_id,
             Item::Type { name, .. } => name,
             Item::Queue(q) => &q.name,
             Item::Schedule(s) => &s.schedule_id,
@@ -209,6 +231,14 @@ impl Item {
                 if s.paused { "paused" } else { "running" },
             ),
             Item::Bucket { from_ms, count, .. } => format!("{} {count}", to_rfc3339(*from_ms)),
+            Item::Retry { row, activity } => format!(
+                "{} {} {} {} {}",
+                row.workflow_id,
+                row.workflow_type,
+                activity.activity_type,
+                row.namespace,
+                row.run_id,
+            ),
         }
     }
 
@@ -217,16 +247,20 @@ impl Item {
         match self {
             Item::Type { exact, .. } => !exact,
             Item::Queue(q) => !q.exact,
-            Item::Status { .. } | Item::Workflow(_) | Item::Schedule(_) | Item::Bucket { .. } => {
-                false
-            }
+            Item::Status { .. }
+            | Item::Workflow(_)
+            | Item::Schedule(_)
+            | Item::Retry { .. }
+            | Item::Bucket { .. } => false,
         }
     }
 
     pub(super) fn key(&self) -> String {
         match self {
             Item::Status { status, .. } => status.query_name().to_string(),
-            Item::Workflow(row) => format!("{}/{}", row.namespace, row.run_id),
+            Item::Workflow(row) | Item::Retry { row, .. } => {
+                format!("{}/{}", row.namespace, row.run_id)
+            }
             Item::Type { name, .. } => name.clone(),
             Item::Queue(q) => format!("{}/{}", q.namespace, q.name),
             Item::Schedule(s) => format!("{}/{}", s.namespace, s.schedule_id),

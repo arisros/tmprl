@@ -7,6 +7,7 @@ use super::layout::{
     DEFAULT_LIMIT, Layout, MAX_LIMIT, MAX_PANELS, PanelKind, PanelSpec, RUNNING, RowSpec, Show,
     Size, TimeField, Window,
 };
+use super::source::MAX_SCAN;
 use crate::config::ConfigError;
 use crate::query;
 use crate::timerange::parse_offset;
@@ -16,6 +17,9 @@ const FILE: &str = "dashboard.toml";
 const TOP_KEYS: &str = "row";
 
 const ROW_KEYS: &str = "height, lines or panel";
+
+/// The try an activity is on before a retrying panel lists its workflow.
+const DEFAULT_ATTEMPTS: i32 = 3;
 
 fn allowed(kind: &str) -> Option<(&'static [&'static str], &'static str)> {
     Some(match kind {
@@ -45,6 +49,22 @@ fn allowed(kind: &str) -> Option<(&'static [&'static str], &'static str)> {
                 "by",
             ],
             "kind, title, width, namespaces, limit, query, since, older or by",
+        ),
+        "retrying" => (
+            &[
+                "kind",
+                "title",
+                "width",
+                "namespaces",
+                "limit",
+                "query",
+                "since",
+                "older",
+                "by",
+                "attempts",
+                "scan",
+            ],
+            "kind, title, width, namespaces, limit, query, since, older, by, attempts or scan",
         ),
         "histogram" => (
             &[
@@ -231,6 +251,26 @@ fn parse_panel(table: &toml::Table, path: &str) -> Result<PanelSpec, ConfigError
         "types" => PanelKind::Types {
             query: filter(table, path, "")?,
             window: window(table, path)?,
+        },
+        "retrying" => PanelKind::Retrying {
+            query: filter(table, path, RUNNING)?,
+            window: window(table, path)?,
+            attempts: number(
+                table,
+                "attempts",
+                path,
+                2..=1000,
+                "an integer from 2 to 1000",
+            )?
+            .map_or(DEFAULT_ATTEMPTS, i32::from),
+            scan: number(
+                table,
+                "scan",
+                path,
+                1..=MAX_SCAN as i64,
+                "an integer from 1 to 50",
+            )?
+            .map_or(MAX_SCAN, usize::from),
         },
         "histogram" => {
             let window = window(table, path)?;
@@ -651,6 +691,47 @@ mod tests {
         assert_eq!(
             unknown_key(panel("kind = \"histogram\"\nsince = \"1h\"\nlimit = 5")),
             "limit"
+        );
+    }
+
+    #[test]
+    fn a_retrying_panel_has_a_threshold_and_a_number_to_look_into() {
+        let kind = |src: &str| panel(src).map(|l| l.rows[0].panels[0].kind.clone());
+        assert_eq!(
+            kind("kind = \"retrying\""),
+            Ok(PanelKind::Retrying {
+                query: RUNNING.to_string(),
+                window: Window::default(),
+                attempts: 3,
+                scan: 50,
+            })
+        );
+        assert_eq!(
+            kind(
+                "kind = \"retrying\"\nquery = \"A = 'b'\"\nolder = \"30m\"\nattempts = 5\nscan = 20"
+            ),
+            Ok(PanelKind::Retrying {
+                query: "A = 'b'".to_string(),
+                window: Window {
+                    since_ms: None,
+                    older_ms: Some(DAY_MS / 48),
+                    by: TimeField::Start,
+                },
+                attempts: 5,
+                scan: 20,
+            })
+        );
+        assert_eq!(
+            wrong_path(panel("kind = \"retrying\"\nattempts = 1")),
+            "row[0].panel[0].attempts"
+        );
+        assert_eq!(
+            wrong_path(panel("kind = \"retrying\"\nscan = 51")),
+            "row[0].panel[0].scan"
+        );
+        assert_eq!(
+            unknown_key(panel("kind = \"workflows\"\nattempts = 3")),
+            "attempts"
         );
     }
 

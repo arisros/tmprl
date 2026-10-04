@@ -9,7 +9,7 @@ use super::source::{
 use crate::fault::Fault;
 use crate::loadable::Loadable;
 use crate::query;
-use crate::workflow::{WorkflowRow, WorkflowStatus};
+use crate::workflow::{WorkflowRow, WorkflowStatus, by_start_time_desc};
 
 /// Where `<CR>` on an item leads.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,6 +66,9 @@ pub struct Board {
     tallies: usize,
     /// When the board was last told the time. Its histograms are cut against it.
     clock: i64,
+    /// The workflows a retrying panel is looking into now. One it has stopped looking
+    /// into is not asked about again.
+    watching: Vec<Source>,
 }
 
 impl Board {
@@ -82,6 +85,7 @@ impl Board {
             kept: Vec::new(),
             tallies: 0,
             clock: 0,
+            watching: Vec::new(),
         };
         board.lay_out(layout);
         board
@@ -131,6 +135,7 @@ impl Board {
         self.sync_queues();
         self.sync_reasons();
         self.sync_buckets();
+        self.sync_pending();
     }
 
     fn closing(row: &WorkflowRow) -> Option<Source> {
@@ -183,6 +188,7 @@ impl Board {
     pub fn advance(&mut self, now_ms: i64) {
         self.clock = now_ms;
         self.sync_buckets();
+        self.sync_pending();
     }
 
     fn bucket_sources(&self, panel: &Panel) -> Vec<Source> {
@@ -259,6 +265,98 @@ impl Board {
         }
     }
 
+    /// Look into the workflows a retrying panel lists: add a request for what each is
+    /// waiting on, and make a line of each one with an activity tried often enough.
+    fn sync_pending(&mut self) {
+        let mut watching = Vec::new();
+        for at in 0..self.panels.len() {
+            let PanelKind::Retrying { attempts, scan, .. } = self.panels[at].spec.kind else {
+                continue;
+            };
+            let mut rows: Vec<WorkflowRow> = match self.data[self.panels[at].source].value() {
+                Some(SourceData::Workflows { rows, .. }) => rows
+                    .iter()
+                    .filter(|row| row.status == WorkflowStatus::Running)
+                    .cloned()
+                    .collect(),
+                _ => Vec::new(),
+            };
+            // The longest running first: of one page, they are the likeliest to be stuck.
+            rows.sort_by(|a, b| by_start_time_desc(b, a));
+            rows.truncate(scan);
+
+            let mut found: Vec<Item> = Vec::new();
+            for row in rows {
+                let wanted = Source::Pending {
+                    namespace: row.namespace.clone(),
+                    workflow_id: row.workflow_id.clone(),
+                    run_id: row.run_id.clone(),
+                };
+                match self.sources.iter().position(|s| *s == wanted) {
+                    Some(source) => {
+                        if let Some(SourceData::Pending(pending)) = self.data[source].value()
+                            && let Some(activity) = pending
+                                .iter()
+                                .filter(|activity| activity.attempt >= attempts)
+                                .max_by_key(|activity| activity.attempt)
+                        {
+                            found.push(Item::Retry {
+                                row,
+                                activity: Box::new(activity.clone()),
+                            });
+                        }
+                    }
+                    None => {
+                        self.sources.push(wanted.clone());
+                        self.data.push(Loadable::NotAsked);
+                        self.faults.push(None);
+                    }
+                }
+                watching.push(wanted);
+            }
+            found.sort_by(|a, b| match (a, b) {
+                (
+                    Item::Retry {
+                        activity: x,
+                        row: p,
+                    },
+                    Item::Retry {
+                        activity: y,
+                        row: q,
+                    },
+                ) => y
+                    .attempt
+                    .cmp(&x.attempt)
+                    .then_with(|| by_start_time_desc(q, p)),
+                _ => std::cmp::Ordering::Equal,
+            });
+            found.truncate(self.panels[at].spec.limit);
+            self.panels[at].items = found;
+        }
+        self.watching = watching;
+    }
+
+    /// Whether nothing on the board reads this source any more, so that asking for it
+    /// again would be a request wasted. A workflow that has left the page a retrying panel
+    /// looks into is the case.
+    pub fn dormant(&self, source: usize) -> bool {
+        matches!(
+            self.sources.get(source),
+            Some(wanted @ Source::Pending { .. }) if !self.watching.contains(wanted)
+        )
+    }
+
+    /// Whether a retrying panel has yet to hear about some of the workflows it looks into,
+    /// so that an empty one is not read as "nothing is retrying".
+    pub fn looking(&self) -> bool {
+        self.watching.iter().any(|wanted| {
+            self.sources
+                .iter()
+                .position(|s| s == wanted)
+                .is_none_or(|at| self.data[at].value().is_none() && self.data[at].error().is_none())
+        })
+    }
+
     /// A histogram's columns, oldest first, each with its count once that has arrived.
     pub fn buckets(&self, panel: usize) -> Vec<Bucket> {
         self.panels.get(panel).map_or_else(Vec::new, |panel| {
@@ -278,6 +376,7 @@ impl Board {
             SourceData::Counts(_)
             | SourceData::Workflows { .. }
             | SourceData::Schedules(_)
+            | SourceData::Pending(_)
             | SourceData::Queue(_) => None,
         }
     }
@@ -301,6 +400,7 @@ impl Board {
                 PanelKind::Counts { .. }
                 | PanelKind::Workflows { .. }
                 | PanelKind::Histogram { .. }
+                | PanelKind::Retrying { .. }
                 | PanelKind::Schedules { .. } => continue,
             };
             let Source::Workflows {
@@ -327,6 +427,7 @@ impl Board {
                         ..
                     }) => (&*name, vec![namespace.clone()], running, exact),
                     Item::Status { .. }
+                    | Item::Retry { .. }
                     | Item::Workflow(_)
                     | Item::Schedule(_)
                     | Item::Bucket { .. } => continue,
@@ -509,6 +610,7 @@ impl Board {
             | SourceData::Counts(_)
             | SourceData::Schedules(_)
             | SourceData::Queue(_)
+            | SourceData::Pending(_)
             | SourceData::Close(_) => None,
         }
     }
@@ -523,6 +625,7 @@ impl Board {
             PanelKind::Counts { .. }
             | PanelKind::Workflows { .. }
             | PanelKind::Histogram { .. }
+            | PanelKind::Retrying { .. }
             | PanelKind::Schedules { .. } => false,
         };
         (tally && !panel.items.is_empty() && !panel.items.iter().any(Item::approximate))
@@ -558,6 +661,7 @@ impl Board {
         self.sync_queues();
         self.sync_reasons();
         self.sync_buckets();
+        self.sync_pending();
     }
 
     pub fn len(&self) -> usize {
@@ -597,6 +701,7 @@ impl Board {
             PanelKind::Workflows { .. }
             | PanelKind::Types { .. }
             | PanelKind::Queues { .. }
+            | PanelKind::Retrying { .. }
             | PanelKind::Schedules { .. } => false,
         }
     }
@@ -782,7 +887,7 @@ impl Board {
         let namespaces = source.namespaces().to_vec();
 
         Some(match (&panel.items[index], &panel.spec.kind) {
-            (Item::Workflow(row), _) => Drill::Workflow(row.clone()),
+            (Item::Workflow(row), _) | (Item::Retry { row, .. }, _) => Drill::Workflow(row.clone()),
             (Item::Schedule(row), _) => Drill::Schedule {
                 namespace: row.namespace.clone(),
                 schedule_id: row.schedule_id.clone(),
@@ -830,6 +935,7 @@ mod tests {
     use crate::dashboard::layout::{DAY_MS, MAX_LIMIT, RUNNING, Window};
     use crate::dashboard::parse_dashboard;
     use crate::dashboard::source::QueueRef;
+    use crate::pending::PendingActivity;
     use crate::taskqueue::QueueHealth;
     use crate::timerange::to_rfc3339;
     use crate::workflow::{StatusCounts, WorkflowStatus};
@@ -1255,6 +1361,113 @@ mod tests {
         assert_eq!(go(6, &[Left]), 3);
         assert_eq!(go(3, &[Left]), 3, "nothing to the left of the first panel");
         assert_eq!(go(7, &[Left]), 7, "an empty panel is not a place to go");
+    }
+
+    fn retrying() -> Board {
+        let layout =
+            parse_dashboard("[[row]]\n[[row.panel]]\nkind = \"retrying\"\nattempts = 3\nscan = 2")
+                .unwrap();
+        let mut board = Board::new(layout, &scope());
+        let running = |run: &str, start: i64| WorkflowRow {
+            status: WorkflowStatus::Running,
+            ..wf(run, "T", "q", start)
+        };
+        board.apply(
+            0,
+            rows(vec![
+                running("new", 30),
+                running("old", 10),
+                running("mid", 20),
+            ]),
+        );
+        board
+    }
+
+    fn pending_of(board: &Board, run: &str) -> Option<usize> {
+        board
+            .sources()
+            .iter()
+            .position(|s| matches!(s, Source::Pending { run_id, .. } if run_id == run))
+    }
+
+    fn tried(kind: &str, attempt: i32) -> PendingActivity {
+        PendingActivity {
+            activity_type: kind.into(),
+            attempt,
+            ..PendingActivity::default()
+        }
+    }
+
+    #[test]
+    fn a_retrying_panel_looks_into_the_longest_running_of_what_it_lists() {
+        let board = retrying();
+        assert!(pending_of(&board, "old").is_some());
+        assert!(pending_of(&board, "mid").is_some());
+        assert!(pending_of(&board, "new").is_none(), "past `scan`");
+        assert!(board.is_empty(), "nothing is known to be retrying yet");
+    }
+
+    #[test]
+    fn a_workflow_is_listed_once_an_activity_has_been_tried_often_enough() {
+        let mut board = retrying();
+        let (old, mid) = (
+            pending_of(&board, "old").unwrap(),
+            pending_of(&board, "mid").unwrap(),
+        );
+        board.apply(
+            old,
+            Ok(SourceData::Pending(vec![
+                tried("Charge", 2),
+                tried("Notify", 1),
+            ])),
+        );
+        assert!(board.is_empty(), "two tries is under the threshold");
+
+        board.apply(
+            mid,
+            Ok(SourceData::Pending(vec![
+                tried("Charge", 3),
+                tried("Score", 9),
+            ])),
+        );
+        board.apply(old, Ok(SourceData::Pending(vec![tried("Charge", 4)])));
+        let shown: Vec<(&str, &str, i32)> = board
+            .items(0)
+            .iter()
+            .map(|item| match item {
+                Item::Retry { row, activity } => (
+                    row.run_id.as_str(),
+                    activity.activity_type.as_str(),
+                    activity.attempt,
+                ),
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            shown,
+            [("mid", "Score", 9), ("old", "Charge", 4)],
+            "the furthest along first, and of one workflow its worst activity"
+        );
+        assert!(matches!(board.drill(0, NOW), Some(Drill::Workflow(row)) if row.run_id == "mid"));
+    }
+
+    #[test]
+    fn a_workflow_that_leaves_the_list_is_no_longer_asked_about() {
+        let mut board = retrying();
+        let old = pending_of(&board, "old").unwrap();
+        assert!(!board.dormant(old));
+        assert!(
+            !board.dormant(0),
+            "only what the board added can go dormant"
+        );
+
+        let running = WorkflowRow {
+            status: WorkflowStatus::Running,
+            ..wf("mid", "T", "q", 20)
+        };
+        board.apply(0, rows(vec![running]));
+        assert!(board.dormant(old));
+        assert!(!board.dormant(pending_of(&board, "mid").unwrap()));
     }
 
     const HOUR: i64 = 3_600_000;

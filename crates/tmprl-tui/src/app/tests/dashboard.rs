@@ -670,3 +670,33 @@ fn h_j_k_l_move_over_the_panels_as_they_sit_and_take_a_count() {
     app.run("motion.right", None);
     assert_eq!(app.view.cursor, before, "a list has no sideways");
 }
+
+#[test]
+fn a_workflow_a_retrying_panel_stopped_looking_into_is_not_asked_about_again() {
+    let mut app = app();
+    app.apply_dashboard(Some(
+        "[[row]]\n[[row.panel]]\nkind = \"retrying\"\nscan = 1\n",
+    ));
+    app.view.screen = Screen::Workflows;
+    app.run("nav.dashboard", None);
+    let running = |run: &str, start: i64| {
+        let mut row = wf("default", run, start);
+        row.status = WorkflowStatus::Running;
+        row
+    };
+    let page = |rows: Vec<WorkflowRow>| Ok(SourceData::Workflows { rows, more: false });
+    reply(&mut app, 0, page(vec![running("first", 10)]));
+    reply(&mut app, 1, Ok(SourceData::Pending(Vec::new())));
+    assert!(!board(&app).dormant(1));
+
+    reply(&mut app, 0, page(vec![running("second", 5)]));
+    assert!(board(&app).dormant(1), "`first` has left the page");
+    reply(&mut app, 2, Ok(SourceData::Pending(Vec::new())));
+
+    app.tick_dashboards(now_ms() + INTERVAL + 1_000);
+    assert!(!app.view.dashboard_pacer.in_flight(1), "left to sleep");
+    assert!(
+        app.view.dashboard_pacer.in_flight(2),
+        "`second` is asked about"
+    );
+}

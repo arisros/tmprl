@@ -62,7 +62,7 @@ pub enum ConfigError {
         expected: &'static str,
     },
     #[error(
-        "dashboard.toml: `{path}` is `{value}`, which is not a panel kind (expected counts, workflows, types, queues, histogram or schedules)"
+        "dashboard.toml: `{path}` is `{value}`, which is not a panel kind (expected counts, workflows, types, queues, histogram, retrying or schedules)"
     )]
     BadPanelKind { path: String, value: String },
 }

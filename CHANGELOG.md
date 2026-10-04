@@ -50,6 +50,10 @@
   point. `j` at the foot of a list goes to the panel under it, not to the one beside it,
   `h` and `l` cross between panels and step along a chart or the status line. `h`, `l`,
   `<Left>` and `<Right>` are new bindings, `motion.left` and `motion.right`.
+- **Dashboard retries**: a `retrying` panel lists running workflows with an activity that
+  keeps failing: which activity, how many tries (`7/∞`), the last failure and when the next
+  try is due. `attempts` sets the threshold and `scan` how many workflows it looks into,
+  50 at most, since each is a request of its own.
 - **`--dashboard`** opens tmprl straight onto the dashboard, in the profile's namespace or
   the one `-n` names.
 

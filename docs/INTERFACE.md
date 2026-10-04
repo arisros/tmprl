@@ -171,6 +171,7 @@ do anywhere, and `]p` / `[p` step a panel at a time. `Enter` opens what the item
 | a task queue | the workflow list, running workflows on that queue |
 | a schedule | the schedule list, cursor on it |
 | a column of a histogram | the workflow list, the panel's query within that stretch of time |
+| a retrying workflow | its history |
 
 The query a panel opens lands in the query bar like any other, and `<C-o>` comes back.
 The dashboard asks again by itself, every 30 seconds unless `config.toml` says otherwise,
@@ -754,18 +755,29 @@ since = "24h"
 |---|---|---|---|---|
 | `height` | row | 1 to 100 | 1 | the row's share of the height left over. A row whose panels need less than their share takes only that, and rows with more to show get the rest |
 | `lines` | row | 3 to 50 | | a fixed height instead, borders included; not with `height` |
-| `kind` | panel | `counts` `workflows` `types` `queues` `histogram` `schedules` | required | what the panel shows |
+| `kind` | panel | `counts` `workflows` `types` `queues` `histogram` `retrying` `schedules` | required | what the panel shows |
 | `title` | panel | text | from the kind | the title on its border |
 | `width` | panel | 1 to 100 | 1 | the panel's share of the row |
 | `namespaces` | panel | list of names | the pane's scope | the namespaces it asks |
 | `query` | `counts` `workflows` `types` `queues` | a visibility query | none; `queues`: running workflows | what it counts, lists or tallies. No `ORDER BY`: a panel sorts its own rows |
-| `since` | `counts` `workflows` `types` `histogram` | `30m` `24h` `7d` `2w` | | only workflows started within this long, worked out at each refresh |
-| `older` | `counts` `workflows` `types` `histogram` | a duration, as `since` | | only workflows started longer ago than this. With `since` the two bound a stretch, and `since` must be the longer |
+| `since` | `counts` `workflows` `types` `histogram` `retrying` | `30m` `24h` `7d` `2w` | | only workflows started within this long, worked out at each refresh |
+| `older` | `counts` `workflows` `types` `histogram` `retrying` | a duration, as `since` | | only workflows started longer ago than this. With `since` the two bound a stretch, and `since` must be the longer |
+| `attempts` | `retrying` | 2 to 1000 | 3 | the try an activity must be on for its workflow to be listed |
+| `scan` | `retrying` | 1 to 50 | 50 | how many of the listed workflows are looked into, the longest running first. Each is one request a refresh |
 | `bucket` | `histogram` | a duration, as `since` | the finest round step giving at most 48 columns | the stretch of time one column stands for. It must cut the window into 2 to 48 columns |
 | `by` | `counts` `workflows` `types` `histogram` | `start` `close` | `start` | the time `since` and `older` measure. `close` lists the last to close first and shows how long ago each closed; a workflow still running has no close time and is left out |
 | `limit` | every kind but `counts` | 1 to 50 | 10 | the most items it holds |
 | `names` | `queues` | list of names | | task queues to list even when nothing is running on them |
 | `show` | `schedules` | `all` `paused` `upcoming` | `all` | which schedules; `upcoming` sorts by next run |
+
+`retrying` lists running workflows that have an activity on its `attempts`th try or later:
+the workflow, the activity furthest along, its tries against the most its retry policy
+allows (`7/∞` when there is no limit), the failure it last ended on and when the next try
+is due. No query can find these, since the number of tries is not a search attribute, so
+the panel lists workflows with its `query` (running ones, by default) and asks each of the
+first `scan` what it is waiting on. It is a look into one page, not the namespace: narrow
+the query, and use `older` to leave out workflows too young to be stuck. `limit` is how
+many it shows.
 
 `histogram` draws how many workflows fell in each stretch of its window as columns, the
 newest on the right, each as tall as its count against the tallest; the title gives the

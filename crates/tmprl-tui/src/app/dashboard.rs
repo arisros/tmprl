@@ -92,9 +92,19 @@ impl App {
             };
             // A histogram's newest column is a stretch of time that may only just have begun.
             board.advance(now);
-            let due = view
+            let mut due = view
                 .dashboard_pacer
                 .take_due(board.sources().len(), now, interval);
+            // A source nothing reads any more is marked as answered, not asked: it costs
+            // nothing while it sleeps, and is due again the moment something wants it.
+            due.retain(|source| {
+                let dormant = board.dormant(*source);
+                if dormant {
+                    view.dashboard_pacer
+                        .answered(*source, Outcome::Answered, now);
+                }
+                !dormant
+            });
             if !due.is_empty() {
                 ask(view, id, due, conn.clone(), &tx, true, deadline);
             }
@@ -136,8 +146,12 @@ impl App {
         let settles = asked.is_some_and(|s| s.settles(now_ms()));
         // One row's reason or one column's count going missing is not worth a note: the
         // panel they belong to says when its own request fails.
-        let minor =
-            asked.is_some_and(|s| matches!(s, Source::Close { .. } | Source::Bucket { .. }));
+        let minor = asked.is_some_and(|s| {
+            matches!(
+                s,
+                Source::Close { .. } | Source::Bucket { .. } | Source::Pending { .. }
+            )
+        });
         let outcome = match &fault {
             None if settles => Outcome::Settled,
             None => Outcome::Answered,
@@ -302,6 +316,7 @@ fn operation(source: &Source) -> &'static str {
         Source::Schedules { .. } => "ListSchedules",
         Source::Queue { .. } => "DescribeTaskQueue",
         Source::Close { .. } => "GetWorkflowExecutionHistory",
+        Source::Pending { .. } => "DescribeWorkflowExecution",
     }
 }
 
@@ -341,5 +356,13 @@ async fn fetch(conn: &Conn, source: &Source, now_ms: i64) -> Result<SourceData, 
             .close_event(namespace, workflow_id, run_id)
             .await
             .map(|event| SourceData::Close(event.as_ref().and_then(close_reason))),
+        Source::Pending {
+            namespace,
+            workflow_id,
+            run_id,
+        } => conn
+            .pending_activities(namespace, workflow_id, run_id)
+            .await
+            .map(SourceData::Pending),
     }
 }

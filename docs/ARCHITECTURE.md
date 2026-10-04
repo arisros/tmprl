@@ -64,8 +64,8 @@ project testable:
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
 | `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 81 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 424 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 439 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 428 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 441 |
 | `tmprl-ui` | built | Plain unit tests over the layout tree | 47 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -351,6 +351,11 @@ one `dashboard.toml` parses into, or the builtin one when the file is absent, em
   cancelled gets a `Source::Close`: `GetWorkflowExecutionHistory` filtered to the closing
   event, one small page however long the history. A closed run's last event cannot change,
   so the source `settles` and the pacer never asks again until `R`. At most `MAX_REASONS`.
+- **Retries are found by asking each workflow.** An activity's attempt is not a search
+  attribute, so a retrying panel reads a `Source::Workflows` like a list and the board adds
+  a `Source::Pending`, one `DescribeWorkflowExecution`, for each of the first `scan` rows.
+  A workflow that leaves that page is `dormant`: the timer skips it, so a board open all
+  day does not keep describing what it once listed.
 - **A histogram is a count per column.** Temporal has no count by time, so each stretch
   is a `Source::Bucket`, added by the board once `Board::advance` has told it the time.
   Edges sit on multiples of the step, not on now, so a stretch that has passed is the same

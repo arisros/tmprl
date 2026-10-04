@@ -23,6 +23,6 @@ pub use layout::{
 pub use pacer::{Outcome, Pacer};
 pub use parse::parse_dashboard;
 pub use source::{
-    Item, MAX_QUEUES, MAX_REASONS, MAX_TALLIES, QueueRef, Source, SourceData, discover_queues,
-    tally_types,
+    Item, MAX_QUEUES, MAX_REASONS, MAX_SCAN, MAX_TALLIES, QueueRef, Source, SourceData,
+    discover_queues, tally_types,
 };

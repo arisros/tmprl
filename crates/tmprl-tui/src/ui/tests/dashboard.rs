@@ -570,3 +570,82 @@ fn a_histogram_draws_a_column_for_each_stretch_and_marks_the_one_under_the_curso
         .count();
     assert!(tall >= 2 && half >= tall, "{out}");
 }
+
+#[test]
+fn a_retrying_panel_lists_what_is_being_tried_again_and_why() {
+    use tmprl_core::dashboard::Source;
+    use tmprl_core::history::Failure;
+    use tmprl_core::pending::PendingActivity;
+
+    let mut app = app_with_rows();
+    app.apply_dashboard(Some(
+        "[[row]]\n[[row.panel]]\nkind = \"retrying\"\ntitle = \"Retrying\"\nattempts = 3\n",
+    ));
+    app.view.screen = Screen::Workflows;
+    app.run("nav.dashboard", None);
+    reply(
+        &mut app,
+        0,
+        Ok(SourceData::Workflows {
+            rows: vec![
+                wf(
+                    "default",
+                    "loan-1",
+                    WorkflowStatus::Running,
+                    now() - 9_000_000,
+                ),
+                wf(
+                    "default",
+                    "loan-2",
+                    WorkflowStatus::Running,
+                    now() - 8_000_000,
+                ),
+            ],
+            more: false,
+        }),
+    );
+    let out = draw(&mut app, 120, 8);
+    assert!(out.contains("looking…"), "{out}");
+
+    let pending = |app: &App, id: &str| {
+        app.view
+            .dashboard
+            .as_ref()
+            .unwrap()
+            .sources()
+            .iter()
+            .position(|s| matches!(s, Source::Pending { workflow_id, .. } if workflow_id == id))
+            .unwrap()
+    };
+    let mut failure = Failure::new("connection refused");
+    failure.kind = Some("UpstreamError".into());
+    let source = pending(&app, "loan-1");
+    reply(
+        &mut app,
+        source,
+        Ok(SourceData::Pending(vec![PendingActivity {
+            activity_type: "check_pefindo".into(),
+            attempt: 7,
+            maximum_attempts: 0,
+            last_failure: Some(failure),
+            next_attempt_at: Some(now() + 45_000),
+            ..PendingActivity::default()
+        }])),
+    );
+    let source = pending(&app, "loan-2");
+    reply(&mut app, source, Ok(SourceData::Pending(Vec::new())));
+
+    let out = draw(&mut app, 120, 8);
+    let row = out.lines().find(|l| l.contains("loan-1")).unwrap();
+    for part in [
+        "↻",
+        "check_pefindo",
+        "7/∞",
+        "UpstreamError: connection refused",
+        "next 4",
+    ] {
+        assert!(row.contains(part), "no `{part}`:\n{out}");
+    }
+    assert!(!out.contains("loan-2"), "it is retrying nothing:\n{out}");
+    assert_eq!(app.row_count(), 1);
+}

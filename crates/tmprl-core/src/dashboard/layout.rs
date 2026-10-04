@@ -95,6 +95,14 @@ pub enum PanelKind {
         query: String,
         names: Vec<String>,
     },
+    /// The workflows among the first `scan` listed with an activity on its `attempts`th
+    /// try or later. No query can find them: each listed workflow is described.
+    Retrying {
+        query: String,
+        window: Window,
+        attempts: i32,
+        scan: usize,
+    },
     /// How many workflows fell in each stretch of the window, as columns.
     Histogram {
         query: String,
@@ -142,6 +150,7 @@ impl PanelSpec {
             PanelKind::Types { .. } => "Workflow types",
             PanelKind::Queues { .. } => "Task queues",
             PanelKind::Histogram { .. } => "Activity",
+            PanelKind::Retrying { .. } => "Retrying",
             PanelKind::Schedules { show } => match show {
                 Show::All => "Schedules",
                 Show::Paused => "Paused schedules",
@@ -166,13 +175,13 @@ impl PanelSpec {
                     window: *window,
                 }
             }
-            PanelKind::Workflows { query, window } | PanelKind::Types { query, window } => {
-                Source::Workflows {
-                    namespaces,
-                    query: query.clone(),
-                    window: *window,
-                }
-            }
+            PanelKind::Workflows { query, window }
+            | PanelKind::Types { query, window }
+            | PanelKind::Retrying { query, window, .. } => Source::Workflows {
+                namespaces,
+                query: query.clone(),
+                window: *window,
+            },
             PanelKind::Queues { query, .. } => Source::Workflows {
                 namespaces,
                 query: query.clone(),
