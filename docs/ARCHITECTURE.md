@@ -1,9 +1,9 @@
 # Architecture
 
 > **Read this first.** This document mixes built code with design that is not written yet,
-> and every section says which it is. §§2 to 9 are implemented and tested, with three
-> exceptions marked where they occur: macros and headless mode in §4, diff in §§6 and 7, and
-> the query-driven batch at the end of §9. Those are written down in advance so the shape is
+> and every section says which it is. §§2 to 9 are implemented and tested, with four
+> exceptions marked where they occur: macros and headless mode in §4, the dashboard at the
+> end of §5, diff in §§6 and 7, and the query-driven batch at the end of §9. Those are written down in advance so the shape is
 > agreed before there is code sitting on top of it. [ROADMAP.md](ROADMAP.md) says when.
 >
 > | Marker | Meaning |
@@ -64,9 +64,9 @@ project testable:
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
 | `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 77 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 345 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 372 |
 | `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 379 |
-| `tmprl-ui` | built | Plain unit tests over the layout tree | 37 |
+| `tmprl-ui` | built | Plain unit tests over the layout tree | 44 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
 arrangement working as intended.
@@ -125,6 +125,7 @@ Every file opens with a `//!` line saying what it is; this is those lines, gathe
 | `config.rs`, `clock.rs`, `loadable.rs` | config parsing, wall-clock rendering, four-state remote data |
 | `fault.rs` | a failed request: the call, the gRPC code, the server's message, and what to try |
 | `theme.rs` | colour depth from the environment, `theme.toml`, hex to the nearest of 16 |
+| `dashboard.rs` | the dashboard's panels, the requests they share, `dashboard.toml` |
 
 **`tmprl-client`**, all network IO: `conn.rs` connects; `ops/` has one file per area of the
 API (`workflow`, `history`, `schedule`, `namespace`, `mutate`, `codec`, `describe`,
@@ -133,7 +134,8 @@ API (`workflow`, `history`, `schedule`, `namespace`, `mutate`, `codec`, `describ
 reads the mutable state they cannot carry, the activities still being retried, and
 `ops/attributes.rs` asks the cluster what can be filtered on at all.
 
-**`tmprl-ui`**, the window tree: `tree.rs` (one tab's splits), `tabs.rs`. Despite the name it
+**`tmprl-ui`**, the window tree: `tree.rs` (one tab's splits), `tabs.rs`, and `tracks.rs`
+(a strip cut into fixed and weighted spans). Despite the name it
 draws nothing; it is rectangles and focus, and `tmprl-tui` draws into them.
 
 **`tmprl-tui`**, the application (the package is named `tmprl`, it is the binary):
@@ -329,6 +331,27 @@ so the total is taken from the response's `count` field rather than summed from 
 A `Conn` clone shares a single HTTP/2 channel, so listing several namespaces is one connection
 and N concurrent streams. Each namespace pages independently and exhausts at a different
 point, so the continuation token is per namespace rather than one token for the merged list.
+
+### The dashboard · PLANNED
+
+One screen of panels over a scope: status counts, recent failures, the workflow types failing
+most, the task queues in use, schedules. The model is built and tested in
+`tmprl-core/src/dashboard.rs`; no screen draws it yet.
+
+- **A panel does not fetch.** It reads from a `Source`, and panels asking for the same thing
+  share one. "Recent failures" and "failing types" are one `ListWorkflowExecutions` and
+  cannot disagree, and a layout's request count is bounded by its distinct sources.
+- **The cursor is one list.** Every panel's items in order, so the motions, counts and search
+  that work on a list work here. Across a refresh the cursor is anchored to the item's key,
+  as it is in the workflow list.
+- **Every item opens what it stands for.** A status, a type or a queue becomes a visibility
+  query, a `since` window compiled to the literal instant it means, and that text lands in
+  the query bar like any other.
+- **`dashboard.toml` is strict.** A key that does not exist, or that belongs to another kind
+  of panel, sets the file aside: a misspelt `query` would otherwise show every workflow under
+  a "failures" title.
+- **Rows and panels are tracks.** `tmprl-ui`'s `tracks` cuts an area into fixed and weighted
+  spans with a minimum, and drops the ones that do not fit from the end.
 
 ---
 

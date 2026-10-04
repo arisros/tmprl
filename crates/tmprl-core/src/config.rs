@@ -1,5 +1,6 @@
-//! `config.toml`, `keys.toml` and `views.toml`. `theme.toml` is parsed in [`crate::theme`],
-//! and reports through the same [`ConfigError`].
+//! `config.toml`, `keys.toml` and `views.toml`. `theme.toml` is parsed in [`crate::theme`]
+//! and `dashboard.toml` in [`crate::dashboard`]; both report through the same
+//! [`ConfigError`].
 //!
 //! Parsing lives here, in the crate with no IO, so a malformed config is a unit test rather
 //! than something you discover by launching the application. `tmprl-tui` reads the bytes off
@@ -54,6 +55,16 @@ pub enum ConfigError {
         value: String,
         expected: &'static str,
     },
+    #[error("dashboard.toml: `{key}` is not a key of {place} (expected {expected})")]
+    UnknownDashboardKey {
+        place: String,
+        key: String,
+        expected: &'static str,
+    },
+    #[error(
+        "dashboard.toml: `{path}` is `{value}`, which is not a panel kind (expected counts, workflows, types, queues or schedules)"
+    )]
+    BadPanelKind { path: String, value: String },
 }
 
 /// A saved visibility query, reachable from a key.

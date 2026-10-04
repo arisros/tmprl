@@ -178,9 +178,9 @@ flowchart LR
 | Crate | Tests | |
 |---|---|---|
 | `tmprl-client` | 77 | all network IO |
-| `tmprl-core` | 345 | no terminal, no server |
+| `tmprl-core` | 372 | no terminal, no server |
 | `tmprl-tui` | 379 | ratatui |
-| `tmprl-ui` | 37 | window tree |
+| `tmprl-ui` | 44 | window tree |
 
 ```sh
 cargo test                       # integration tests skip with no server

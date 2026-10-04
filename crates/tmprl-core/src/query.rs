@@ -50,9 +50,30 @@ pub fn by_prefix(text: &str) -> Option<String> {
     Some(format!("WorkflowId STARTS_WITH '{text}'"))
 }
 
-fn quotable(text: &str) -> Option<&str> {
+pub(crate) fn quotable(text: &str) -> Option<&str> {
     let text = text.trim();
     (!text.is_empty() && !text.contains('\'')).then_some(text)
+}
+
+/// Anything that ended badly: the filter the dashboard's failure panels start from.
+pub const PROBLEMS: &str = "ExecutionStatus IN ('Failed', 'TimedOut', 'Terminated')";
+
+/// Whether the query carries its own `ORDER BY`.
+pub fn orders(query: &str) -> bool {
+    find_clause(query, "order by").is_some()
+}
+
+/// `filter AND clause`, with the filter parenthesised when an `OR` in it would otherwise
+/// capture the clause.
+pub fn and(filter: &str, clause: &str) -> String {
+    let filter = filter.trim();
+    if filter.is_empty() {
+        clause.to_string()
+    } else if find_clause(filter, "or").is_some() {
+        format!("({filter}) AND {clause}")
+    } else {
+        format!("{filter} AND {clause}")
+    }
 }
 
 /// Remove a trailing `<keyword> ...` clause, if the query has one.
@@ -132,6 +153,26 @@ fn is_word_byte(b: u8) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_order_by_is_seen_unless_it_is_quoted() {
+        assert!(orders("ExecutionStatus = 'Running' order  by StartTime"));
+        assert!(!orders("WorkflowId = 'daily order by region'"));
+    }
+
+    #[test]
+    fn and_parenthesises_a_filter_that_has_an_or() {
+        assert_eq!(and("", "A = 'x'"), "A = 'x'");
+        assert_eq!(and(" B = 'y' ", "A = 'x'"), "B = 'y' AND A = 'x'");
+        assert_eq!(
+            and("B = 'y' OR C = 'z'", "A = 'x'"),
+            "(B = 'y' OR C = 'z') AND A = 'x'"
+        );
+        assert_eq!(
+            and("B = 'this or that'", "A = 'x'"),
+            "B = 'this or that' AND A = 'x'"
+        );
+    }
 
     #[test]
     fn an_id_is_looked_up_as_either_kind_of_id() {
