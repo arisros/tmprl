@@ -91,7 +91,8 @@ file, and says how to follow one behaviour from its command id to the code that 
 ## Public API
 
 Per [docs/RELEASING.md](docs/RELEASING.md#which-bump), the public API is keys, command ids,
-the keys of `config.toml`, `keys.toml` and `views.toml`, and CLI flags. Rust types are not.
+the keys of `config.toml`, `keys.toml`, `views.toml`, `theme.toml` and `dashboard.toml`, and
+CLI flags. Rust types are not.
 
 Adding one of those is a minor release. Removing or renaming one is a breaking change, so say
 so in the pull request. [docs/INTERFACE.md](docs/INTERFACE.md) lists every binding and marks

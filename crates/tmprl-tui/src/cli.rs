@@ -22,18 +22,20 @@ OPTIONS:
     -n, --namespace <NAME>      Open that namespace's workflows; overrides the profile's
     -q, --query <QUERY>         Open the workflow list with this visibility query applied
     -w, --workflow <ID>         Open the history of this workflow id or run id
+        --dashboard             Open the dashboard, of the profile's namespace or -n's
         --readonly              Refuse every mutation for this run
         --config-path           Print where tmprl reads its own config, and exit
     -h, --help                  Print this message
     -V, --version               Print version
 
-A long option also takes its value as --option=value. With no -n, -q or -w tmprl opens
-on the namespace list; -q and -w use the profile's namespace unless -n names another.
+A long option also takes its value as --option=value. With no -n, -q, -w or --dashboard
+tmprl opens on the namespace list; -q, -w and --dashboard use the profile's namespace
+unless -n names another.
 
 Connection settings come from the same files and TEMPORAL_* variables the
-`temporal` CLI uses. tmprl's own config (config.toml, keys.toml, theme.toml,
-views.toml) is a different directory; --config-path prints it. NO_COLOR is
-honoured. Press ? inside the application for keybindings.
+`temporal` CLI uses. tmprl's own config (config.toml, dashboard.toml, keys.toml,
+theme.toml, views.toml) is a different directory; --config-path prints it.
+NO_COLOR is honoured. Press ? inside the application for keybindings.
 ";
 
 /// What the arguments ask for.
@@ -94,10 +96,13 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Cli, String> {
                 startup.workflow = Some(id);
             }
             "--address" => profile.address = Some(value("--address")?),
-            "--help" | "--version" | "--readonly" | "--config-path" if inline.is_some() => {
+            "--help" | "--version" | "--readonly" | "--dashboard" | "--config-path"
+                if inline.is_some() =>
+            {
                 return Err(format!("{flag} takes no value"));
             }
             "--readonly" => startup.readonly = true,
+            "--dashboard" => startup.dashboard = true,
             "-h" | "--help" => return Ok(Cli::Help),
             "-V" | "--version" => return Ok(Cli::Version),
             "--config-path" => return Ok(Cli::ConfigPath(profile.config_file)),
@@ -109,6 +114,12 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Cli, String> {
                 return Err(format!("unknown argument `{given}`\n\n{USAGE}"));
             }
         }
+    }
+    // Checked once the whole line is read, so the order the flags came in does not matter.
+    if startup.dashboard && (startup.query.is_some() || startup.workflow.is_some()) {
+        return Err(
+            "--dashboard opens the dashboard, so it cannot go with --query or --workflow".into(),
+        );
     }
     Ok(Cli::Run { profile, startup })
 }
@@ -247,6 +258,7 @@ mod tests {
                 query: Some("WorkflowType = 'Checkout'".into()),
                 workflow: Some("order-42".into()),
                 readonly: true,
+                dashboard: false,
             }
         );
     }
@@ -343,6 +355,29 @@ mod tests {
     }
 
     #[test]
+    fn the_dashboard_opens_alone_or_in_a_named_namespace() {
+        let (_, startup) = run(&["--dashboard"]);
+        assert!(startup.dashboard && !startup.opens_workflows());
+
+        let (profile, startup) = run(&["--dashboard", "-n", "orders"]);
+        assert!(startup.dashboard);
+        assert_eq!(profile.namespace.as_deref(), Some("orders"));
+        assert!(run(&["--dashboard", "--readonly"]).1.readonly);
+    }
+
+    #[test]
+    fn the_dashboard_cannot_go_with_a_query_or_a_workflow() {
+        for line in [
+            &["--dashboard", "-q", "A = 'b'"][..],
+            &["-w", "order-42", "--dashboard"][..],
+        ] {
+            let e = refusal(line);
+            assert!(e.starts_with("--dashboard opens the dashboard"), "{e}");
+        }
+        assert_eq!(refusal(&["--dashboard=yes"]), "--dashboard takes no value");
+    }
+
+    #[test]
     fn a_workflow_id_with_a_quote_is_refused_before_connecting() {
         let e = refusal(&["-w", "it's"]);
         assert!(e.contains("quote"), "{e}");
@@ -380,6 +415,7 @@ mod tests {
             "--workflow",
             "--address",
             "--readonly",
+            "--dashboard",
             "--temporal-config",
             "--config-path",
             "--help",

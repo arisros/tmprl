@@ -39,7 +39,13 @@ fn resolve_dir(
 }
 
 /// The files tmprl reads out of its config directory.
-pub const CONFIG_FILES: [&str; 4] = ["config.toml", "keys.toml", "theme.toml", "views.toml"];
+pub const CONFIG_FILES: [&str; 5] = [
+    "config.toml",
+    "dashboard.toml",
+    "keys.toml",
+    "theme.toml",
+    "views.toml",
+];
 
 /// What `--config-path` prints.
 ///
@@ -69,7 +75,7 @@ pub fn describe_paths(explicit_temporal_config: Option<&str>) -> String {
             for name in CONFIG_FILES {
                 let path = dir.join(name);
                 let mark = if path.is_file() { "present" } else { "absent" };
-                out.push_str(&format!("  {name:<12} {mark}\n"));
+                out.push_str(&format!("  {name:<14} {mark}\n"));
             }
         }
     }

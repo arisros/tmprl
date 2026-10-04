@@ -176,8 +176,10 @@ Nothing on the dashboard is a target for `<leader>m`; open the workflow first.
 On a terminal too small for every panel, the ones around the cursor are drawn and the rest
 are counted, `+3 hidden`. Moving the cursor scrolls the dashboard to them.
 
-The layout is fixed for now. A `dashboard.toml` and panels chosen from what the namespace
-shows are *planned*.
+The panels and their arrangement come from `dashboard.toml`, described under
+[Configuration files](#configuration-files); without one the layout above is used.
+`tmprl --dashboard` opens straight onto it. Panels chosen from what the namespace shows
+are *planned*.
 
 ### Finding
 
@@ -507,6 +509,7 @@ on the namespace list.
 | `-n`, `--namespace <NAME>` | open on that namespace's workflow list, overriding the profile's namespace |
 | `-q`, `--query <QUERY>` | open on the workflow list with this visibility query in the bar, applied |
 | `-w`, `--workflow <ID>` | open the history of this workflow id or run id |
+| `--dashboard` | open on the dashboard, of the profile's namespace or the one `-n` names |
 | `--address <HOST:PORT>` | connect to this server instead of the profile's address |
 | `--readonly` | refuse every mutation for this run |
 | `--temporal-config <PATH>` | read connection profiles from this file (alias: `--config`) |
@@ -517,8 +520,10 @@ A long flag also takes its value as `--flag=value`, which is the way to pass a v
 starts with a dash. A flag given twice takes the last value, and an argument `tmprl` does not
 know exits with status 2 before anything connects.
 
-`-q` and `-w` use the profile's namespace unless `-n` names another, and `-` from wherever
-they land still goes up a level, so the namespace list is one key away.
+`-q`, `-w` and `--dashboard` use the profile's namespace unless `-n` names another, and `-`
+from wherever they land still goes up a level, so the namespace list is one key away.
+`--dashboard` cannot be combined with `-q` or `-w`, which each name a different screen to
+open on; the combination exits with status 2.
 
 `-w` asks the server for an exact match on either id, the same lookup `<leader>ff` falls back
 to, without that picker's prefix search: it opens what it finds, so it must not guess. When a
@@ -611,6 +616,7 @@ depth rule: nearest named colour on 16, none under `NO_COLOR`.
 | File | Holds |
 |---|---|
 | `~/.config/tmprl/config.toml` | codec server endpoint, payload pane position, display timezone and yank limit, **live**; refresh intervals and defaults *planned* |
+| `~/.config/tmprl/dashboard.toml` | the dashboard's panels and their arrangement, **live** |
 | `~/.config/tmprl/keys.toml` | key chord → command id, **live** |
 | `~/.config/tmprl/theme.toml` | palette slot → colour, **live** |
 | `~/.config/tmprl/views.toml` | saved visibility queries, **live** |
@@ -661,6 +667,55 @@ key   = "2"
 name  = "Broken"
 query = "ExecutionStatus = 'Failed' OR ExecutionStatus = 'Terminated'"
 ```
+
+A `dashboard.toml` is rows from top to bottom, each holding panels from left to right:
+
+```toml
+[[row]]
+lines = 3                # a fixed height; or `height`, a share of what is left
+
+[[row.panel]]
+kind = "counts"
+
+[[row]]
+height = 3
+
+[[row.panel]]
+kind  = "workflows"
+title = "Recent failures"
+query = "ExecutionStatus IN ('Failed', 'TimedOut', 'Terminated')"
+since = "24h"
+width = 2                # twice the share of its neighbour
+
+[[row.panel]]
+kind  = "types"
+query = "ExecutionStatus IN ('Failed', 'TimedOut', 'Terminated')"
+since = "24h"
+```
+
+| Key | On | Value | Default | |
+|---|---|---|---|---|
+| `height` | row | 1 to 100 | 1 | the row's share of the height left over |
+| `lines` | row | 3 to 50 | | a fixed height instead, borders included; not with `height` |
+| `kind` | panel | `counts` `workflows` `types` `queues` `schedules` | required | what the panel shows |
+| `title` | panel | text | from the kind | the title on its border |
+| `width` | panel | 1 to 100 | 1 | the panel's share of the row |
+| `namespaces` | panel | list of names | the pane's scope | the namespaces it asks |
+| `query` | `counts` `workflows` `types` `queues` | a visibility query | none; `queues`: running workflows | what it counts, lists or tallies. No `ORDER BY`: a panel sorts its own rows |
+| `since` | `workflows` `types` | `30m` `24h` `7d` `2w` | | only workflows started within this long, worked out at each refresh |
+| `limit` | every kind but `counts` | 1 to 50 | 10 | the most items it holds |
+| `names` | `queues` | list of names | | task queues to list even when nothing is running on them |
+| `show` | `schedules` | `all` `paused` `upcoming` | `all` | which schedules; `upcoming` sorts by next run |
+
+`workflows` lists the newest first, `types` tallies workflow types over the same rows, and
+`queues` tallies the task queues those rows are on. Two panels with the same query, window
+and namespaces share one request, so a list and its tally cannot disagree. A layout holds at
+most 12 panels.
+
+The file is read strictly, like `keys.toml`: a key that does not exist, or one that belongs
+to another kind of panel, sets the whole file aside with a message naming it, and the
+built-in layout is used. A misspelt `query` would otherwise show every workflow under a
+"failures" title. A file with no rows is the same as no file.
 
 Connection settings are deliberately *not* in this list, those come from
 `~/.config/temporalio/temporal.toml`, the same file the `temporal` CLI uses.

@@ -252,3 +252,28 @@ fn a_readonly_profile_is_named_even_when_the_flag_is_also_given() {
     let (text, _) = app.note.clone().unwrap();
     assert!(text.contains("profile prod"), "{text}");
 }
+
+#[test]
+fn the_dashboard_flag_opens_on_the_dashboard() {
+    let app = started(Startup {
+        dashboard: true,
+        ..Default::default()
+    });
+    assert_eq!(app.view.screen, Screen::Dashboard);
+    assert_eq!(app.view.scope, ["default"]);
+    assert!(app.view.dashboard.is_some());
+}
+
+#[test]
+fn the_dashboard_flag_takes_the_namespace_it_is_given() {
+    let mut app = started(Startup {
+        dashboard: true,
+        namespace: Some("orders".into()),
+        ..Default::default()
+    });
+    assert_eq!(app.view.scope, ["orders"]);
+    assert_eq!(app.view.dashboard.as_ref().unwrap().scope(), ["orders"]);
+
+    app.run("nav.up", None);
+    assert_eq!(app.view.screen, Screen::Namespaces);
+}
