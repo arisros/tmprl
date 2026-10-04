@@ -6,6 +6,11 @@
   status, failures of the last day, the workflow types failing most, the task queues running
   workflows are on, and schedules. `Enter` on an item opens what it stands for, `]p` and `[p`
   step between panels, and a dashboard left in a split keeps receiving its own data.
+- **`dashboard.toml`** lays the dashboard out: rows of panels, each with a kind, a query, a
+  time window and a share of the screen. A key it does not know sets the file aside with a
+  message, and the built-in layout is used. `--config-path` lists the file.
+- **`--dashboard`** opens tmprl straight onto the dashboard, in the profile's namespace or
+  the one `-n` names.
 
 ## 0.1.5 — 2026-10-03
 

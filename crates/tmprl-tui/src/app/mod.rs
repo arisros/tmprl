@@ -383,6 +383,8 @@ pub struct App {
     decode_failed: HashMap<u64, String>,
     codec: Option<Arc<Codec>>,
     pub views: Vec<SavedView>,
+    /// The layout `dashboard.toml` asks for. `None` leaves the dashboard to the builtin one.
+    dashboard_layout: Option<Layout>,
     /// What this cluster lets you filter on, fetched once per namespace the first time the
     /// filter picker is opened. Session-level rather than per-pane: it is a property of the
     /// cluster, and every pane is on the same one.
@@ -522,6 +524,7 @@ impl App {
             decode_failed: HashMap::new(),
             codec: None,
             views: Vec::new(),
+            dashboard_layout: None,
             search_attributes: Loadable::default(),
             completion: None,
             attributes_for: None,
@@ -620,6 +623,16 @@ impl App {
             }
         };
         self.theme = Theme::new(depth, &overrides);
+    }
+
+    /// Install the user's `dashboard.toml`. A file that does not parse is reported and set
+    /// aside whole, and one with no rows is the same as no file.
+    pub fn apply_dashboard(&mut self, dashboard: Option<&str>) {
+        match dashboard.map(tmprl_core::dashboard::parse_dashboard) {
+            None => {}
+            Some(Ok(layout)) => self.dashboard_layout = Some(layout).filter(|l| !l.is_empty()),
+            Some(Err(e)) => self.note = Some((e.to_string(), Note::Error)),
+        }
     }
 
     pub fn profile(&self) -> &str {

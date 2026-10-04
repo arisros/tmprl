@@ -66,7 +66,8 @@ While the version starts with `0.`, the middle number is the breaking one.
 | New feature, new config key or binding | minor |
 | A key, command, config key or flag removed or renamed | minor while 0.x, major after 1.0 |
 
-Keys, commands, `config.toml` / `keys.toml` / `views.toml` keys and CLI flags are the public
+Keys, commands, `config.toml` / `keys.toml` / `views.toml` / `theme.toml` / `dashboard.toml`
+keys and CLI flags are the public
 API here; Rust types are not. All four crates share one version, so any release moves them all.
 
 ## Before a release

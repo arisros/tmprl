@@ -142,6 +142,19 @@ endpoint = "https://codec.internal"
 ```
 
 ```toml
+# ~/.config/tmprl/dashboard.toml, shown by gd or tmprl --dashboard
+[[row]]
+[[row.panel]]
+kind  = "workflows"
+title = "Stuck checkouts"
+query = "WorkflowType = 'Checkout' AND ExecutionStatus = 'Running'"
+
+[[row.panel]]
+kind = "schedules"
+show = "paused"
+```
+
+```toml
 # ~/.config/tmprl/views.toml — <Space>1 … <Space>9
 [[view]]
 key   = "1"
@@ -176,7 +189,7 @@ flowchart LR
 |---|---|---|
 | `tmprl-client` | 77 | all network IO |
 | `tmprl-core` | 369 | no terminal, no server |
-| `tmprl-tui` | 406 | ratatui |
+| `tmprl-tui` | 414 | ratatui |
 | `tmprl-ui` | 44 | window tree |
 
 ```sh

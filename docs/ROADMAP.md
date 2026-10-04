@@ -57,7 +57,7 @@ broken.
 
 | Item | Today | Effort |
 |---|---|---|
-| Dashboard | Built with a fixed layout, `gd`: counts by status, recent failures, the types failing most, task queues in use and schedules, each item one `Enter` from the workflows it stands for. Still wanted: `dashboard.toml`, panels chosen from what the namespace shows, auto-refresh, task queue health on the panel, arranging panels in the app | L |
+| Dashboard | Built, `gd` or `--dashboard`: counts by status, recent failures, the types failing most, task queues in use and schedules, each item one `Enter` from the workflows it stands for, laid out by `dashboard.toml`. Still wanted: panels chosen from what the namespace shows, auto-refresh, task queue health on the panel, arranging panels in the app | L |
 | Task queue describe | Nothing. `DescribeTaskQueue` gives pollers, backlog count and age, and rates. Reached from a workflow's task queue or a typed name | M |
 | Build id display | Nothing. Shown on the info pane and on pollers; no browser, see below | S |
 | Open a history from a file | The app cannot start without a server. Wanted: `tmprl --history <file>` and a capture command. This also gives a demo with no server and fixtures for tests | M to L |

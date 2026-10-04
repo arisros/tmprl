@@ -374,3 +374,55 @@ fn a_split_dashboard_asks_for_its_own_data() {
     assert_eq!(app.row_count(), 0);
     assert!(board(&app).state(0).unwrap().is_loading());
 }
+
+const ONE_PANEL: &str = "[[row]]\n[[row.panel]]\nkind = \"workflows\"\ntitle = \"Stuck\"\nquery = \"ExecutionStatus = 'Running'\"\n";
+
+#[test]
+fn a_dashboard_file_replaces_the_builtin_layout() {
+    let mut app = app();
+    app.apply_dashboard(Some(ONE_PANEL));
+    assert!(app.note.is_none());
+    app.view.screen = Screen::Workflows;
+    app.run("nav.dashboard", None);
+    assert_eq!(board(&app).panel_count(), 1);
+    assert_eq!(board(&app).spec(0).unwrap().title(), "Stuck");
+    assert_eq!(board(&app).sources().len(), 1);
+}
+
+#[test]
+fn a_dashboard_file_that_does_not_parse_is_reported_and_set_aside() {
+    let mut app = app();
+    app.apply_dashboard(Some(
+        "[[row]]\n[[row.panel]]\nkind = \"workflows\"\nqeury = \"x\"\n",
+    ));
+    let (message, kind) = app.note.clone().unwrap();
+    assert_eq!(kind, Note::Error);
+    assert!(
+        message.contains("dashboard.toml") && message.contains("qeury"),
+        "{message}"
+    );
+
+    app.view.screen = Screen::Workflows;
+    app.run("nav.dashboard", None);
+    assert_eq!(board(&app).panel_count(), 5, "the builtin layout stands in");
+}
+
+#[test]
+fn an_empty_or_absent_dashboard_file_is_the_builtin_layout() {
+    for file in [None, Some(""), Some("# later\n")] {
+        let mut app = app();
+        app.apply_dashboard(file);
+        assert!(app.note.is_none());
+        app.view.screen = Screen::Workflows;
+        app.run("nav.dashboard", None);
+        assert_eq!(board(&app).panel_count(), 5);
+    }
+}
+
+#[test]
+fn a_key_error_is_the_one_left_on_the_note_line() {
+    let mut app = app();
+    app.apply_dashboard(Some("rows = 1"));
+    app.apply_config(Some("[normal]\n\"x\" = \"nope.nope\"\n"), None, None);
+    assert!(app.note.as_ref().unwrap().0.contains("nope.nope"));
+}

@@ -1,9 +1,9 @@
 # Architecture
 
 > **Read this first.** This document mixes built code with design that is not written yet,
-> and every section says which it is. §§2 to 9 are implemented and tested, with four
-> exceptions marked where they occur: macros and headless mode in §4, the dashboard's config file at the
-> end of §5, diff in §§6 and 7, and the query-driven batch at the end of §9. Those are written down in advance so the shape is
+> and every section says which it is. §§2 to 9 are implemented and tested, with three
+> exceptions marked where they occur: macros and headless mode in §4, diff in §§6 and 7, and
+> the query-driven batch at the end of §9. Those are written down in advance so the shape is
 > agreed before there is code sitting on top of it. [ROADMAP.md](ROADMAP.md) says when.
 >
 > | Marker | Meaning |
@@ -65,7 +65,7 @@ project testable:
 |---|---|---|---|
 | `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 77 |
 | `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 369 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 406 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 414 |
 | `tmprl-ui` | built | Plain unit tests over the layout tree | 44 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -332,12 +332,12 @@ A `Conn` clone shares a single HTTP/2 channel, so listing several namespaces is 
 and N concurrent streams. Each namespace pages independently and exhausts at a different
 point, so the continuation token is per namespace rather than one token for the merged list.
 
-### The dashboard · BUILT (a fixed layout; reading `dashboard.toml` is PLANNED)
+### The dashboard · BUILT
 
 One screen of panels over a scope: status counts, recent failures, the workflow types failing
 most, the task queues in use, schedules. The model is `tmprl-core/src/dashboard.rs`,
-`app/dashboard.rs` issues its requests and `ui/dashboard.rs` draws it. The parser for
-`dashboard.toml` is built and tested; nothing reads the file from disk yet.
+`app/dashboard.rs` issues its requests and `ui/dashboard.rs` draws it. The layout is the
+one `dashboard.toml` parses into, or the builtin one when the file is absent, empty or wrong.
 
 - **A panel does not fetch.** It reads from a `Source`, and panels asking for the same thing
   share one. "Recent failures" and "failing types" are one `ListWorkflowExecutions` and

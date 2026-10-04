@@ -1,4 +1,5 @@
-//! Where the command line asked to open: a namespace, a query, a workflow, read-only.
+//! Where the command line asked to open: a namespace, a query, a workflow, the dashboard,
+//! read-only.
 
 use super::*;
 
@@ -13,6 +14,8 @@ pub struct Startup {
     pub workflow: Option<String>,
     /// `--readonly`: refuse every mutation, whatever `config.toml` says.
     pub readonly: bool,
+    /// `--dashboard`: open the dashboard instead of the namespace list.
+    pub dashboard: bool,
 }
 
 impl Startup {
@@ -31,13 +34,18 @@ impl App {
     pub fn start(&mut self, startup: Startup) {
         self.readonly_flag = startup.readonly;
         self.load_namespaces();
-        if !startup.opens_workflows() {
+        if !startup.opens_workflows() && !startup.dashboard {
             return;
         }
         if let Some(namespace) = startup.namespace {
             // The connection was already bound to it; this is the same fact for the panes.
             self.view.scope = vec![namespace.clone()];
             self.namespace = namespace;
+        }
+        if startup.dashboard {
+            self.view.screen = Screen::Dashboard;
+            self.load_dashboard();
+            return;
         }
         self.view.screen = Screen::Workflows;
         if let Some(query) = startup.query {
