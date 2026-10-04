@@ -22,6 +22,11 @@
 - **`dashboard.toml`** lays the dashboard out: rows of panels, each with a kind, a query, a
   time window and a share of the screen. A key it does not know sets the file aside with a
   message, and the built-in layout is used. `--config-path` lists the file.
+- **Dashboard time windows**: `since` now works on a `counts` panel, so a status line can
+  cover the last day instead of everything. `older = "3d"` is the other bound, for workflows
+  that started more than three days ago and are still running. `by = "close"` measures both
+  from when a workflow closed, so "failures, last 24h" includes one that started last week
+  and failed ten minutes ago.
 - **`--dashboard`** opens tmprl straight onto the dashboard, in the profile's namespace or
   the one `-n` names.
 

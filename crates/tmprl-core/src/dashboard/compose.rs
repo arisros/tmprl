@@ -1,6 +1,6 @@
 //! The adaptive layout: the panels worth showing, chosen from what the namespace holds.
 
-use super::layout::{DAY_MS, Layout, PanelKind, PanelSpec, RUNNING, RowSpec, Show, Size};
+use super::layout::{DAY_MS, Layout, PanelKind, PanelSpec, RUNNING, RowSpec, Show, Size, Window};
 use super::source::tally_types;
 use crate::query;
 use crate::schedule::ScheduleRow;
@@ -30,24 +30,24 @@ impl Slot {
     ];
 
     pub(super) fn spec(self) -> PanelSpec {
-        let failures = || (query::PROBLEMS.to_string(), Some(DAY_MS));
+        let failures = || (query::PROBLEMS.to_string(), Window::since(DAY_MS));
         let running = || RUNNING.to_string();
         match self {
             Slot::Failures => {
-                let (query, since_ms) = failures();
-                let mut spec = PanelSpec::new(PanelKind::Workflows { query, since_ms })
+                let (query, window) = failures();
+                let mut spec = PanelSpec::new(PanelKind::Workflows { query, window })
                     .titled("Recent failures");
                 spec.width = 2;
                 spec
             }
             Slot::Types => {
-                let (query, since_ms) = failures();
-                PanelSpec::new(PanelKind::Types { query, since_ms }).titled("Failing types")
+                let (query, window) = failures();
+                PanelSpec::new(PanelKind::Types { query, window }).titled("Failing types")
             }
             Slot::Running => {
                 let mut spec = PanelSpec::new(PanelKind::Workflows {
                     query: running(),
-                    since_ms: None,
+                    window: Window::default(),
                 })
                 .titled("Running");
                 spec.width = 2;
@@ -137,6 +137,7 @@ pub fn compose(facts: &Facts, kept: &[Slot]) -> Layout {
         size: Size::Lines(3),
         panels: vec![PanelSpec::new(PanelKind::Counts {
             query: String::new(),
+            window: Window::default(),
         })],
     }];
     if !middle.is_empty() {

@@ -743,7 +743,9 @@ since = "24h"
 | `width` | panel | 1 to 100 | 1 | the panel's share of the row |
 | `namespaces` | panel | list of names | the pane's scope | the namespaces it asks |
 | `query` | `counts` `workflows` `types` `queues` | a visibility query | none; `queues`: running workflows | what it counts, lists or tallies. No `ORDER BY`: a panel sorts its own rows |
-| `since` | `workflows` `types` | `30m` `24h` `7d` `2w` | | only workflows started within this long, worked out at each refresh |
+| `since` | `counts` `workflows` `types` | `30m` `24h` `7d` `2w` | | only workflows started within this long, worked out at each refresh |
+| `older` | `counts` `workflows` `types` | a duration, as `since` | | only workflows started longer ago than this. With `since` the two bound a stretch, and `since` must be the longer |
+| `by` | `counts` `workflows` `types` | `start` `close` | `start` | the time `since` and `older` measure. `close` lists the last to close first and shows how long ago each closed; a workflow still running has no close time and is left out |
 | `limit` | every kind but `counts` | 1 to 50 | 10 | the most items it holds |
 | `names` | `queues` | list of names | | task queues to list even when nothing is running on them |
 | `show` | `schedules` | `all` `paused` `upcoming` | `all` | which schedules; `upcoming` sorts by next run |

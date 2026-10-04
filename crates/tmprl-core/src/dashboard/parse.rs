@@ -4,7 +4,7 @@ use std::ops::RangeInclusive;
 
 use super::layout::{
     DEFAULT_LIMIT, Layout, MAX_LIMIT, MAX_PANELS, PanelKind, PanelSpec, RUNNING, RowSpec, Show,
-    Size,
+    Size, TimeField, Window,
 };
 use crate::config::ConfigError;
 use crate::query;
@@ -19,8 +19,17 @@ const ROW_KEYS: &str = "height, lines or panel";
 fn allowed(kind: &str) -> Option<(&'static [&'static str], &'static str)> {
     Some(match kind {
         "counts" => (
-            &["kind", "title", "width", "namespaces", "query"],
-            "kind, title, width, namespaces or query",
+            &[
+                "kind",
+                "title",
+                "width",
+                "namespaces",
+                "query",
+                "since",
+                "older",
+                "by",
+            ],
+            "kind, title, width, namespaces, query, since, older or by",
         ),
         "workflows" | "types" => (
             &[
@@ -31,8 +40,10 @@ fn allowed(kind: &str) -> Option<(&'static [&'static str], &'static str)> {
                 "limit",
                 "query",
                 "since",
+                "older",
+                "by",
             ],
-            "kind, title, width, namespaces, limit, query or since",
+            "kind, title, width, namespaces, limit, query, since, older or by",
         ),
         "queues" => (
             &[
@@ -144,14 +155,44 @@ fn filter(table: &toml::Table, path: &str, default: &str) -> Result<String, Conf
     Ok(query)
 }
 
-fn window(table: &toml::Table, path: &str) -> Result<Option<i64>, ConfigError> {
-    match text(table, "since", path)? {
+fn duration(table: &toml::Table, key: &str, path: &str) -> Result<Option<i64>, ConfigError> {
+    match text(table, key, path)? {
         None => Ok(None),
         Some(s) => parse_offset(&s)
             .filter(|ms| *ms > 0)
             .map(Some)
-            .ok_or_else(|| wrong(format!("{path}.since"), "a duration such as 30m, 24h or 7d")),
+            .ok_or_else(|| wrong(format!("{path}.{key}"), "a duration such as 30m, 24h or 7d")),
     }
+}
+
+fn window(table: &toml::Table, path: &str) -> Result<Window, ConfigError> {
+    let since_ms = duration(table, "since", path)?;
+    let older_ms = duration(table, "older", path)?;
+    if let (Some(since), Some(older)) = (since_ms, older_ms)
+        && since <= older
+    {
+        return Err(wrong(
+            format!("{path}.older"),
+            "shorter than `since`, the two bound a stretch of time",
+        ));
+    }
+    let by = match text(table, "by", path)?.as_deref() {
+        None => TimeField::Start,
+        Some(_) if since_ms.is_none() && older_ms.is_none() => {
+            return Err(wrong(
+                format!("{path}.by"),
+                "given with `since` or `older`, it names the time they measure",
+            ));
+        }
+        Some("start") => TimeField::Start,
+        Some("close") => TimeField::Close,
+        Some(_) => return Err(wrong(format!("{path}.by"), "`start` or `close`")),
+    };
+    Ok(Window {
+        since_ms,
+        older_ms,
+        by,
+    })
 }
 
 fn parse_panel(table: &toml::Table, path: &str) -> Result<PanelSpec, ConfigError> {
@@ -166,14 +207,15 @@ fn parse_panel(table: &toml::Table, path: &str) -> Result<PanelSpec, ConfigError
     let kind = match kind.as_str() {
         "counts" => PanelKind::Counts {
             query: filter(table, path, "")?,
+            window: window(table, path)?,
         },
         "workflows" => PanelKind::Workflows {
             query: filter(table, path, "")?,
-            since_ms: window(table, path)?,
+            window: window(table, path)?,
         },
         "types" => PanelKind::Types {
             query: filter(table, path, "")?,
-            since_ms: window(table, path)?,
+            window: window(table, path)?,
         },
         "queues" => PanelKind::Queues {
             query: filter(table, path, RUNNING)?,
@@ -345,7 +387,7 @@ mod tests {
             recent.kind,
             PanelKind::Workflows {
                 query: query::PROBLEMS.to_string(),
-                since_ms: Some(DAY_MS),
+                window: Window::since(DAY_MS),
             }
         );
         assert_eq!(layout.rows[1].panels[1].title(), "Workflow types");
@@ -391,7 +433,7 @@ mod tests {
     #[test]
     fn a_key_of_another_kind_of_panel_is_an_error() {
         assert_eq!(
-            unknown_key(panel("kind = \"counts\"\nsince = \"1h\"")),
+            unknown_key(panel("kind = \"queues\"\nsince = \"1h\"")),
             "since"
         );
         assert_eq!(unknown_key(panel("kind = \"counts\"\nlimit = 3")), "limit");
@@ -476,6 +518,58 @@ mod tests {
         assert_eq!(
             wrong_path(panel("kind = \"queues\"\nnames = [\"a\", 3]")),
             "row[0].panel[0].names"
+        );
+    }
+
+    #[test]
+    fn a_window_reads_how_far_back_how_far_forward_and_which_time() {
+        let window = |src: &str| match &panel(src).unwrap().rows[0].panels[0].kind {
+            PanelKind::Counts { window, .. }
+            | PanelKind::Workflows { window, .. }
+            | PanelKind::Types { window, .. } => *window,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(
+            window("kind = \"counts\"\nsince = \"24h\""),
+            Window::since(DAY_MS)
+        );
+        assert_eq!(
+            window("kind = \"workflows\"\nolder = \"3d\""),
+            Window {
+                since_ms: None,
+                older_ms: Some(3 * DAY_MS),
+                by: TimeField::Start,
+            }
+        );
+        assert_eq!(
+            window("kind = \"types\"\nsince = \"7d\"\nolder = \"1d\"\nby = \"close\""),
+            Window {
+                since_ms: Some(7 * DAY_MS),
+                older_ms: Some(DAY_MS),
+                by: TimeField::Close,
+            }
+        );
+    }
+
+    #[test]
+    fn a_window_that_bounds_nothing_is_an_error() {
+        assert_eq!(
+            wrong_path(panel("kind = \"workflows\"\nolder = \"soon\"")),
+            "row[0].panel[0].older"
+        );
+        assert_eq!(
+            wrong_path(panel(
+                "kind = \"workflows\"\nsince = \"1d\"\nolder = \"1d\""
+            )),
+            "row[0].panel[0].older"
+        );
+        assert_eq!(
+            wrong_path(panel("kind = \"counts\"\nby = \"close\"")),
+            "row[0].panel[0].by"
+        );
+        assert_eq!(
+            wrong_path(panel("kind = \"counts\"\nsince = \"1d\"\nby = \"end\"")),
+            "row[0].panel[0].by"
         );
     }
 

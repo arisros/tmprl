@@ -16,6 +16,7 @@ pub use board::{Anchor, Board, Drill};
 pub use compose::{Facts, Slot, compose};
 pub use layout::{
     DEFAULT_LIMIT, Layout, MAX_LIMIT, MAX_PANELS, PanelKind, PanelSpec, RowSpec, Show, Size,
+    TimeField, Window,
 };
 pub use pacer::{Outcome, Pacer};
 pub use parse::parse_dashboard;

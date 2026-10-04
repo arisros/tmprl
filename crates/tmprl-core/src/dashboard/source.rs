@@ -3,12 +3,12 @@
 
 use std::collections::BTreeMap;
 
-use super::layout::{PanelKind, PanelSpec, Show};
-use crate::query;
+use super::layout::{PanelKind, PanelSpec, Show, TimeField, Window};
 use crate::schedule::ScheduleRow;
 use crate::taskqueue::QueueHealth;
-use crate::timerange::to_rfc3339;
-use crate::workflow::{StatusCounts, WorkflowRow, WorkflowStatus, by_start_time_desc};
+use crate::workflow::{
+    StatusCounts, WorkflowRow, WorkflowStatus, by_close_time_desc, by_start_time_desc,
+};
 
 /// The most task queues a board describes. Each costs two requests a refresh.
 pub const MAX_QUEUES: usize = 8;
@@ -19,11 +19,12 @@ pub enum Source {
     Counts {
         namespaces: Vec<String>,
         query: String,
+        window: Window,
     },
     Workflows {
         namespaces: Vec<String>,
         query: String,
-        since_ms: Option<i64>,
+        window: Window,
     },
     Schedules {
         namespaces: Vec<String>,
@@ -46,26 +47,14 @@ impl Source {
         }
     }
 
-    /// The visibility query to send. The grammar has no `now()`, so a `since` window becomes
-    /// a literal instant each time this is asked.
+    /// The visibility query to send, its window worked out against `now_ms`.
     pub fn query(&self, now_ms: i64) -> String {
         match self {
-            Source::Counts { query, .. } => query.clone(),
-            Source::Workflows {
-                query, since_ms, ..
-            } => since(query, *since_ms, now_ms),
+            Source::Counts { query, window, .. } | Source::Workflows { query, window, .. } => {
+                window.narrow(query, now_ms)
+            }
             Source::Schedules { .. } | Source::Queue { .. } => String::new(),
         }
-    }
-}
-
-fn since(filter: &str, since_ms: Option<i64>, now_ms: i64) -> String {
-    match since_ms {
-        Some(ms) => query::and(
-            filter,
-            &format!("StartTime > '{}'", to_rfc3339(now_ms - ms)),
-        ),
-        None => filter.trim().to_string(),
     }
 }
 
@@ -207,9 +196,12 @@ pub(super) fn items(spec: &PanelSpec, data: Option<&SourceData>, namespace: &str
                 .map(|(status, count)| Item::Status { status, count })
                 .collect();
         }
-        (PanelKind::Workflows { .. }, Some(SourceData::Workflows { rows, .. })) => {
+        (PanelKind::Workflows { window, .. }, Some(SourceData::Workflows { rows, .. })) => {
             let mut rows = rows.clone();
-            rows.sort_by(by_start_time_desc);
+            rows.sort_by(match window.by {
+                TimeField::Start => by_start_time_desc,
+                TimeField::Close => by_close_time_desc,
+            });
             rows.into_iter().map(Item::Workflow).collect()
         }
         (PanelKind::Types { .. }, Some(SourceData::Workflows { rows, .. })) => tally_types(rows)
@@ -251,13 +243,16 @@ pub(super) fn items(spec: &PanelSpec, data: Option<&SourceData>, namespace: &str
 mod tests {
     use super::*;
     use crate::dashboard::fixtures::*;
+    use crate::timerange::to_rfc3339;
+
+    const DAY: i64 = 86_400_000;
 
     #[test]
     fn a_window_becomes_a_literal_instant() {
         let source = Source::Workflows {
             namespaces: scope(),
             query: "A = 'x' OR B = 'y'".into(),
-            since_ms: Some(3_600_000),
+            window: Window::since(3_600_000),
         };
         assert_eq!(
             source.query(NOW),
@@ -269,9 +264,87 @@ mod tests {
         let open = Source::Workflows {
             namespaces: scope(),
             query: String::new(),
-            since_ms: None,
+            window: Window::default(),
         };
         assert_eq!(open.query(NOW), "");
+    }
+
+    #[test]
+    fn a_counts_panel_takes_a_window_too() {
+        let source = Source::Counts {
+            namespaces: scope(),
+            query: " ".into(),
+            window: Window::since(3_600_000),
+        };
+        assert_eq!(
+            source.query(NOW),
+            format!("StartTime > '{}'", to_rfc3339(NOW - 3_600_000))
+        );
+    }
+
+    #[test]
+    fn older_looks_past_an_instant_and_with_since_makes_a_band() {
+        let query = |window: Window| {
+            Source::Workflows {
+                namespaces: scope(),
+                query: "T = 'x'".into(),
+                window,
+            }
+            .query(NOW)
+        };
+        let older = Window {
+            older_ms: Some(DAY),
+            ..Window::default()
+        };
+        assert_eq!(
+            query(older),
+            format!("T = 'x' AND StartTime < '{}'", to_rfc3339(NOW - DAY))
+        );
+        let band = Window {
+            since_ms: Some(7 * DAY),
+            older_ms: Some(DAY),
+            by: TimeField::Close,
+        };
+        assert_eq!(
+            query(band),
+            format!(
+                "T = 'x' AND CloseTime > '{}' AND CloseTime < '{}'",
+                to_rfc3339(NOW - 7 * DAY),
+                to_rfc3339(NOW - DAY)
+            )
+        );
+    }
+
+    #[test]
+    fn a_window_on_close_time_lists_the_last_to_close_first() {
+        let closed = |run: &str, start: i64, close: Option<i64>| WorkflowRow {
+            close_time: close,
+            ..wf(run, "T", "q", start)
+        };
+        let data = SourceData::Workflows {
+            rows: vec![
+                closed("early", 30, Some(40)),
+                closed("open", 20, None),
+                closed("late", 10, Some(90)),
+            ],
+            more: false,
+        };
+        let order = |by: TimeField| -> Vec<String> {
+            let spec = PanelSpec::new(PanelKind::Workflows {
+                query: String::new(),
+                window: Window {
+                    since_ms: Some(DAY),
+                    older_ms: None,
+                    by,
+                },
+            });
+            items(&spec, Some(&data), "default")
+                .into_iter()
+                .map(|i| i.field().to_string())
+                .collect()
+        };
+        assert_eq!(order(TimeField::Start), ["wf-early", "wf-open", "wf-late"]);
+        assert_eq!(order(TimeField::Close), ["wf-late", "wf-early", "wf-open"]);
     }
 
     #[test]

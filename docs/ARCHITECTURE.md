@@ -64,8 +64,8 @@ project testable:
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
 | `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 80 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 397 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 432 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 402 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 433 |
 | `tmprl-ui` | built | Plain unit tests over the layout tree | 44 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -347,7 +347,7 @@ one `dashboard.toml` parses into, or the builtin one when the file is absent, em
   that work on a list work here. Across a refresh the cursor is anchored to the item's key,
   as it is in the workflow list.
 - **Every item opens what it stands for.** A status, a type or a queue becomes a visibility
-  query, a `since` window compiled to the literal instant it means, and that text lands in
+  query, a `since` or `older` window compiled to the literal instants it means, and that text lands in
   the query bar like any other.
 - **Adaptive is the builtin layout, less what is known to be empty.** `compose` is a pure
   function from what the four probe requests found to a `Layout`, the same type the config
