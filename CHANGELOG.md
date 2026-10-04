@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-10-04
 
 - **Yank**: a yank over the limit is written to a file instead of being refused, and the
   status line says where: `510853 bytes is over the yank limit (65536), written to
@@ -59,7 +59,20 @@
 
 ## 0.1.5 — 2026-10-03
 
-- No user-visible changes.
+- feat: list workflows whose activities keep being retried
+- feat: move over the panels with h j k l
+- feat: add a histogram panel and a failures-per-hour chart
+- feat: count the names a sampled tally finds
+- feat: window counts, look past an age, and measure from close time
+- feat: fit a row to what its panels show
+- feat: say why a listed workflow failed
+- feat: show task queue backlog and pollers
+- feat: refresh the dashboard on a timer
+- feat: choose the panels from what the namespace shows
+- feat: read dashboard.toml and add --dashboard
+- feat: add the dashboard screen
+- feat: add the core model and dashboard.toml parser
+- feat: write an oversized yank to a file and add yank.max_bytes
 
 ## 0.1.4 — 2026-10-03
 
