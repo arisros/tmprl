@@ -125,7 +125,7 @@ Every file opens with a `//!` line saying what it is; this is those lines, gathe
 | `config.rs`, `clock.rs`, `loadable.rs` | config parsing, wall-clock rendering, four-state remote data |
 | `fault.rs` | a failed request: the call, the gRPC code, the server's message, and what to try |
 | `theme.rs` | colour depth from the environment, `theme.toml`, hex to the nearest of 16 |
-| `dashboard.rs` | the dashboard's panels, the requests they share, `dashboard.toml` |
+| `dashboard/` | the dashboard: `layout`, `source` (requests and the items made from them), `board`, `compose` (the adaptive layout), `pacer` (when to ask again), `parse` (`dashboard.toml`) |
 | `taskqueue.rs` | a task queue's health: backlog, its age, who is polling |
 
 **`tmprl-client`**, all network IO: `conn.rs` connects; `ops/` has one file per area of the
@@ -336,7 +336,7 @@ point, so the continuation token is per namespace rather than one token for the 
 ### The dashboard · BUILT
 
 One screen of panels over a scope: status counts, recent failures, the workflow types failing
-most, the task queues in use, schedules. The model is `tmprl-core/src/dashboard.rs`,
+most, the task queues in use, schedules. The model is `tmprl-core/src/dashboard/`,
 `app/dashboard.rs` issues its requests and `ui/dashboard.rs` draws it. The layout is the
 one `dashboard.toml` parses into, or the builtin one when the file is absent, empty or wrong.
 
