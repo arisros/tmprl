@@ -142,16 +142,9 @@ pub struct Layout {
 }
 
 impl Layout {
-    /// The layout shown when `dashboard.toml` says nothing.
+    /// The layout shown before anything is known about a namespace, and for one with
+    /// nothing in it.
     pub fn builtin() -> Self {
-        let failures = || (query::PROBLEMS.to_string(), Some(DAY_MS));
-        let (query, since_ms) = failures();
-        let mut recent =
-            PanelSpec::new(PanelKind::Workflows { query, since_ms }).titled("Recent failures");
-        recent.width = 2;
-        let (query, since_ms) = failures();
-        let types = PanelSpec::new(PanelKind::Types { query, since_ms }).titled("Failing types");
-
         Self {
             rows: vec![
                 RowSpec {
@@ -162,17 +155,11 @@ impl Layout {
                 },
                 RowSpec {
                     size: Size::Weight(3),
-                    panels: vec![recent, types],
+                    panels: vec![Slot::Failures.spec(), Slot::Types.spec()],
                 },
                 RowSpec {
                     size: Size::Weight(2),
-                    panels: vec![
-                        PanelSpec::new(PanelKind::Queues {
-                            query: RUNNING.to_string(),
-                            names: Vec::new(),
-                        }),
-                        PanelSpec::new(PanelKind::Schedules { show: Show::All }),
-                    ],
+                    panels: vec![Slot::Queues.spec(), Slot::Schedules.spec()],
                 },
             ],
         }
@@ -329,8 +316,151 @@ pub enum Drill {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Anchor {
     panel: usize,
+    spec: PanelSpec,
     index: usize,
     key: String,
+}
+
+/// A panel the adaptive layout may or may not show.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Slot {
+    Failures,
+    Types,
+    Running,
+    Queues,
+    Paused,
+    Upcoming,
+    Schedules,
+}
+
+impl Slot {
+    const ALL: [Slot; 7] = [
+        Slot::Failures,
+        Slot::Types,
+        Slot::Running,
+        Slot::Queues,
+        Slot::Paused,
+        Slot::Upcoming,
+        Slot::Schedules,
+    ];
+
+    fn spec(self) -> PanelSpec {
+        let failures = || (query::PROBLEMS.to_string(), Some(DAY_MS));
+        let running = || RUNNING.to_string();
+        match self {
+            Slot::Failures => {
+                let (query, since_ms) = failures();
+                let mut spec = PanelSpec::new(PanelKind::Workflows { query, since_ms })
+                    .titled("Recent failures");
+                spec.width = 2;
+                spec
+            }
+            Slot::Types => {
+                let (query, since_ms) = failures();
+                PanelSpec::new(PanelKind::Types { query, since_ms }).titled("Failing types")
+            }
+            Slot::Running => {
+                let mut spec = PanelSpec::new(PanelKind::Workflows {
+                    query: running(),
+                    since_ms: None,
+                })
+                .titled("Running");
+                spec.width = 2;
+                spec
+            }
+            Slot::Queues => PanelSpec::new(PanelKind::Queues {
+                query: running(),
+                names: Vec::new(),
+            }),
+            Slot::Paused => PanelSpec::new(PanelKind::Schedules { show: Show::Paused }),
+            Slot::Upcoming => PanelSpec::new(PanelKind::Schedules {
+                show: Show::Upcoming,
+            }),
+            Slot::Schedules => PanelSpec::new(PanelKind::Schedules { show: Show::All }),
+        }
+    }
+}
+
+/// What the probes have said so far. `None` is "not known yet", which is not "none".
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Facts<'a> {
+    pub failures: Option<&'a [WorkflowRow]>,
+    pub running: Option<&'a [WorkflowRow]>,
+    pub schedules: Option<&'a [ScheduleRow]>,
+}
+
+/// The layout for a namespace nobody wrote a `dashboard.toml` for: the builtin one, less
+/// the panels known to have nothing in them.
+///
+/// A panel still waiting, or whose request failed, is shown, so the screen says what it is
+/// waiting for and what went wrong. A panel in `kept` is shown even when empty: it had
+/// items a moment ago, and a layout that reshuffles while it is being read is worse than
+/// an empty box.
+pub fn compose(facts: &Facts, kept: &[Slot]) -> Layout {
+    let distinct_types = |rows: &[WorkflowRow]| tally_types(rows).len();
+    let wanted = |slot: Slot| -> bool {
+        if kept.contains(&slot) {
+            return true;
+        }
+        match slot {
+            Slot::Failures => facts.failures.is_none_or(|rows| !rows.is_empty()),
+            Slot::Types => facts.failures.is_none_or(|rows| distinct_types(rows) > 1),
+            Slot::Running => false,
+            Slot::Queues => facts.running.is_none_or(|rows| !rows.is_empty()),
+            Slot::Paused => facts
+                .schedules
+                .is_some_and(|rows| rows.iter().any(|s| s.paused)),
+            Slot::Upcoming => facts
+                .schedules
+                .is_some_and(|rows| rows.iter().any(|s| !s.paused && s.next_run.is_some())),
+            Slot::Schedules => facts.schedules.is_none(),
+        }
+    };
+
+    let mut middle: Vec<Slot> = [Slot::Failures, Slot::Types]
+        .into_iter()
+        .filter(|s| wanted(*s))
+        .collect();
+    // Nothing failed, so the room goes to what is running: a dashboard that is only a
+    // header says less than the list it is one key from.
+    if !middle.contains(&Slot::Failures)
+        && (kept.contains(&Slot::Running) || facts.running.is_some_and(|rows| !rows.is_empty()))
+    {
+        middle.insert(0, Slot::Running);
+    }
+    let mut bottom: Vec<Slot> = [Slot::Queues, Slot::Paused, Slot::Upcoming, Slot::Schedules]
+        .into_iter()
+        .filter(|s| wanted(*s))
+        .collect();
+    // Schedules that are neither paused nor due still exist, and are worth one panel.
+    if facts.schedules.is_some_and(|rows| !rows.is_empty())
+        && !bottom
+            .iter()
+            .any(|s| matches!(s, Slot::Paused | Slot::Upcoming | Slot::Schedules))
+    {
+        bottom.push(Slot::Schedules);
+    }
+
+    if middle.is_empty() && bottom.is_empty() {
+        return Layout::builtin();
+    }
+    let row = |size: Size, slots: Vec<Slot>| RowSpec {
+        size,
+        panels: slots.into_iter().map(Slot::spec).collect(),
+    };
+    let mut rows = vec![RowSpec {
+        size: Size::Lines(3),
+        panels: vec![PanelSpec::new(PanelKind::Counts {
+            query: String::new(),
+        })],
+    }];
+    if !middle.is_empty() {
+        rows.push(row(Size::Weight(3), middle));
+    }
+    if !bottom.is_empty() {
+        rows.push(row(Size::Weight(2), bottom));
+    }
+    Layout { rows }
 }
 
 /// Workflow types by how many of `rows` have them, most first.
@@ -447,34 +577,105 @@ pub struct Board {
     data: Vec<Loadable<SourceData>>,
     faults: Vec<Option<Fault>>,
     panels: Vec<Panel>,
+    /// Whether the layout follows the data, and the panels it has shown with items in them.
+    adaptive: bool,
+    kept: Vec<Slot>,
 }
 
 impl Board {
+    /// A board with the layout it was given, as `dashboard.toml` asks for.
     pub fn new(layout: Layout, scope: &[String]) -> Self {
-        let mut sources: Vec<Source> = Vec::new();
+        let mut board = Self {
+            layout: Layout::default(),
+            scope: scope.to_vec(),
+            sources: Vec::new(),
+            data: Vec::new(),
+            faults: Vec::new(),
+            panels: Vec::new(),
+            adaptive: false,
+            kept: Vec::new(),
+        };
+        board.lay_out(layout);
+        board
+    }
+
+    /// A board that chooses its panels from what its probes find. It starts as the builtin
+    /// layout, whose four sources are the probes.
+    pub fn adaptive(scope: &[String]) -> Self {
+        let mut board = Self::new(Layout::builtin(), scope);
+        board.adaptive = true;
+        board
+    }
+
+    pub fn is_adaptive(&self) -> bool {
+        self.adaptive
+    }
+
+    /// Let panels that have emptied go, as `R` does: the layout is being asked for afresh.
+    pub fn forget(&mut self) {
+        self.kept.clear();
+        self.recompose();
+    }
+
+    fn lay_out(&mut self, layout: Layout) {
+        let namespace = self.scope.first().map_or("", String::as_str).to_string();
         let mut panels = Vec::new();
         for spec in layout.panels() {
-            let wanted = spec.source(scope);
-            let source = sources
-                .iter()
-                .position(|s| *s == wanted)
-                .unwrap_or_else(|| {
-                    sources.push(wanted);
-                    sources.len() - 1
-                });
+            let wanted = spec.source(&self.scope);
+            let source = match self.sources.iter().position(|s| *s == wanted) {
+                Some(at) => at,
+                None => {
+                    self.sources.push(wanted);
+                    self.data.push(Loadable::NotAsked);
+                    self.faults.push(None);
+                    self.sources.len() - 1
+                }
+            };
             panels.push(Panel {
+                items: items(spec, self.data[source].value(), &namespace),
                 spec: spec.clone(),
                 source,
-                items: Vec::new(),
             });
         }
-        Self {
-            layout,
-            scope: scope.to_vec(),
-            data: sources.iter().map(|_| Loadable::NotAsked).collect(),
-            faults: sources.iter().map(|_| None).collect(),
-            sources,
-            panels,
+        self.panels = panels;
+        self.layout = layout;
+    }
+
+    fn probe(&self, slot: Slot) -> Option<&SourceData> {
+        let wanted = slot.spec().source(&self.scope);
+        let at = self.sources.iter().position(|s| *s == wanted)?;
+        self.data[at].value()
+    }
+
+    fn recompose(&mut self) {
+        if !self.adaptive {
+            return;
+        }
+        let rows = |slot: Slot| match self.probe(slot) {
+            Some(SourceData::Workflows { rows, .. }) => Some(rows.as_slice()),
+            _ => None,
+        };
+        let facts = Facts {
+            failures: rows(Slot::Failures),
+            running: rows(Slot::Queues),
+            schedules: match self.probe(Slot::Schedules) {
+                Some(SourceData::Schedules(rows)) => Some(rows.as_slice()),
+                _ => None,
+            },
+        };
+        let layout = compose(&facts, &self.kept);
+        if layout != self.layout {
+            self.lay_out(layout);
+        }
+        for slot in Slot::ALL {
+            let spec = slot.spec();
+            let shown = self
+                .panels
+                .iter()
+                .any(|p| p.spec == spec && !p.items.is_empty());
+            if shown && !self.kept.contains(&slot) {
+                self.kept.push(slot);
+            }
         }
     }
 
@@ -547,6 +748,7 @@ impl Board {
         for panel in self.panels.iter_mut().filter(|p| p.source == source) {
             panel.items = items(&panel.spec, data, namespace);
         }
+        self.recompose();
     }
 
     pub fn len(&self) -> usize {
@@ -598,6 +800,7 @@ impl Board {
         let (panel, index) = self.locate(cursor)?;
         Some(Anchor {
             panel,
+            spec: self.panels[panel].spec.clone(),
             index,
             key: self.panels[panel].items[index].key(),
         })
@@ -606,12 +809,18 @@ impl Board {
     /// Where the anchored item is now. When it is gone the cursor keeps its place in the
     /// panel, so a refresh never throws it across the screen.
     pub fn reanchor(&self, anchor: &Anchor) -> usize {
-        let items = self.items(anchor.panel);
+        // By what the panel is, since an adaptive layout moves panels as they fill.
+        let panel = self
+            .panels
+            .iter()
+            .position(|p| p.spec == anchor.spec)
+            .unwrap_or(anchor.panel.min(self.panels.len().saturating_sub(1)));
+        let items = self.items(panel);
         let index = items
             .iter()
             .position(|i| i.key() == anchor.key)
             .unwrap_or(anchor.index.min(items.len().saturating_sub(1)));
-        (self.first_of(anchor.panel) + index).min(self.len().saturating_sub(1))
+        (self.first_of(panel) + index).min(self.len().saturating_sub(1))
     }
 
     /// `None` when there is nothing under the cursor, or when the item's name cannot go
@@ -1469,5 +1678,186 @@ mod tests {
         board.apply(1, rows(vec![wf("a", "It's", "q", 1)]));
         assert!(matches!(board.item(1), Some(Item::Type { .. })));
         assert_eq!(board.drill(1, NOW), None);
+    }
+
+    fn titles(layout: &Layout) -> Vec<Vec<&str>> {
+        layout
+            .rows
+            .iter()
+            .map(|row| row.panels.iter().map(PanelSpec::title).collect())
+            .collect()
+    }
+
+    fn board_titles(board: &Board) -> Vec<Vec<&str>> {
+        titles(board.layout())
+    }
+
+    #[test]
+    fn before_anything_is_known_the_layout_is_the_builtin_one() {
+        assert_eq!(compose(&Facts::default(), &[]), Layout::builtin());
+    }
+
+    #[test]
+    fn a_namespace_with_nothing_in_it_keeps_the_builtin_layout() {
+        let facts = Facts {
+            failures: Some(&[]),
+            running: Some(&[]),
+            schedules: Some(&[]),
+        };
+        assert_eq!(compose(&facts, &[]), Layout::builtin());
+    }
+
+    #[test]
+    fn panels_known_to_be_empty_collapse_and_running_takes_the_room() {
+        let running = [wf("a", "Order", "orders", 1)];
+        let facts = Facts {
+            failures: Some(&[]),
+            running: Some(&running),
+            schedules: Some(&[]),
+        };
+        assert_eq!(
+            titles(&compose(&facts, &[])),
+            [vec!["Status"], vec!["Running"], vec!["Task queues"]]
+        );
+    }
+
+    #[test]
+    fn a_panel_still_waiting_is_shown() {
+        let failures = [wf("a", "Order", "orders", 1)];
+        let facts = Facts {
+            failures: Some(&failures),
+            running: None,
+            schedules: None,
+        };
+        assert_eq!(
+            titles(&compose(&facts, &[])),
+            [
+                vec!["Status"],
+                vec!["Recent failures"],
+                vec!["Task queues", "Schedules"]
+            ]
+        );
+    }
+
+    #[test]
+    fn failing_types_are_worth_a_panel_from_two_types_up() {
+        let one = [wf("a", "Order", "q", 1), wf("b", "Order", "q", 2)];
+        let two = [wf("a", "Order", "q", 1), wf("b", "Refund", "q", 2)];
+        let middle = |failures: &[WorkflowRow]| {
+            let facts = Facts {
+                failures: Some(failures),
+                running: Some(&[]),
+                schedules: Some(&[]),
+            };
+            titles(&compose(&facts, &[]))[1]
+                .iter()
+                .map(|t| t.to_string())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(middle(&one), ["Recent failures"]);
+        assert_eq!(middle(&two), ["Recent failures", "Failing types"]);
+    }
+
+    #[test]
+    fn schedules_are_shown_as_what_needs_looking_at() {
+        let bottom = |schedules: &[ScheduleRow]| {
+            let facts = Facts {
+                failures: Some(&[]),
+                running: Some(&[]),
+                schedules: Some(schedules),
+            };
+            titles(&compose(&facts, &[]))
+                .last()
+                .unwrap()
+                .iter()
+                .map(|t| t.to_string())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            bottom(&[schedule("a", true, None), schedule("b", false, Some(9))]),
+            ["Paused schedules", "Upcoming schedules"]
+        );
+        assert_eq!(bottom(&[schedule("a", true, None)]), ["Paused schedules"]);
+        assert_eq!(bottom(&[schedule("a", false, None)]), ["Schedules"]);
+    }
+
+    #[test]
+    fn a_panel_that_had_items_stays_when_they_go() {
+        let facts = Facts {
+            failures: Some(&[]),
+            running: Some(&[]),
+            schedules: Some(&[]),
+        };
+        assert_eq!(
+            titles(&compose(&facts, &[Slot::Failures, Slot::Paused])),
+            [
+                vec!["Status"],
+                vec!["Recent failures"],
+                vec!["Paused schedules"]
+            ]
+        );
+    }
+
+    #[test]
+    fn an_adaptive_board_reshapes_as_its_probes_answer() {
+        let mut board = Board::adaptive(&scope());
+        assert!(board.is_adaptive());
+        assert_eq!(board.layout(), &Layout::builtin());
+
+        board.apply(1, rows(Vec::new()));
+        board.apply(2, rows(vec![wf("a", "Order", "orders", 1)]));
+        board.apply(3, Ok(SourceData::Schedules(Vec::new())));
+        assert_eq!(
+            board_titles(&board),
+            [vec!["Status"], vec!["Running"], vec!["Task queues"]]
+        );
+        assert_eq!(board.sources().len(), 4, "no new requests, only the probes");
+        assert_eq!(board.len(), 2);
+    }
+
+    #[test]
+    fn the_cursor_follows_its_item_when_the_layout_moves_under_it() {
+        let mut board = Board::adaptive(&scope());
+        board.apply(2, rows(vec![wf("a", "Order", "orders", 1)]));
+        let anchor = board.anchor(0).unwrap();
+        assert!(matches!(board.item(0), Some(Item::Queue(_))));
+
+        board.apply(
+            1,
+            rows(vec![wf("x", "Order", "q", 9), wf("y", "Refund", "q", 8)]),
+        );
+        let at = board.reanchor(&anchor);
+        assert!(matches!(board.item(at), Some(Item::Queue(_))), "{at}");
+        assert_eq!(at, 4, "two failures and two types are above it now");
+    }
+
+    #[test]
+    fn a_panel_empties_in_place_until_the_layout_is_asked_for_again() {
+        let mut board = Board::adaptive(&scope());
+        board.apply(1, rows(vec![wf("x", "Order", "q", 9)]));
+        board.apply(2, rows(vec![wf("a", "Order", "orders", 1)]));
+        board.apply(3, Ok(SourceData::Schedules(Vec::new())));
+        assert_eq!(board_titles(&board)[1], ["Recent failures"]);
+
+        board.apply(1, rows(Vec::new()));
+        assert_eq!(
+            board_titles(&board)[1],
+            ["Recent failures"],
+            "kept, though empty"
+        );
+
+        board.forget();
+        assert_eq!(board_titles(&board)[1], ["Running"]);
+    }
+
+    #[test]
+    fn a_configured_board_keeps_the_layout_it_was_given() {
+        let mut board = Board::new(Layout::builtin(), &scope());
+        board.apply(1, rows(Vec::new()));
+        board.apply(2, rows(Vec::new()));
+        board.apply(3, Ok(SourceData::Schedules(Vec::new())));
+        board.forget();
+        assert!(!board.is_adaptive());
+        assert_eq!(board.layout(), &Layout::builtin());
     }
 }

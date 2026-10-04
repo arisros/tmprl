@@ -64,8 +64,8 @@ project testable:
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
 | `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 77 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 369 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 414 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 380 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 419 |
 | `tmprl-ui` | built | Plain unit tests over the layout tree | 44 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -348,6 +348,11 @@ one `dashboard.toml` parses into, or the builtin one when the file is absent, em
 - **Every item opens what it stands for.** A status, a type or a queue becomes a visibility
   query, a `since` window compiled to the literal instant it means, and that text lands in
   the query bar like any other.
+- **Adaptive is the builtin layout, less what is known to be empty.** `compose` is a pure
+  function from what the four probe requests found to a `Layout`, the same type the config
+  file parses into. The probes are the builtin layout's own sources, so adapting costs no
+  request. "Not known yet" and "failed" keep a panel; only a loaded, empty answer collapses
+  it, and a panel that has shown items is kept until `R`.
 - **`dashboard.toml` is strict.** A key that does not exist, or that belongs to another kind
   of panel, sets the file aside: a misspelt `query` would otherwise show every workflow under
   a "failures" title.

@@ -276,7 +276,13 @@ impl App {
                 self.load_history();
             }
             Screen::Schedules => self.load_schedules(),
-            Screen::Dashboard => self.load_dashboard(),
+            Screen::Dashboard => {
+                // `R` asks for the layout afresh as well as the data.
+                if let Some(board) = self.view.dashboard.as_mut() {
+                    board.forget();
+                }
+                self.load_dashboard();
+            }
         }
     }
 

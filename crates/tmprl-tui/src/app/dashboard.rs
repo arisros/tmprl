@@ -39,12 +39,10 @@ impl App {
         self.view.stop_dashboard();
         let mut board = match self.view.dashboard.take() {
             Some(board) if board.scope() == self.view.scope => board,
-            _ => Board::new(
-                self.dashboard_layout
-                    .clone()
-                    .unwrap_or_else(Layout::builtin),
-                &self.view.scope,
-            ),
+            _ => match &self.dashboard_layout {
+                Some(layout) => Board::new(layout.clone(), &self.view.scope),
+                None => Board::adaptive(&self.view.scope),
+            },
         };
         board.begin_refresh();
         let sources = board.sources().to_vec();

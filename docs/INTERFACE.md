@@ -165,10 +165,28 @@ Nothing on the dashboard is a target for `<leader>m`; open the workflow first.
 On a terminal too small for every panel, the ones around the cursor are drawn and the rest
 are counted, `+3 hidden`. Moving the cursor scrolls the dashboard to them.
 
-The panels and their arrangement come from `dashboard.toml`, described under
-[Configuration files](#configuration-files); without one the layout above is used.
-`tmprl --dashboard` opens straight onto it. Panels chosen from what the namespace shows
-are *planned*.
+Without a `dashboard.toml` the panels follow what the namespace shows. Everything is
+drawn while nothing is known yet, and a panel that turns out to have nothing in it gives up
+its room:
+
+| The namespace has | The dashboard shows |
+|---|---|
+| failures in the last day | "Recent failures", and "Failing types" once two or more types are failing |
+| no failures, but running workflows | "Running", in the room the failures would have had |
+| running workflows | "Task queues" |
+| paused schedules | "Paused schedules" |
+| schedules with a next run | "Upcoming schedules", soonest first |
+| schedules that are neither | "Schedules" |
+| nothing at all | every panel, each saying it is empty |
+
+A panel that is still loading, or whose request failed, stays, so the screen says what it
+is waiting for and what went wrong. A panel that had items and has lost them also stays,
+empty, until `R` or until the dashboard is opened again: a layout that rearranges itself
+while it is being read is worse than an empty box.
+
+A `dashboard.toml`, described under [Configuration files](#configuration-files), replaces
+all of this with the panels it names, and those are never rearranged. `tmprl --dashboard`
+opens straight onto the dashboard.
 
 ### Finding
 

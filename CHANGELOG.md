@@ -6,6 +6,9 @@
   status, failures of the last day, the workflow types failing most, the task queues running
   workflows are on, and schedules. `Enter` on an item opens what it stands for, `]p` and `[p`
   step between panels, and a dashboard left in a split keeps receiving its own data.
+- **The dashboard adapts** when there is no `dashboard.toml`: a panel with nothing in it
+  gives up its room, a namespace with no failures shows what is running instead, and
+  schedules appear as the paused ones and the ones about to run. `R` lets emptied panels go.
 - **`dashboard.toml`** lays the dashboard out: rows of panels, each with a kind, a query, a
   time window and a share of the screen. A key it does not know sets the file aside with a
   message, and the built-in layout is used. `--config-path` lists the file.
