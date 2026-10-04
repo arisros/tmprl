@@ -196,8 +196,8 @@ flowchart LR
 |---|---|---|
 | `tmprl-client` | 81 | all network IO |
 | `tmprl-core` | 413 | no terminal, no server |
-| `tmprl-tui` | 436 | ratatui |
-| `tmprl-ui` | 44 | window tree |
+| `tmprl-tui` | 437 | ratatui |
+| `tmprl-ui` | 47 | window tree |
 
 ```sh
 cargo test                       # integration tests skip with no server

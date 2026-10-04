@@ -65,8 +65,8 @@ project testable:
 |---|---|---|---|
 | `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 81 |
 | `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 413 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 436 |
-| `tmprl-ui` | built | Plain unit tests over the layout tree | 44 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 437 |
+| `tmprl-ui` | built | Plain unit tests over the layout tree | 47 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
 arrangement working as intended.
@@ -379,7 +379,9 @@ one `dashboard.toml` parses into, or the builtin one when the file is absent, em
   a "failures" title.
 - **Rows and panels are tracks.** `tmprl-ui`'s `tracks` cuts an area into fixed and weighted
   spans with a minimum, and drops the ones that do not fit from the end. The renderer starts
-  the cut far enough along that the cursor's panel is one of those drawn.
+  the cut far enough along that the cursor's panel is one of those drawn. A weighted row
+  whose panels have all answered is a `Track::Fit`, capped at what its tallest panel shows,
+  so a row of two lines gives its share to a row of thirty.
 - **A reply names its pane.** `Msg::Dashboard` carries the `ViewId` it was issued for as well
   as the generation, and is applied to that pane whether or not it is focused. A dashboard is
   the screen that gets left in a split, and the other replies, which are applied to whichever

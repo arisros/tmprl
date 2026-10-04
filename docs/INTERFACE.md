@@ -744,7 +744,7 @@ since = "24h"
 
 | Key | On | Value | Default | |
 |---|---|---|---|---|
-| `height` | row | 1 to 100 | 1 | the row's share of the height left over |
+| `height` | row | 1 to 100 | 1 | the row's share of the height left over. A row whose panels need less than their share takes only that, and rows with more to show get the rest |
 | `lines` | row | 3 to 50 | | a fixed height instead, borders included; not with `height` |
 | `kind` | panel | `counts` `workflows` `types` `queues` `schedules` | required | what the panel shows |
 | `title` | panel | text | from the kind | the title on its border |

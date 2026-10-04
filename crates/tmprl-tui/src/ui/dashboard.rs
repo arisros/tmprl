@@ -27,6 +27,8 @@ const AGE: usize = 4;
 const ID: usize = 36;
 /// The least room worth giving a reason.
 const REASON: usize = 12;
+/// The lines kept for a panel with nothing in it, whose message may wrap.
+const EMPTY: usize = 2;
 
 pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme, focused: bool) {
     if area.width == 0 || area.height == 0 {
@@ -64,8 +66,15 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme, 
 
     let heights: Vec<Track> = rows
         .iter()
-        .map(|row| match row.size {
-            Size::Weight(w) => Track::Weight(w),
+        .zip(&firsts)
+        .map(|(row, first)| match row.size {
+            Size::Weight(w) => match content(board, *first, row.panels.len()) {
+                Some(lines) => Track::Fit {
+                    weight: w,
+                    cells: lines.saturating_add(2),
+                },
+                None => Track::Weight(w),
+            },
             Size::Lines(n) => Track::Cells(n),
         })
         .collect();
@@ -164,6 +173,25 @@ fn window(
         }
     }
     (must, tracks(area, axis, &list[must.min(list.len())..], min))
+}
+
+/// The lines the tallest of a row's panels has to show, so the row can leave the rest to
+/// rows with more. `None` until every panel has its answer: a row is not resized around a
+/// panel that is still loading, or one that has an error to spell out.
+fn content(board: &Board, first: usize, panels: usize) -> Option<u16> {
+    (first..first + panels)
+        .map(|panel| {
+            board.state(panel)?.value()?;
+            let lines = match board.spec(panel)?.kind {
+                PanelKind::Counts { .. } => 1,
+                PanelKind::Workflows { .. }
+                | PanelKind::Types { .. }
+                | PanelKind::Queues { .. }
+                | PanelKind::Schedules { .. } => board.items(panel).len().max(EMPTY),
+            };
+            Some(u16::try_from(lines).unwrap_or(u16::MAX))
+        })
+        .try_fold(0, |tallest, lines| Some(lines?.max(tallest)))
 }
 
 struct Panel<'a> {

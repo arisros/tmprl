@@ -462,3 +462,49 @@ fn a_type_every_row_shares_is_not_repeated_down_the_list() {
     let list = row.split("││").next().unwrap();
     assert!(!list.contains("CheckoutWorkflow"), "{out}");
 }
+
+#[test]
+fn a_row_with_little_to_show_leaves_its_room_to_a_row_with_more() {
+    let mut app = app_with_rows();
+    app.apply_dashboard(Some(
+        "[[row]]\n[[row.panel]]\nkind = \"types\"\n\
+         [[row]]\n[[row.panel]]\nkind = \"workflows\"\ntitle = \"Stuck\"\nquery = \"A = 'b'\"\nlimit = 50\n",
+    ));
+    app.view.screen = Screen::Workflows;
+    app.run("nav.dashboard", None);
+    let top_of = |out: &str, title: &str| out.lines().position(|l| l.contains(title)).unwrap();
+
+    let out = draw(&mut app, 100, 30);
+    assert_eq!(top_of(&out, "┌ Stuck"), 15, "even, while loading:\n{out}");
+
+    let rows = |n: i64| SourceData::Workflows {
+        rows: (0..n)
+            .map(|i| {
+                wf(
+                    "default",
+                    &format!("order-{i}"),
+                    WorkflowStatus::Running,
+                    now() - i,
+                )
+            })
+            .collect(),
+        more: false,
+    };
+    reply(&mut app, 0, Ok(rows(2)));
+    reply(&mut app, 1, Ok(rows(40)));
+    let out = draw(&mut app, 100, 30);
+    assert_eq!(
+        top_of(&out, "┌ Stuck"),
+        5,
+        "one type, two lines kept:\n{out}"
+    );
+    assert!(out.lines().nth(28).unwrap().starts_with('└'), "{out}");
+
+    reply(&mut app, 1, Ok(rows(3)));
+    let out = draw(&mut app, 100, 30);
+    assert_eq!(
+        top_of(&out, "┌ Stuck"),
+        15,
+        "both have all they need, so what is over is shared:\n{out}"
+    );
+}

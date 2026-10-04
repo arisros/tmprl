@@ -6,6 +6,12 @@ use crate::{Axis, Rect};
 pub enum Track {
     Weight(u16),
     Cells(u16),
+    /// A weighted track with no use for more than `cells`: what it does not take goes to
+    /// the tracks that can use it.
+    Fit {
+        weight: u16,
+        cells: u16,
+    },
 }
 
 /// Cut `area` along `axis`. Fixed tracks get their cells, weighted ones share the rest, and
@@ -22,7 +28,7 @@ pub fn tracks(area: Rect, axis: Axis, tracks: &[Track], min: u16) -> Vec<Rect> {
     let extent = area.extent(axis) as u32;
     let floor = |t: &Track| match t {
         Track::Cells(n) => (*n).max(min) as u32,
-        Track::Weight(_) => min as u32,
+        Track::Weight(_) | Track::Fit { .. } => min as u32,
     };
     let mut kept = tracks.len();
     while kept > 1 && tracks[..kept].iter().map(floor).sum::<u32>() > extent {
@@ -34,33 +40,71 @@ pub fn tracks(area: Rect, axis: Axis, tracks: &[Track], min: u16) -> Vec<Rect> {
         return vec![area];
     }
 
-    let spare = extent - floors;
-    let weights: u32 = tracks
-        .iter()
-        .map(|t| match t {
-            Track::Weight(w) => (*w).max(1) as u32,
-            Track::Cells(_) => 0,
-        })
-        .sum();
-    let mut spans: Vec<u32> = tracks
-        .iter()
-        .map(|t| match t {
-            Track::Weight(w) => floor(t) + (*w).max(1) as u32 * spare / weights,
-            Track::Cells(_) => floor(t),
-        })
+    let weight = |t: &Track| match t {
+        Track::Weight(w) | Track::Fit { weight: w, .. } => (*w).max(1) as u32,
+        Track::Cells(_) => 0,
+    };
+    let weighted: Vec<usize> = (0..tracks.len())
+        .filter(|i| weight(&tracks[*i]) > 0)
         .collect();
-
-    if weights > 0 {
-        let mut leftover = extent - spans.iter().sum::<u32>();
-        for (span, track) in spans.iter_mut().zip(tracks) {
-            if leftover == 0 {
-                break;
-            }
-            if matches!(track, Track::Weight(_)) {
-                *span += 1;
-                leftover -= 1;
-            }
+    let mut spans: Vec<u32> = tracks.iter().map(floor).collect();
+    let mut open = weighted.clone();
+    loop {
+        let weights: u32 = open.iter().map(|i| weight(&tracks[*i])).sum();
+        if weights == 0 {
+            break;
         }
+        let taken: u32 = (0..tracks.len())
+            .map(|i| {
+                if open.contains(&i) {
+                    floor(&tracks[i])
+                } else {
+                    spans[i]
+                }
+            })
+            .sum();
+        let spare = extent - taken;
+        let of = |i: usize| floor(&tracks[i]) + weight(&tracks[i]) * spare / weights;
+        let full: Vec<(usize, u32)> = open
+            .iter()
+            .filter_map(|&i| match tracks[i] {
+                Track::Fit { cells, .. } => {
+                    let cap = cells.max(min) as u32;
+                    (of(i) >= cap).then_some((i, cap))
+                }
+                Track::Weight(_) | Track::Cells(_) => None,
+            })
+            .collect();
+        if full.is_empty() {
+            for &i in &open {
+                spans[i] = of(i);
+            }
+            break;
+        }
+        // A track with all it can use steps out, and the rest is shared again.
+        for (i, cap) in full {
+            spans[i] = cap;
+            open.retain(|o| *o != i);
+        }
+    }
+    if open.is_empty() {
+        // Every track has all it can use. Whatever is over is shared by weight on top of
+        // that, rather than left unpainted.
+        let over = extent - spans.iter().sum::<u32>();
+        let weights: u32 = weighted.iter().map(|i| weight(&tracks[*i])).sum();
+        for &i in &weighted {
+            spans[i] += weight(&tracks[i]) * over / weights;
+        }
+        open = weighted;
+    }
+
+    let mut leftover = extent - spans.iter().sum::<u32>();
+    for &i in &open {
+        if leftover == 0 {
+            break;
+        }
+        spans[i] += 1;
+        leftover -= 1;
     }
 
     let mut at = match axis {
@@ -112,6 +156,57 @@ mod tests {
             Track::Weight(1),
         ];
         assert_eq!(heights(area, &list, 3), [6, 4, 5, 5]);
+    }
+
+    #[test]
+    fn a_track_with_all_it_can_use_leaves_the_rest_to_the_others() {
+        let area = Rect::new(0, 0, 80, 40);
+        let fit = |cells| Track::Fit { weight: 1, cells };
+        assert_eq!(
+            heights(area, &[Track::Cells(3), Track::Weight(1), fit(5)], 3),
+            [3, 32, 5]
+        );
+        assert_eq!(
+            heights(area, &[fit(6), fit(30), fit(4)], 3),
+            [6, 30, 4],
+            "what the first and last gave up is what lets the second have 30"
+        );
+        assert_eq!(
+            heights(area, &[fit(50), fit(4)], 3),
+            [36, 4],
+            "a track wanting more than there is takes what is left"
+        );
+    }
+
+    #[test]
+    fn tracks_that_all_have_enough_share_what_is_over_by_weight() {
+        let area = Rect::new(0, 0, 80, 40);
+        let list = [
+            Track::Fit {
+                weight: 3,
+                cells: 5,
+            },
+            Track::Fit {
+                weight: 1,
+                cells: 5,
+            },
+        ];
+        let rects = tracks(area, Axis::Rows, &list, 3);
+        assert_eq!(heights(area, &list, 3), [28, 12]);
+        assert_eq!(rects[1].bottom(), area.bottom(), "no row left unpainted");
+    }
+
+    #[test]
+    fn a_fitted_track_is_never_smaller_than_the_minimum() {
+        let area = Rect::new(0, 0, 80, 20);
+        let list = [
+            Track::Weight(1),
+            Track::Fit {
+                weight: 1,
+                cells: 1,
+            },
+        ];
+        assert_eq!(heights(area, &list, 3), [17, 3]);
     }
 
     #[test]

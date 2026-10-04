@@ -37,6 +37,9 @@
   ended with, read once from the workflow's closing event. A type that every row shares is
   no longer repeated down the list. With a failure converter that encodes failures the
   reason is whatever the server holds, since it is not sent through the codec.
+- **Dashboard rows fit what they show**: a row whose panels hold two lines no longer takes
+  a third of the screen. It keeps what it needs and the rest goes to the rows with more to
+  list. A row given a fixed height with `lines` is left as it is.
 - **`--dashboard`** opens tmprl straight onto the dashboard, in the profile's namespace or
   the one `-n` names.
 
