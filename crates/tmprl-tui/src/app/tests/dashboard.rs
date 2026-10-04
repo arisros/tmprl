@@ -201,7 +201,7 @@ fn a_refresh_makes_the_replies_already_out_stale() {
 #[test]
 fn enter_on_a_status_opens_the_workflows_behind_it_and_c_o_comes_back() {
     let mut app = filled();
-    app.run("motion.down", None);
+    app.run("motion.right", None);
     app.run("nav.open", None);
     assert_eq!(app.view.screen, Screen::Workflows);
     assert_eq!(app.view.query, "ExecutionStatus = 'Failed'");
@@ -216,7 +216,7 @@ fn enter_on_a_status_opens_the_workflows_behind_it_and_c_o_comes_back() {
 #[test]
 fn enter_on_a_workflow_opens_its_history() {
     let mut app = filled();
-    app.run("motion.down", Some(2));
+    app.set_cursor(2);
     app.run("nav.open", None);
     assert_eq!(app.view.screen, Screen::History);
     assert_eq!(app.view.viewing.as_ref().unwrap().run_id, "r1");
@@ -225,7 +225,7 @@ fn enter_on_a_workflow_opens_its_history() {
 #[test]
 fn enter_on_a_type_or_a_queue_narrows_the_panels_own_query() {
     let mut app = filled();
-    app.run("motion.down", Some(5));
+    app.set_cursor(5);
     app.run("nav.open", None);
     assert!(app.view.query.starts_with(PROBLEMS), "{}", app.view.query);
     assert!(
@@ -240,7 +240,7 @@ fn enter_on_a_type_or_a_queue_narrows_the_panels_own_query() {
     );
 
     let mut app = filled();
-    app.run("motion.down", Some(7));
+    app.set_cursor(7);
     app.run("nav.open", None);
     assert_eq!(
         app.view.query,
@@ -325,13 +325,13 @@ fn yank_copies_the_name_and_the_item_as_json() {
     let mut app = filled();
     assert_eq!(app.field_under_cursor(), "Running");
     assert_eq!(app.records_selected(), r#"{"status":"Running","count":4}"#);
-    app.run("motion.down", Some(5));
+    app.set_cursor(5);
     assert_eq!(app.field_under_cursor(), "Checkout");
     assert_eq!(
         app.records_selected(),
         r#"{"workflowType":"Checkout","count":2}"#
     );
-    app.run("motion.down", Some(2));
+    app.set_cursor(7);
     assert_eq!(
         app.records_selected(),
         r#"{"namespace":"default","taskQueue":"tq","running":2}"#
@@ -645,4 +645,28 @@ fn a_queue_found_on_running_workflows_is_described_and_kept_fresh() {
 
     app.tick_dashboards(now_ms() + INTERVAL + 1_000);
     assert!(app.view.dashboard_pacer.in_flight(queue));
+}
+
+#[test]
+fn h_j_k_l_move_over_the_panels_as_they_sit_and_take_a_count() {
+    let mut app = filled();
+    assert_eq!(app.field_under_cursor(), "Running");
+    app.run("motion.right", None);
+    assert_eq!(app.field_under_cursor(), "Failed");
+    app.run("motion.down", Some(2));
+    let second = app.field_under_cursor();
+    app.run("motion.up", None);
+    assert_ne!(app.field_under_cursor(), second);
+    app.run("motion.up", Some(9));
+    assert_eq!(
+        app.field_under_cursor(),
+        "Running",
+        "back at the top, and no further"
+    );
+
+    app.view.screen = Screen::Workflows;
+    let before = app.view.cursor;
+    app.run("motion.left", None);
+    app.run("motion.right", None);
+    assert_eq!(app.view.cursor, before, "a list has no sideways");
 }

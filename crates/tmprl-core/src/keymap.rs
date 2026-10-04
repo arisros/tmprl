@@ -205,6 +205,10 @@ pub fn default_keymap() -> Keymap {
         bind(mode, "k", "motion.up");
         bind(mode, "<Down>", "motion.down");
         bind(mode, "<Up>", "motion.up");
+        bind(mode, "h", "motion.left");
+        bind(mode, "l", "motion.right");
+        bind(mode, "<Left>", "motion.left");
+        bind(mode, "<Right>", "motion.right");
         bind(mode, "gg", "motion.top");
         bind(mode, "G", "motion.bottom");
         bind(mode, "<C-d>", "motion.half-down");

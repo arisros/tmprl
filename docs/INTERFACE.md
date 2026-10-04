@@ -100,6 +100,7 @@ Leader is `Space`. A which-key-style popup appears as soon as a prefix is incomp
 |---|---|---|
 | `j` `k` `gg` `G` `<C-d>` `<C-u>` | move; `j` and `k` take a count | **live** |
 | `<Down>` `<Up>` | move | **live** |
+| `h` `l` `<Left>` `<Right>` | move sideways on the dashboard, between panels and along a strip of statuses or a chart; nothing on a list | **live** |
 | `Enter` | open the focused item, namespace → workflows → history | **live** |
 | `Enter` (in Visual) | open every selected namespace as one merged list | **live** |
 | `-` | **go up a level**, run → workflow → namespace → cluster | **live** |
@@ -152,9 +153,15 @@ status, failures of the last day, the workflow types failing most, the task queu
 workflows are on, and schedules. From the namespace list it takes the namespace under the
 cursor, or every namespace in a Visual selection, the way `Enter` does.
 
-The cursor runs through every panel's items as one list, so `j`, `k`, counts, `gg`, `G`,
-`/` and `n` work as they do anywhere, and `]p` / `[p` step a panel at a time. `Enter` opens
-what the item stands for:
+`h` `j` `k` `l` and the arrows move the way they point, over the panels as they sit on
+screen. In a list `j` and `k` go down and up its lines and, past its end, on to the panel
+under or over it; `h` and `l` go to the panel beside it, keeping the line. A strip of
+statuses and a chart run sideways, so there `h` and `l` step along it and `j` and `k`
+leave it. A chart is entered from above or below at its newest column. A panel with
+nothing in it is passed over, and all four take a count.
+
+Underneath, every panel's items are still one list, so `gg`, `G`, `/` and `n` work as they
+do anywhere, and `]p` / `[p` step a panel at a time. `Enter` opens what the item stands for:
 
 | Item | `Enter` opens |
 |---|---|

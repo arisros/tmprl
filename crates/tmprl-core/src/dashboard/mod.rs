@@ -13,7 +13,7 @@ mod pacer;
 mod parse;
 mod source;
 
-pub use board::{Anchor, Board, Drill};
+pub use board::{Anchor, Board, Drill, Heading};
 pub use compose::{Facts, Slot, compose};
 pub use histogram::{Bucket, MAX_BUCKETS, bucket_for};
 pub use layout::{

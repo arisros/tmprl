@@ -46,6 +46,10 @@
   is chosen to fit. `Enter` on a column opens the workflows in that stretch. With no
   `dashboard.toml`, a namespace where something failed today gets a "Failures per hour"
   chart under the status line.
+- **Dashboard navigation**: `h` `j` `k` `l` and the four arrows now move the way they
+  point. `j` at the foot of a list goes to the panel under it, not to the one beside it,
+  `h` and `l` cross between panels and step along a chart or the status line. `h`, `l`,
+  `<Left>` and `<Right>` are new bindings, `motion.left` and `motion.right`.
 - **`--dashboard`** opens tmprl straight onto the dashboard, in the profile's namespace or
   the one `-n` names.
 

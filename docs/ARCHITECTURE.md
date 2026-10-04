@@ -64,8 +64,8 @@ project testable:
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
 | `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 81 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 422 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 438 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 424 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 439 |
 | `tmprl-ui` | built | Plain unit tests over the layout tree | 47 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -356,9 +356,11 @@ one `dashboard.toml` parses into, or the builtin one when the file is absent, em
   Edges sit on multiples of the step, not on now, so a stretch that has passed is the same
   source at every refresh; measured by close time it `settles` a minute after it ends and
   is counted once. The panel's own source is the count of the whole window.
-- **The cursor is one list.** Every panel's items in order, so the motions, counts and search
-  that work on a list work here. Across a refresh the cursor is anchored to the item's key,
-  as it is in the workflow list.
+- **The cursor is one list, moved over as a grid.** Every panel's items in order, so search,
+  selection and `gg` / `G` work as on any list, and across a refresh the cursor is anchored
+  to the item's key. `h` `j` `k` `l` do not walk that list: `Board::step` takes a heading and
+  answers from the layout, which rows hold which panels and how wide, so it needs no
+  terminal size and lives in core.
 - **Every item opens what it stands for.** A status, a type or a queue becomes a visibility
   query, a `since` or `older` window compiled to the literal instants it means, and that text lands in
   the query bar like any other.

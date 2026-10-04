@@ -176,6 +176,19 @@ impl App {
         }
     }
 
+    pub(super) fn on_dashboard(&self) -> bool {
+        self.view.screen == Screen::Dashboard && self.view.dashboard.is_some()
+    }
+
+    /// `h` `j` `k` `l` on the dashboard: `count` steps the way the key points.
+    pub(super) fn step_dashboard(&mut self, direction: Heading, count: usize) {
+        let Some(board) = self.view.dashboard.as_ref() else {
+            return;
+        };
+        let at = (0..count.max(1)).fold(self.view.cursor, |at, _| board.step(at, direction));
+        self.set_cursor(at);
+    }
+
     pub(super) fn step_panel(&mut self, forward: bool) {
         let Some(board) = self
             .view

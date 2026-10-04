@@ -222,7 +222,7 @@ fn a_pane_too_small_for_a_box_shows_the_cursors_panel_bare() {
 #[test]
 fn the_cursor_row_is_marked_in_its_panel() {
     let mut app = app_with_dashboard();
-    app.run("motion.down", Some(2));
+    app.run("motion.down", None);
     let buf = {
         let mut term = Terminal::new(TestBackend::new(120, 30)).unwrap();
         term.draw(|f| render(f, &mut app)).unwrap();

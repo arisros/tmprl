@@ -25,6 +25,15 @@ pub enum Drill {
     },
 }
 
+/// A way for the cursor to go.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Heading {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
 /// The item under the cursor, remembered across a refresh by what it is, not where it was.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Anchor {
@@ -581,6 +590,143 @@ impl Board {
         self.panels[panel].items.get(index)
     }
 
+    /// Whether a panel's items run left to right, as statuses and columns do, not down.
+    fn across(&self, panel: usize) -> bool {
+        match self.panels[panel].spec.kind {
+            PanelKind::Counts { .. } | PanelKind::Histogram { .. } => true,
+            PanelKind::Workflows { .. }
+            | PanelKind::Types { .. }
+            | PanelKind::Queues { .. }
+            | PanelKind::Schedules { .. } => false,
+        }
+    }
+
+    /// Each row's first panel and how many it has.
+    fn row_spans(&self) -> Vec<(usize, usize)> {
+        self.layout
+            .rows
+            .iter()
+            .scan(0, |next, row| {
+                let first = *next;
+                *next += row.panels.len();
+                Some((first, row.panels.len()))
+            })
+            .collect()
+    }
+
+    /// The nearest panel with items in the same row, to the right or to the left.
+    fn beside(&self, panel: usize, forward: bool) -> Option<usize> {
+        let (first, len) = self
+            .row_spans()
+            .into_iter()
+            .find(|(first, len)| (*first..first + len).contains(&panel))?;
+        let has_items = |i: &usize| !self.panels[*i].items.is_empty();
+        if forward {
+            (panel + 1..first + len).find(has_items)
+        } else {
+            (first..panel).rev().find(has_items)
+        }
+    }
+
+    /// The panel with items under or over this one: in the nearest row that has any, the
+    /// one standing closest to this panel's middle.
+    fn beyond(&self, panel: usize, forward: bool) -> Option<usize> {
+        let rows = self.row_spans();
+        let row = rows
+            .iter()
+            .position(|(first, len)| (*first..first + len).contains(&panel))?;
+        // Where a panel's middle is across its row, from 0 to 1, by the widths it shares.
+        let middle = |(first, len): (usize, usize), of: usize| -> f64 {
+            let width = |i: usize| f64::from(self.panels[i].spec.width.max(1));
+            let total: f64 = (first..first + len).map(width).sum();
+            let before: f64 = (first..of).map(width).sum();
+            (before + width(of) / 2.0) / total
+        };
+        let here = middle(rows[row], panel);
+        let candidates: Box<dyn Iterator<Item = &(usize, usize)>> = if forward {
+            Box::new(rows[row + 1..].iter())
+        } else {
+            Box::new(rows[..row].iter().rev())
+        };
+        for &(first, len) in candidates {
+            let nearest = (first..first + len)
+                .filter(|i| !self.panels[*i].items.is_empty())
+                .min_by(|a, b| {
+                    let away = |i: usize| (middle((first, len), i) - here).abs();
+                    away(*a).total_cmp(&away(*b))
+                });
+            if nearest.is_some() {
+                return nearest;
+            }
+        }
+        None
+    }
+
+    /// Where the cursor goes from `cursor` one step that way, as the panels sit on screen.
+    ///
+    /// Along a panel it moves through the items: down a list, across a strip of statuses
+    /// or columns. Against it, or past its end, it leaves for the panel on that side. It
+    /// stays put when there is nothing that way.
+    pub fn step(&self, cursor: usize, direction: Heading) -> usize {
+        let Some((panel, index)) = self.locate(cursor) else {
+            return cursor;
+        };
+        let len = self.panels[panel].items.len();
+        let across = self.across(panel);
+        let sideways = matches!(direction, Heading::Left | Heading::Right);
+        let forward = matches!(direction, Heading::Right | Heading::Down);
+        if sideways == across {
+            if forward && index + 1 < len {
+                return cursor + 1;
+            }
+            if !forward && index > 0 {
+                return cursor - 1;
+            }
+        }
+        let target = if sideways {
+            self.beside(panel, forward)
+        } else {
+            self.beyond(panel, forward)
+        };
+        let Some(target) = target else {
+            return cursor;
+        };
+        let last = self.panels[target].items.len() - 1;
+        let at = match (sideways, self.across(target)) {
+            // Into a strip from its side: the near end.
+            (true, true) => {
+                if forward {
+                    0
+                } else {
+                    last
+                }
+            }
+            // Into a list from its side: the line the cursor was on, when it came from one.
+            (true, false) => {
+                if across {
+                    0
+                } else {
+                    index.min(last)
+                }
+            }
+            // Into a strip from above or below: the newest column of a chart, the first
+            // status of a count.
+            (false, true) => match self.panels[target].spec.kind {
+                PanelKind::Histogram { .. } => last,
+                _ => 0,
+            },
+            // Into a list from above or below: the near end.
+            (false, false) => {
+                if forward {
+                    0
+                } else {
+                    last
+                }
+            }
+        };
+        self.first_of(target) + at
+    }
+
     /// The first item of the next panel that has any, or of the previous one. The cursor
     /// stays put when there is none that way.
     pub fn panel_step(&self, cursor: usize, forward: bool) -> usize {
@@ -1079,7 +1225,69 @@ mod tests {
         assert_eq!(board.sources().len(), 2 + MAX_REASONS);
     }
 
+    #[test]
+    fn the_cursor_goes_the_way_the_key_points() {
+        // Status over failures (wide) and types, over queues (empty) and schedules.
+        // 0 1: statuses. 2 3 4: failures. 5 6: types. 7 8: schedules.
+        let board = loaded();
+        let go = |from: usize, path: &[Heading]| path.iter().fold(from, |at, h| board.step(at, *h));
+        use Heading::{Down, Left, Right, Up};
+
+        assert_eq!(go(0, &[Right]), 1, "along the strip of statuses");
+        assert_eq!(go(0, &[Right, Right]), 1, "and no further than its end");
+        assert_eq!(go(1, &[Left]), 0);
+        assert_eq!(go(0, &[Left]), 0);
+
+        assert_eq!(
+            go(1, &[Down]),
+            2,
+            "out of the strip, onto the list under it"
+        );
+        assert_eq!(go(2, &[Down, Down]), 4, "down the list");
+        assert_eq!(go(4, &[Down]), 7, "past its end, to the row below");
+        assert_eq!(go(8, &[Down]), 8, "nothing under the last row");
+        assert_eq!(go(7, &[Up]), 6, "up into the panel over it, at its foot");
+        assert_eq!(go(5, &[Up]), 0);
+        assert_eq!(go(0, &[Up]), 0);
+
+        assert_eq!(go(3, &[Right]), 6, "sideways keeps the line");
+        assert_eq!(go(4, &[Right]), 6, "or the last one, in a shorter list");
+        assert_eq!(go(6, &[Left]), 3);
+        assert_eq!(go(3, &[Left]), 3, "nothing to the left of the first panel");
+        assert_eq!(go(7, &[Left]), 7, "an empty panel is not a place to go");
+    }
+
     const HOUR: i64 = 3_600_000;
+
+    #[test]
+    fn a_chart_is_walked_sideways_and_entered_at_its_newest_column() {
+        let layout = parse_dashboard(
+            "[[row]]\n[[row.panel]]\nkind = \"counts\"\n\
+             [[row]]\n[[row.panel]]\nkind = \"histogram\"\nsince = \"3h\"\nbucket = \"1h\"",
+        )
+        .unwrap();
+        let mut board = Board::new(layout, &scope());
+        let now = (NOW / HOUR) * HOUR + HOUR / 3;
+        board.advance(now);
+        board.apply(
+            0,
+            Ok(SourceData::Counts(StatusCounts::new(
+                9,
+                [(WorkflowStatus::Running, 9)],
+            ))),
+        );
+        let hour = (now / HOUR) * HOUR;
+        for back in [3, 1, 0] {
+            board.apply(column(&board, hour - back * HOUR), total(4));
+        }
+        // 0: the status. 1 2 3: the columns with something in them, oldest first.
+        assert_eq!(board.len(), 4);
+        assert_eq!(board.step(0, Heading::Down), 3, "the newest column");
+        assert_eq!(board.step(3, Heading::Left), 2);
+        assert_eq!(board.step(1, Heading::Left), 1);
+        assert_eq!(board.step(2, Heading::Down), 2, "a chart has no down");
+        assert_eq!(board.step(2, Heading::Up), 0);
+    }
 
     /// One histogram of what closed in the last three hours, told it is twenty past.
     fn charted() -> (Board, i64) {
