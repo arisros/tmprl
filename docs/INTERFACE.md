@@ -181,6 +181,12 @@ over such a page is not a count, so each name it found is counted on the server:
 count arrives the number reads `~26`, and afterwards the panel says `names from 50`, since
 a name the page missed is still missing. At most 24 names a dashboard are counted this way.
 
+A workflow in a list that failed, was terminated or was cancelled says why beside its id,
+when the panel is wide enough: the failure at the root of the chain, or the reason given for
+ending it. It is read once from the workflow's closing event, for at most 40 workflows a
+dashboard. A timeout has no reason to give. The type column is left out when every row has
+the same type.
+
 Task queues are the ones found on running workflows: Temporal has no call that lists them.
 Each of the first eight is described, and its line says what that found: how many tasks are
 waiting and how long the oldest has waited, `backlog 12, oldest 4m`, and how many workers

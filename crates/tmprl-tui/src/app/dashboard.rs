@@ -2,6 +2,7 @@
 
 use super::*;
 use tmprl_core::fault::Code;
+use tmprl_core::history::close_reason;
 use tmprl_core::taskqueue::TaskQueueKind;
 
 impl App {
@@ -128,7 +129,9 @@ impl App {
             return;
         };
         let fault = result.as_ref().err().cloned();
+        let settles = board.sources().get(source).is_some_and(Source::settles);
         let outcome = match &fault {
+            None if settles => Outcome::Settled,
             None => Outcome::Answered,
             Some(f)
                 if f.is_refusal()
@@ -159,7 +162,8 @@ impl App {
             self.clamp_cursor();
             // The timer says a source went bad once, not every interval it stays bad. The
             // panel's title carries it from then on.
-            if let Some(fault) = fault.filter(|_| !timed || news) {
+            // A row without its reason is not worth interrupting anyone for.
+            if let Some(fault) = fault.filter(|_| !settles && (!timed || news)) {
                 self.fail(fault, Note::Error);
             }
         }
@@ -277,6 +281,7 @@ fn operation(source: &Source) -> &'static str {
         Source::Workflows { .. } => "ListWorkflowExecutions",
         Source::Schedules { .. } => "ListSchedules",
         Source::Queue { .. } => "DescribeTaskQueue",
+        Source::Close { .. } => "GetWorkflowExecutionHistory",
     }
 }
 
@@ -308,5 +313,13 @@ async fn fetch(conn: &Conn, source: &Source, now_ms: i64) -> Result<SourceData, 
             )?;
             Ok(SourceData::Queue(workflow.merge(activity)))
         }
+        Source::Close {
+            namespace,
+            workflow_id,
+            run_id,
+        } => conn
+            .close_event(namespace, workflow_id, run_id)
+            .await
+            .map(|event| SourceData::Close(event.as_ref().and_then(close_reason))),
     }
 }

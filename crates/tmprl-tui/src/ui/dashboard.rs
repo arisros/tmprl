@@ -23,6 +23,10 @@ const MIN_WIDTH: u16 = 24;
 const MIN_HEIGHT: u16 = 3;
 const TYPE: usize = 20;
 const AGE: usize = 4;
+/// A workflow id beside a reason: wide enough for a UUID.
+const ID: usize = 36;
+/// The least room worth giving a reason.
+const REASON: usize = 12;
 
 pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme, focused: bool) {
     if area.width == 0 || area.height == 0 {
@@ -267,6 +271,15 @@ impl Panel<'_> {
         let width = (area.width as usize).saturating_sub(1);
         let now = now_ms();
         let fanned_out = view.is_fanned_out();
+        // A column that says the same thing on every line says nothing.
+        let mut types = items.iter().filter_map(|item| match item {
+            Item::Workflow(w) => Some(w.workflow_type.as_str()),
+            _ => None,
+        });
+        let one_type = types
+            .next()
+            .is_some_and(|first| types.all(|other| other == first))
+            && items.len() > 1;
         let tally = |n: usize, exact: bool| {
             if exact {
                 n.to_string()
@@ -299,9 +312,16 @@ impl Panel<'_> {
                         style(i, status_style(*status, t)),
                     )),
                     Item::Workflow(w) => {
-                        let show_type = width >= 2 + 16 + TYPE + AGE + 2;
+                        let show_type = !one_type && width >= 2 + 16 + TYPE + AGE + 2;
                         let fixed = 2 + AGE + 1 + if show_type { TYPE + 1 } else { 0 };
-                        let id_width = width.saturating_sub(fixed).max(4);
+                        let room = width.saturating_sub(fixed).max(4);
+                        // A reason takes what an id does not need, when that is worth having.
+                        let reason = self
+                            .board
+                            .reason(w)
+                            .filter(|_| room >= ID + 2 + REASON)
+                            .map(|text| truncate(text, room - ID - 2));
+                        let id_width = if reason.is_some() { ID } else { room };
                         spans.push(Span::styled(
                             format!("{} ", w.status.glyph()),
                             style(i, status_style(w.status, t)),
@@ -310,6 +330,13 @@ impl Panel<'_> {
                             format!("{:<id_width$} ", truncate(&w.workflow_id, id_width)),
                             base,
                         ));
+                        if let Some(reason) = reason {
+                            let reason_width = room - ID - 2;
+                            spans.push(Span::styled(
+                                format!(" {reason:<reason_width$} "),
+                                style(i, t.dim),
+                            ));
+                        }
                         if show_type {
                             spans.push(Span::styled(
                                 format!("{:<TYPE$} ", truncate(&w.workflow_type, TYPE)),

@@ -599,3 +599,46 @@ async fn a_task_queue_nothing_polls_is_still_described() {
         }
     }
 }
+
+/// The dashboard asks this of every failed row it lists, so it has to be one event however
+/// long the history is, and nothing at all for a workflow that has not closed.
+#[tokio::test]
+async fn the_close_event_is_the_one_event_a_closed_workflow_ended_on() {
+    use tmprl_core::history::{GroupRef, Outcome, Role};
+
+    let Some(c) = conn().await else { return };
+    let ns = c.namespace().to_string();
+
+    let closed = c
+        .list_workflows(&ns, "ExecutionStatus = 'Terminated'", 1, Vec::new())
+        .await
+        .expect("list terminated");
+    match closed.rows.first() {
+        Some(row) => {
+            let event = c
+                .close_event(&ns, &row.workflow_id, &row.run_id)
+                .await
+                .expect("close_event")
+                .expect("a terminated workflow has a closing event");
+            assert_eq!(event.group, GroupRef::Workflow);
+            assert_eq!(event.role, Role::Closes);
+            assert_eq!(event.outcome, Outcome::Terminated);
+        }
+        None => eprintln!("SKIP: no terminated workflow to read a closing event from"),
+    }
+
+    let open = c
+        .list_workflows(&ns, "ExecutionStatus = 'Running'", 1, Vec::new())
+        .await
+        .expect("list running");
+    match open.rows.first() {
+        Some(row) => assert_eq!(
+            c.close_event(&ns, &row.workflow_id, &row.run_id)
+                .await
+                .expect("close_event"),
+            None,
+            "a running workflow has not closed"
+        ),
+        None => eprintln!("SKIP: no running workflow to check for the absence of one"),
+    }
+}

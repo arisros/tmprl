@@ -63,9 +63,9 @@ project testable:
 
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
-| `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 80 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 408 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 434 |
+| `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 81 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 413 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 436 |
 | `tmprl-ui` | built | Plain unit tests over the layout tree | 44 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -347,6 +347,10 @@ one `dashboard.toml` parses into, or the builtin one when the file is absent, em
   queues that are there but miscounts them, so the board adds a count for each name it
   shows, at most `MAX_TALLIES`, the way it adds a describe for each queue. Until a count
   arrives the number is drawn as a tally, `~26`.
+- **A failure is asked why, once.** Each listed workflow that failed, was terminated or was
+  cancelled gets a `Source::Close`: `GetWorkflowExecutionHistory` filtered to the closing
+  event, one small page however long the history. A closed run's last event cannot change,
+  so the source `settles` and the pacer never asks again until `R`. At most `MAX_REASONS`.
 - **The cursor is one list.** Every panel's items in order, so the motions, counts and search
   that work on a list work here. Across a refresh the cursor is anchored to the item's key,
   as it is in the workflow list.

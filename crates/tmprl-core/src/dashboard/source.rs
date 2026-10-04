@@ -13,6 +13,9 @@ use crate::workflow::{
 /// The most task queues a board describes. Each costs two requests a refresh.
 pub const MAX_QUEUES: usize = 8;
 
+/// The most closed workflows a board asks the reason of. Each costs one request, once.
+pub const MAX_REASONS: usize = 40;
+
 /// The most names a board counts exactly. Each costs one request a refresh.
 pub const MAX_TALLIES: usize = 24;
 
@@ -38,6 +41,13 @@ pub enum Source {
         namespace: String,
         name: String,
     },
+    /// Why one workflow closed. Not asked for by a panel either: a board adds one for each
+    /// workflow its lists show that ended badly.
+    Close {
+        namespace: String,
+        workflow_id: String,
+        run_id: String,
+    },
 }
 
 impl Source {
@@ -46,7 +56,9 @@ impl Source {
             Source::Counts { namespaces, .. }
             | Source::Workflows { namespaces, .. }
             | Source::Schedules { namespaces } => namespaces,
-            Source::Queue { namespace, .. } => std::slice::from_ref(namespace),
+            Source::Queue { namespace, .. } | Source::Close { namespace, .. } => {
+                std::slice::from_ref(namespace)
+            }
         }
     }
 
@@ -56,7 +68,19 @@ impl Source {
             Source::Counts { query, window, .. } | Source::Workflows { query, window, .. } => {
                 window.narrow(query, now_ms)
             }
-            Source::Schedules { .. } | Source::Queue { .. } => String::new(),
+            Source::Schedules { .. } | Source::Queue { .. } | Source::Close { .. } => String::new(),
+        }
+    }
+
+    /// Whether an answer is the last word, so the source is not asked again on a timer. A
+    /// closed workflow's closing event does not change.
+    pub fn settles(&self) -> bool {
+        match self {
+            Source::Close { .. } => true,
+            Source::Counts { .. }
+            | Source::Workflows { .. }
+            | Source::Schedules { .. }
+            | Source::Queue { .. } => false,
         }
     }
 }
@@ -71,6 +95,8 @@ pub enum SourceData {
     },
     Schedules(Vec<ScheduleRow>),
     Queue(QueueHealth),
+    /// `None` when the closing event gives no reason.
+    Close(Option<String>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

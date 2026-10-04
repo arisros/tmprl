@@ -4,6 +4,8 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
     Answered,
+    /// Answered, with something that cannot change: there is nothing to ask again for.
+    Settled,
     Failed,
     /// The server will not answer this however often it is asked.
     Refused,
@@ -14,6 +16,7 @@ struct Pace {
     in_flight: bool,
     failures: u32,
     answered_ms: Option<i64>,
+    /// Not to be asked again until everything is: refused, or settled.
     refused: bool,
 }
 
@@ -72,7 +75,8 @@ impl Pacer {
         pace.in_flight = false;
         pace.answered_ms = Some(now_ms);
         match outcome {
-            Outcome::Answered => {
+            Outcome::Answered | Outcome::Settled => {
+                pace.refused = outcome == Outcome::Settled;
                 pace.failures = 0;
                 false
             }
@@ -112,6 +116,18 @@ mod tests {
     use crate::dashboard::fixtures::*;
 
     const EVERY: i64 = 30_000;
+
+    #[test]
+    fn a_settled_source_is_not_asked_again_until_a_restart() {
+        let mut pacer = Pacer::default();
+        pacer.restart(2);
+        assert!(!pacer.answered(0, Outcome::Settled, NOW));
+        pacer.answered(1, Outcome::Answered, NOW);
+        assert_eq!(pacer.take_due(2, NOW + EVERY * 9, EVERY), [1]);
+
+        pacer.restart(2);
+        assert!(pacer.in_flight(0));
+    }
 
     #[test]
     fn nothing_is_due_while_its_request_is_out_or_its_answer_is_fresh() {

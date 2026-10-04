@@ -2,11 +2,13 @@
 
 use super::compose::{Facts, Slot, compose};
 use super::layout::{Layout, PanelKind, PanelSpec};
-use super::source::{Item, MAX_QUEUES, MAX_TALLIES, QueueRef, Source, SourceData, items};
+use super::source::{
+    Item, MAX_QUEUES, MAX_REASONS, MAX_TALLIES, QueueRef, Source, SourceData, items,
+};
 use crate::fault::Fault;
 use crate::loadable::Loadable;
 use crate::query;
-use crate::workflow::WorkflowRow;
+use crate::workflow::{WorkflowRow, WorkflowStatus};
 
 /// Where `<CR>` on an item leads.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,6 +116,65 @@ impl Board {
         self.layout = layout;
         self.sync_tallies();
         self.sync_queues();
+        self.sync_reasons();
+    }
+
+    fn closing(row: &WorkflowRow) -> Option<Source> {
+        match row.status {
+            WorkflowStatus::Failed | WorkflowStatus::Terminated | WorkflowStatus::Canceled => {
+                Some(Source::Close {
+                    namespace: row.namespace.clone(),
+                    workflow_id: row.workflow_id.clone(),
+                    run_id: row.run_id.clone(),
+                })
+            }
+            // A timeout's closing event carries no reason, and the rest did not end badly.
+            WorkflowStatus::TimedOut
+            | WorkflowStatus::Running
+            | WorkflowStatus::Completed
+            | WorkflowStatus::ContinuedAsNew
+            | WorkflowStatus::Paused
+            | WorkflowStatus::Unspecified => None,
+        }
+    }
+
+    /// Add a request for why each listed workflow that ended badly did.
+    fn sync_reasons(&mut self) {
+        let asked = self
+            .sources
+            .iter()
+            .filter(|s| matches!(s, Source::Close { .. }))
+            .count();
+        let mut missing: Vec<Source> = Vec::new();
+        for item in self.panels.iter().flat_map(|p| p.items.iter()) {
+            let Item::Workflow(row) = item else {
+                continue;
+            };
+            if let Some(wanted) = Self::closing(row)
+                && !self.sources.contains(&wanted)
+                && !missing.contains(&wanted)
+            {
+                missing.push(wanted);
+            }
+        }
+        for wanted in missing.into_iter().take(MAX_REASONS.saturating_sub(asked)) {
+            self.sources.push(wanted);
+            self.data.push(Loadable::NotAsked);
+            self.faults.push(None);
+        }
+    }
+
+    /// Why a listed workflow closed, once that has been asked and answered.
+    pub fn reason(&self, row: &WorkflowRow) -> Option<&str> {
+        let wanted = Self::closing(row)?;
+        let at = self.sources.iter().position(|s| *s == wanted)?;
+        match self.data[at].value()? {
+            SourceData::Close(reason) => reason.as_deref(),
+            SourceData::Counts(_)
+            | SourceData::Workflows { .. }
+            | SourceData::Schedules(_)
+            | SourceData::Queue(_) => None,
+        }
     }
 
     /// A tally over one page of a longer list names what is there but miscounts it. Give
@@ -338,7 +399,8 @@ impl Board {
             SourceData::Workflows { more: false, .. }
             | SourceData::Counts(_)
             | SourceData::Schedules(_)
-            | SourceData::Queue(_) => None,
+            | SourceData::Queue(_)
+            | SourceData::Close(_) => None,
         }
     }
 
@@ -384,6 +446,7 @@ impl Board {
         self.recompose();
         self.sync_tallies();
         self.sync_queues();
+        self.sync_reasons();
     }
 
     pub fn len(&self) -> usize {
@@ -691,6 +754,14 @@ mod tests {
             .unwrap_or_else(|| panic!("nothing counts {name}"))
     }
 
+    fn names_counted(board: &Board) -> usize {
+        board
+            .sources()
+            .iter()
+            .filter(|s| matches!(s, Source::Counts { query, .. } if query.contains("WorkflowType")))
+            .count()
+    }
+
     fn total(n: i64) -> Result<SourceData, Fault> {
         Ok(SourceData::Counts(StatusCounts::new(n, [])))
     }
@@ -709,7 +780,7 @@ mod tests {
     #[test]
     fn a_tally_of_a_whole_list_is_already_a_count() {
         let board = loaded();
-        assert_eq!(board.sources().len(), 4);
+        assert_eq!(names_counted(&board), 0);
         assert_eq!(
             tallies(&board, 2),
             [
@@ -723,7 +794,7 @@ mod tests {
     #[test]
     fn a_tally_of_a_sample_asks_for_a_count_of_each_name_it_found() {
         let board = sampled();
-        assert_eq!(board.sources().len(), 6);
+        assert_eq!(names_counted(&board), 2);
         assert_eq!(
             board.sources()[count_of(&board, "Order")],
             Source::Counts {
@@ -780,7 +851,7 @@ mod tests {
             }),
         );
         assert_eq!(tallies(&board, 2), [("Order".to_string(), 40, true)]);
-        assert_eq!(board.sources().len(), 6, "nothing is asked for twice");
+        assert_eq!(names_counted(&board), 2, "nothing is asked for twice");
     }
 
     #[test]
@@ -809,6 +880,85 @@ mod tests {
                 .iter()
                 .any(|s| matches!(s, Source::Counts { query, .. } if query.contains("Brien")))
         );
+    }
+
+    fn closing(board: &Board, run: &str) -> Option<usize> {
+        board
+            .sources()
+            .iter()
+            .position(|s| matches!(s, Source::Close { run_id, .. } if run_id == run))
+    }
+
+    #[test]
+    fn a_listed_failure_is_asked_why_it_closed() {
+        let mut board = loaded();
+        let a = closing(&board, "a").expect("a failed");
+        let row = wf("a", "Order", "orders", 10);
+        assert_eq!(board.reason(&row), None, "not answered yet");
+
+        board.apply(a, Ok(SourceData::Close(Some("boom".into()))));
+        assert_eq!(board.reason(&row), Some("boom"));
+
+        board.apply(a, Err(fault()));
+        assert_eq!(board.reason(&row), Some("boom"), "a failed retry keeps it");
+        assert!(board.sources()[a].settles());
+        assert!(!board.sources()[0].settles());
+    }
+
+    #[test]
+    fn only_a_workflow_that_ended_badly_with_a_reason_to_give_is_asked() {
+        let layout = parse_dashboard("[[row]]\n[[row.panel]]\nkind = \"workflows\"").unwrap();
+        let mut board = Board::new(layout, &scope());
+        let with = |run: &str, status: WorkflowStatus| WorkflowRow {
+            status,
+            ..wf(run, "T", "q", 1)
+        };
+        board.apply(
+            0,
+            rows(vec![
+                with("failed", WorkflowStatus::Failed),
+                with("terminated", WorkflowStatus::Terminated),
+                with("canceled", WorkflowStatus::Canceled),
+                with("timedout", WorkflowStatus::TimedOut),
+                with("running", WorkflowStatus::Running),
+                with("completed", WorkflowStatus::Completed),
+            ]),
+        );
+        let asked: Vec<bool> = [
+            "failed",
+            "terminated",
+            "canceled",
+            "timedout",
+            "running",
+            "completed",
+        ]
+        .iter()
+        .map(|run| closing(&board, run).is_some())
+        .collect();
+        assert_eq!(asked, [true, true, true, false, false, false]);
+
+        board.apply(0, rows(vec![with("failed", WorkflowStatus::Failed)]));
+        assert_eq!(board.sources().len(), 4, "the same run is not asked twice");
+    }
+
+    #[test]
+    fn a_board_asks_why_of_a_bounded_number_of_workflows() {
+        let layout = parse_dashboard(
+            "[[row]]\n[[row.panel]]\nkind = \"workflows\"\nlimit = 50\n\
+             [[row.panel]]\nkind = \"workflows\"\nquery = \"A = 'b'\"\nlimit = 50",
+        )
+        .unwrap();
+        let mut board = Board::new(layout, &scope());
+        let page = |prefix: &str| {
+            rows(
+                (0..30)
+                    .map(|i| wf(&format!("{prefix}{i}"), "T", "q", i))
+                    .collect(),
+            )
+        };
+        board.apply(0, page("x"));
+        board.apply(1, page("y"));
+        assert_eq!(board.sources().len(), 2 + MAX_REASONS);
     }
 
     #[test]
@@ -894,7 +1044,7 @@ mod tests {
             [vec!["Status"], vec!["Running"], vec!["Task queues"]]
         );
         assert_eq!(
-            board.sources().len(),
+            board.sources().iter().filter(|s| !s.settles()).count(),
             5,
             "the probes, and the one queue they found"
         );

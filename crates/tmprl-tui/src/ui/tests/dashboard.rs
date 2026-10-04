@@ -298,10 +298,19 @@ fn a_task_queue_says_whether_anything_is_taking_its_work() {
     let mut app = app_with_dashboard();
     let out = draw(&mut app, 120, 30);
     assert!(!out.contains("pollers"), "not described yet:\n{out}");
+    let queue = app
+        .view
+        .dashboard
+        .as_ref()
+        .unwrap()
+        .sources()
+        .iter()
+        .position(|s| matches!(s, tmprl_core::dashboard::Source::Queue { .. }))
+        .unwrap();
 
     reply(
         &mut app,
-        4,
+        queue,
         Ok(SourceData::Queue(QueueHealth {
             backlog: Some(12),
             backlog_age_ms: Some(240_000),
@@ -319,7 +328,7 @@ fn a_task_queue_says_whether_anything_is_taking_its_work() {
 
     reply(
         &mut app,
-        4,
+        queue,
         Ok(SourceData::Queue(QueueHealth {
             backlog: Some(0),
             pollers: 2,
@@ -391,4 +400,65 @@ fn a_tally_of_a_sample_is_marked_until_its_counts_arrive() {
     assert!(!out.contains('~'), "{out}");
     assert!(out.contains("Failing types names from 3"), "{out}");
     assert!(out.contains("Recent failures of 3 sampled"), "{out}");
+}
+
+#[test]
+fn a_failure_says_why_once_its_closing_event_is_read() {
+    use tmprl_core::dashboard::Source;
+    let mut app = app_with_dashboard();
+    let out = draw(&mut app, 140, 30);
+    assert!(out.contains("CheckoutWorkflow"), "{out}");
+
+    let closing = |app: &App, id: &str| {
+        app.view
+            .dashboard
+            .as_ref()
+            .unwrap()
+            .sources()
+            .iter()
+            .position(|s| matches!(s, Source::Close { workflow_id, .. } if workflow_id == id))
+    };
+    assert!(
+        closing(&app, "refund-9").is_none(),
+        "a timeout has no reason to ask for"
+    );
+    let source = closing(&app, "order-1001").unwrap();
+    reply(
+        &mut app,
+        source,
+        Ok(SourceData::Close(Some(
+            "ValidationError: nik not found".into(),
+        ))),
+    );
+    let out = draw(&mut app, 200, 30);
+    let row = out.lines().find(|l| l.contains("order-1001")).unwrap();
+    assert!(row.contains("ValidationError: nik not found"), "{out}");
+    let out = draw(&mut app, 140, 30);
+    assert!(out.contains("ValidationError:…"), "cut to fit:\n{out}");
+
+    let out = draw(&mut app, 70, 30);
+    assert!(
+        !out.contains("ValidationError"),
+        "no room beside an id:\n{out}"
+    );
+}
+
+#[test]
+fn a_type_every_row_shares_is_not_repeated_down_the_list() {
+    let mut app = app_with_dashboard();
+    reply(
+        &mut app,
+        1,
+        Ok(SourceData::Workflows {
+            rows: vec![
+                wf("default", "order-1", WorkflowStatus::Failed, now() - 1_000),
+                wf("default", "order-2", WorkflowStatus::Failed, now() - 2_000),
+            ],
+            more: false,
+        }),
+    );
+    let out = draw(&mut app, 140, 30);
+    let row = out.lines().find(|l| l.contains("order-1")).unwrap();
+    let list = row.split("││").next().unwrap();
+    assert!(!list.contains("CheckoutWorkflow"), "{out}");
 }

@@ -32,6 +32,11 @@
   Each name is now counted on the server, so the number is the real one. A number still
   waiting for its count is drawn `~26`, and the panel says `names from 50` because a type the
   page missed is still missing.
+- **Dashboard failures say why**: a failed, terminated or cancelled workflow in a dashboard
+  list shows its reason beside the id, the root of the failure chain or the reason it was
+  ended with, read once from the workflow's closing event. A type that every row shares is
+  no longer repeated down the list. With a failure converter that encodes failures the
+  reason is whatever the server holds, since it is not sent through the codec.
 - **`--dashboard`** opens tmprl straight onto the dashboard, in the profile's namespace or
   the one `-n` names.
 
