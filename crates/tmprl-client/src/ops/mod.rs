@@ -10,6 +10,7 @@ pub mod history;
 pub mod mutate;
 pub mod namespace;
 pub mod schedule;
+pub mod taskqueue;
 pub mod workflow;
 
 use tmprl_core::fault::Code;

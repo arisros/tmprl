@@ -9,7 +9,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, Wrap};
 use tmprl_core::Loadable;
-use tmprl_core::dashboard::{Board, Item, PanelKind, Size};
+use tmprl_core::dashboard::{Board, Item, PanelKind, QueueRef, Size};
 use tmprl_core::schedule::time_until;
 use tmprl_core::workflow::humanize_age_ms;
 use tmprl_ui::{Axis, Track, tracks};
@@ -108,6 +108,42 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme, 
     }
 }
 
+/// A queue's health in a few words, and how loudly to say it: a backlog nothing is polling
+/// is the one state the panel exists to make impossible to miss.
+///
+/// `room` is what the line can spare. The age of the backlog is the first thing to go:
+/// that there is one, and whether anything polls, matter more than how old it is.
+fn queue_health(queue: &QueueRef, room: usize, t: &Theme) -> (String, Style) {
+    let Some(health) = &queue.health else {
+        return (String::new(), t.faint);
+    };
+    let pollers = match health.pollers {
+        0 => "no pollers".to_string(),
+        1 => "1 poller".to_string(),
+        n => format!("{n} pollers"),
+    };
+    let text = match (health.backlog, health.backlog_age_ms) {
+        (Some(0) | None, _) => pollers,
+        (Some(n), Some(age)) if age > 0 => {
+            let full = format!("backlog {n}, oldest {}  {pollers}", humanize_age_ms(age));
+            if full.chars().count() <= room {
+                full
+            } else {
+                format!("backlog {n}  {pollers}")
+            }
+        }
+        (Some(n), _) => format!("backlog {n}  {pollers}"),
+    };
+    let style = if health.stuck() {
+        t.err
+    } else if health.pollers == 0 || health.backlog.is_some_and(|n| n > 0) {
+        t.warn
+    } else {
+        t.dim
+    };
+    (text, style)
+}
+
 /// Cut `area` into as many of `list` as fit, starting far enough along that `must` is one
 /// of them.
 fn window(
@@ -151,7 +187,13 @@ impl Panel<'_> {
             title.push(Span::styled(format!("of {n} sampled "), t.dim));
         }
         if self.board.fault(self.index).is_some() && !self.board.items(self.index).is_empty() {
-            title.push(Span::styled("stale ", t.warn));
+            let age = self
+                .board
+                .state(self.index)
+                .and_then(Loadable::age)
+                .map(|age| humanize_age_ms(age.as_millis() as i64))
+                .unwrap_or_default();
+            title.push(Span::styled(format!("stale {age} "), t.warn));
         }
         let block =
             Block::bordered()
@@ -266,14 +308,18 @@ impl Panel<'_> {
                         spans.push(Span::styled(truncate(name, width.saturating_sub(6)), base));
                     }
                     Item::Queue(q) => {
+                        // Six for the count, two before the health, eight for a name.
+                        let (health, health_style) =
+                            queue_health(q, width.saturating_sub(6 + 2 + 8), t);
+                        let name_width = width.saturating_sub(6 + health.chars().count() + 2);
                         spans.push(Span::styled(
                             format!("{:>4}  ", q.running),
                             style(i, t.accent),
                         ));
-                        spans.push(Span::styled(
-                            truncate(&q.name, width.saturating_sub(6)),
-                            base,
-                        ));
+                        spans.push(Span::styled(truncate(&q.name, name_width.max(4)), base));
+                        if !health.is_empty() {
+                            spans.push(Span::styled(format!("  {health}"), style(i, health_style)));
+                        }
                         if fanned_out {
                             spans.push(Span::styled(format!("  {}", q.namespace), style(i, t.dim)));
                         }

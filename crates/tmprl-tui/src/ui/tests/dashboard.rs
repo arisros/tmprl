@@ -18,6 +18,7 @@ fn reply(app: &mut App, source: usize, result: Result<SourceData, Fault>) {
         view: app.tabs.current().focused(),
         generation: app.view.generation,
         source,
+        timed: false,
         result,
     });
 }
@@ -106,14 +107,15 @@ pub(super) fn app_with_dashboard() -> App {
 }
 
 #[test]
-fn the_builtin_layout_draws_every_panel_with_its_items() {
+fn a_namespace_with_something_of_everything_draws_every_panel() {
     let out = draw(&mut app_with_dashboard(), 120, 30);
     for title in [
         "Status",
         "Recent failures",
         "Failing types",
         "Task queues",
-        "Schedules",
+        "Paused schedules",
+        "Upcoming schedules",
     ] {
         assert!(out.contains(title), "no `{title}` panel:\n{out}");
     }
@@ -126,7 +128,10 @@ fn the_builtin_layout_draws_every_panel_with_its_items() {
     assert!(out.contains("nightly-recon"), "{out}");
     assert!(out.contains("paused"), "{out}");
     assert!(!out.contains("hidden"), "{out}");
-    assert!(out.lines().next().unwrap().contains("5 panels"), "{out}");
+    assert!(
+        out.lines().next().unwrap().contains("6 panels  auto 30s"),
+        "{out}"
+    );
 }
 
 #[test]
@@ -155,7 +160,14 @@ fn a_panel_says_whether_it_is_waiting_failed_or_empty() {
     reply(&mut app, 3, Ok(SourceData::Schedules(Vec::new())));
     let out = draw(&mut app, 120, 30);
     assert!(out.contains("ListWorkflowExecutions failed"), "{out}");
-    assert!(out.contains("no schedules"), "{out}");
+    assert!(
+        out.contains("Failing types"),
+        "a failed panel stays to say so:\n{out}"
+    );
+    assert!(
+        !out.contains("Schedules"),
+        "known to be empty, so not drawn:\n{out}"
+    );
 }
 
 #[test]
@@ -184,8 +196,8 @@ fn panels_that_do_not_fit_are_counted_not_squeezed() {
     let mut app = app_with_dashboard();
     let out = draw(&mut app, 40, 8);
     assert!(out.contains("Status"), "{out}");
-    assert!(out.contains("+3 hidden"), "{out}");
-    assert!(!out.contains("Schedules"), "{out}");
+    assert!(out.contains("+4 hidden"), "{out}");
+    assert!(!out.contains("schedules"), "{out}");
 }
 
 #[test]
@@ -193,8 +205,8 @@ fn the_dashboard_scrolls_to_the_panel_the_cursor_is_in() {
     let mut app = app_with_dashboard();
     app.run("motion.bottom", None);
     let out = draw(&mut app, 40, 8);
-    assert!(out.contains("Schedules"), "{out}");
-    assert!(out.contains("held"), "{out}");
+    assert!(out.contains("Upcoming schedules"), "{out}");
+    assert!(out.contains("nightly-recon"), "{out}");
 }
 
 #[test]
@@ -232,4 +244,89 @@ fn a_dashboard_in_a_split_draws_beside_another_screen() {
     let out = draw(&mut app, 160, 30);
     assert!(out.contains("Recent failures"), "{out}");
     assert!(out.contains("order-1001"), "{out}");
+}
+
+#[test]
+fn a_healthy_namespace_shows_what_is_running_in_place_of_failures() {
+    let mut app = empty_dashboard();
+    reply(
+        &mut app,
+        1,
+        Ok(SourceData::Workflows {
+            rows: Vec::new(),
+            more: false,
+        }),
+    );
+    reply(
+        &mut app,
+        2,
+        Ok(SourceData::Workflows {
+            rows: vec![wf("default", "order-2000", WorkflowStatus::Running, now())],
+            more: false,
+        }),
+    );
+    reply(&mut app, 3, Ok(SourceData::Schedules(Vec::new())));
+    let out = draw(&mut app, 120, 30);
+    assert!(out.contains("Running"), "{out}");
+    assert!(out.contains("order-2000"), "{out}");
+    assert!(!out.contains("Recent failures"), "{out}");
+    assert!(!out.contains("Schedules"), "{out}");
+}
+
+#[test]
+fn a_namespace_with_nothing_in_it_says_so_in_every_panel() {
+    let mut app = empty_dashboard();
+    let empty = || {
+        Ok(SourceData::Workflows {
+            rows: Vec::new(),
+            more: false,
+        })
+    };
+    reply(&mut app, 0, Ok(SourceData::Counts(StatusCounts::default())));
+    reply(&mut app, 1, empty());
+    reply(&mut app, 2, empty());
+    reply(&mut app, 3, Ok(SourceData::Schedules(Vec::new())));
+    let out = draw(&mut app, 120, 30);
+    assert!(out.contains("no workflows"), "{out}");
+    assert!(out.contains("no schedules"), "{out}");
+    assert!(out.contains("Recent failures"), "{out}");
+}
+
+#[test]
+fn a_task_queue_says_whether_anything_is_taking_its_work() {
+    use tmprl_core::taskqueue::QueueHealth;
+    let mut app = app_with_dashboard();
+    let out = draw(&mut app, 120, 30);
+    assert!(!out.contains("pollers"), "not described yet:\n{out}");
+
+    reply(
+        &mut app,
+        4,
+        Ok(SourceData::Queue(QueueHealth {
+            backlog: Some(12),
+            backlog_age_ms: Some(240_000),
+            pollers: 0,
+            last_poll_ms: None,
+        })),
+    );
+    let out = draw(&mut app, 120, 30);
+    assert!(
+        out.contains("backlog 12  no pollers"),
+        "narrow, so no age:\n{out}"
+    );
+    let out = draw(&mut app, 200, 30);
+    assert!(out.contains("backlog 12, oldest 4m  no pollers"), "{out}");
+
+    reply(
+        &mut app,
+        4,
+        Ok(SourceData::Queue(QueueHealth {
+            backlog: Some(0),
+            pollers: 2,
+            ..QueueHealth::default()
+        })),
+    );
+    let out = draw(&mut app, 120, 30);
+    assert!(out.contains("2 pollers"), "{out}");
+    assert!(!out.contains("backlog"), "{out}");
 }

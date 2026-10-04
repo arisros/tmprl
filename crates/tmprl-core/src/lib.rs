@@ -27,6 +27,7 @@ pub mod picker;
 pub mod query;
 pub mod schedule;
 pub mod search;
+pub mod taskqueue;
 pub mod theme;
 pub mod timeline;
 pub mod timerange;

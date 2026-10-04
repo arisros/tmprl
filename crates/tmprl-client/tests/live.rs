@@ -577,3 +577,25 @@ async fn a_real_history_groups_consistently_with_the_list() {
         "grouping must account for every event exactly once"
     );
 }
+
+/// The dashboard's task queue panel reads this. A queue nothing polls is the case it
+/// exists for, so describing one must succeed rather than fail as not found.
+#[tokio::test]
+async fn a_task_queue_nothing_polls_is_still_described() {
+    use tmprl_core::taskqueue::TaskQueueKind;
+    let Some(c) = conn().await else { return };
+    let ns = c.namespace().to_string();
+    for kind in [TaskQueueKind::Workflow, TaskQueueKind::Activity] {
+        let health = c
+            .describe_task_queue(&ns, "tmprl-live-nothing-polls-this", kind)
+            .await
+            .expect("DescribeTaskQueue");
+        assert_eq!(health.pollers, 0);
+        assert_eq!(health.last_poll_ms, None);
+        match health.backlog {
+            Some(n) => assert_eq!(n, 0, "nothing was ever sent to it"),
+            // An older server ignores `report_stats`. The panel then shows pollers only.
+            None => eprintln!("NOTE: this server reports no task queue stats"),
+        }
+    }
+}

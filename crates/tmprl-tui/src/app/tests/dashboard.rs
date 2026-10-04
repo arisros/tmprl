@@ -16,17 +16,16 @@ fn reply(app: &mut App, source: usize, result: Result<SourceData, Fault>) {
         view: app.tabs.current().focused(),
         generation: app.view.generation,
         source,
+        timed: false,
         result,
     });
 }
 
 fn failures() -> SourceData {
+    let mut refund = wf("default", "r3", 100);
+    refund.workflow_type = "Refund".into();
     SourceData::Workflows {
-        rows: vec![
-            wf("default", "r1", 300),
-            wf("default", "r2", 200),
-            wf("default", "r3", 100),
-        ],
+        rows: vec![wf("default", "r1", 300), wf("default", "r2", 200), refund],
         more: false,
     }
 }
@@ -52,7 +51,7 @@ fn schedule(id: &str) -> ScheduleRow {
 }
 
 /// Every panel of the builtin layout with something in it: two statuses, three failures,
-/// one type, one queue, two schedules.
+/// two types, one queue, two schedules.
 fn filled() -> App {
     let mut app = on_dashboard();
     reply(&mut app, 0, Ok(counts()));
@@ -132,8 +131,8 @@ fn a_reply_fills_the_panels_that_read_from_it() {
     let mut app = on_dashboard();
     reply(&mut app, 1, Ok(failures()));
     assert_eq!(board(&app).items(1).len(), 3);
-    assert_eq!(board(&app).items(2).len(), 1, "the tally of the same rows");
-    assert_eq!(app.row_count(), 4);
+    assert_eq!(board(&app).items(2).len(), 2, "the tally of the same rows");
+    assert_eq!(app.row_count(), 5);
 }
 
 #[test]
@@ -149,6 +148,7 @@ fn a_reply_for_a_parked_dashboard_lands_in_it_and_nowhere_else() {
         view: parked,
         generation,
         source: 0,
+        timed: false,
         result: Ok(counts()),
     });
     let there = app.parked_view(parked).unwrap().dashboard.as_ref().unwrap();
@@ -166,12 +166,14 @@ fn a_reply_nobody_is_waiting_for_is_dropped() {
         view: app.tabs.current().focused(),
         generation: app.view.generation.wrapping_sub(1),
         source: 0,
+        timed: false,
         result: Ok(counts()),
     });
     app.handle(Msg::Dashboard {
         view: ViewId(99),
         generation: app.view.generation,
         source: 0,
+        timed: false,
         result: Ok(counts()),
     });
     assert!(board(&app).items(0).is_empty());
@@ -181,7 +183,7 @@ fn a_reply_nobody_is_waiting_for_is_dropped() {
 fn a_failed_refresh_keeps_the_panel_and_reports_the_failure() {
     let mut app = filled();
     app.run("app.refresh", None);
-    assert_eq!(app.row_count(), 9, "a refresh does not blank the screen");
+    assert_eq!(app.row_count(), 10, "a refresh does not blank the screen");
     reply(&mut app, 1, Err(down()));
     assert_eq!(board(&app).items(1).len(), 3);
     assert_eq!(board(&app).fault(1), Some(&down()));
@@ -208,7 +210,7 @@ fn enter_on_a_status_opens_the_workflows_behind_it_and_c_o_comes_back() {
     app.run("nav.jump-back", None);
     assert_eq!(app.view.screen, Screen::Dashboard);
     assert_eq!(app.view.cursor, 1);
-    assert_eq!(app.row_count(), 9, "the board it left is still there");
+    assert_eq!(app.row_count(), 10, "the board it left is still there");
 }
 
 #[test]
@@ -238,7 +240,7 @@ fn enter_on_a_type_or_a_queue_narrows_the_panels_own_query() {
     );
 
     let mut app = filled();
-    app.run("motion.down", Some(6));
+    app.run("motion.down", Some(7));
     app.run("nav.open", None);
     assert_eq!(
         app.view.query,
@@ -327,9 +329,9 @@ fn yank_copies_the_name_and_the_item_as_json() {
     assert_eq!(app.field_under_cursor(), "Checkout");
     assert_eq!(
         app.records_selected(),
-        r#"{"workflowType":"Checkout","count":3}"#
+        r#"{"workflowType":"Checkout","count":2}"#
     );
-    app.run("motion.down", None);
+    app.run("motion.down", Some(2));
     assert_eq!(
         app.records_selected(),
         r#"{"namespace":"default","taskQueue":"tq","running":2}"#
@@ -340,7 +342,7 @@ fn yank_copies_the_name_and_the_item_as_json() {
 fn search_runs_over_every_panels_items() {
     let mut app = filled();
     search_for(&mut app, "weekly");
-    assert_eq!(app.view.cursor, 8);
+    assert_eq!(app.view.cursor, 9);
 }
 
 #[test]
@@ -425,4 +427,211 @@ fn a_key_error_is_the_one_left_on_the_note_line() {
     app.apply_dashboard(Some("rows = 1"));
     app.apply_config(Some("[normal]\n\"x\" = \"nope.nope\"\n"), None, None);
     assert!(app.note.as_ref().unwrap().0.contains("nope.nope"));
+}
+
+fn titles(app: &App) -> Vec<String> {
+    board(app)
+        .layout()
+        .panels()
+        .map(|p| p.title().to_string())
+        .collect()
+}
+
+#[test]
+fn without_a_dashboard_file_the_panels_follow_what_the_namespace_shows() {
+    let mut app = on_dashboard();
+    assert_eq!(titles(&app).len(), 5, "everything, while nothing is known");
+
+    reply(
+        &mut app,
+        1,
+        Ok(SourceData::Workflows {
+            rows: Vec::new(),
+            more: false,
+        }),
+    );
+    reply(
+        &mut app,
+        2,
+        Ok(SourceData::Workflows {
+            rows: vec![wf("default", "r8", 50)],
+            more: false,
+        }),
+    );
+    reply(&mut app, 3, Ok(SourceData::Schedules(Vec::new())));
+    assert_eq!(titles(&app), ["Status", "Running", "Task queues"]);
+}
+
+#[test]
+fn a_panel_that_empties_goes_only_when_the_dashboard_is_asked_for_again() {
+    let mut app = filled();
+    let empty = || {
+        Ok(SourceData::Workflows {
+            rows: Vec::new(),
+            more: false,
+        })
+    };
+    reply(&mut app, 1, empty());
+    assert!(titles(&app).contains(&"Recent failures".to_string()));
+
+    app.run("app.refresh", None);
+    assert!(!titles(&app).contains(&"Recent failures".to_string()));
+    assert!(titles(&app).contains(&"Running".to_string()));
+}
+
+#[test]
+fn a_dashboard_file_is_never_rearranged() {
+    let mut app = app();
+    app.apply_dashboard(Some(ONE_PANEL));
+    app.view.screen = Screen::Workflows;
+    app.run("nav.dashboard", None);
+    reply(
+        &mut app,
+        0,
+        Ok(SourceData::Workflows {
+            rows: Vec::new(),
+            more: false,
+        }),
+    );
+    app.run("app.refresh", None);
+    assert_eq!(titles(&app), ["Stuck"]);
+}
+
+const INTERVAL: i64 = 30_000;
+
+fn timed_reply(app: &mut App, source: usize, result: Result<SourceData, Fault>) {
+    app.handle(Msg::Dashboard {
+        view: app.tabs.current().focused(),
+        generation: app.view.generation,
+        source,
+        timed: true,
+        result,
+    });
+}
+
+fn out(view: &View) -> Vec<bool> {
+    (0..4).map(|s| view.dashboard_pacer.in_flight(s)).collect()
+}
+
+#[test]
+fn nothing_is_asked_for_again_before_the_interval_is_up() {
+    let mut app = filled();
+    assert_eq!(out(&app.view), [false; 4], "every answer is in");
+    app.tick_dashboards(now_ms() + INTERVAL - 2_000);
+    assert_eq!(out(&app.view), [false; 4]);
+}
+
+#[test]
+fn once_the_interval_is_up_everything_is_asked_for_again_once() {
+    let mut app = filled();
+    let generation = app.view.generation;
+    app.tick_dashboards(now_ms() + INTERVAL + 1_000);
+    assert_eq!(out(&app.view), [true; 4]);
+    assert_eq!(
+        app.view.generation, generation,
+        "so a slow answer to the last round still lands"
+    );
+    assert_eq!(app.row_count(), 10, "and nothing on screen was blanked");
+
+    timed_reply(&mut app, 0, Ok(counts()));
+    assert_eq!(out(&app.view), [false, true, true, true]);
+    app.tick_dashboards(now_ms() + 2_000);
+    assert_eq!(out(&app.view), [false, true, true, true]);
+}
+
+#[test]
+fn a_dashboard_left_in_a_split_is_refreshed_and_one_in_another_tab_is_not() {
+    let mut app = filled();
+    let parked = app.tabs.current().focused();
+    app.run("window.split-right", None);
+    app.run("nav.workflows", None);
+    app.tick_dashboards(now_ms() + INTERVAL + 1_000);
+    assert_eq!(out(app.parked_view(parked).unwrap()), [true; 4]);
+
+    let mut app = filled();
+    let parked = app.tabs.current().focused();
+    app.run("tab.new", None);
+    app.tick_dashboards(now_ms() + INTERVAL + 1_000);
+    assert_eq!(out(app.parked_view(parked).unwrap()), [false; 4]);
+}
+
+#[test]
+fn a_dashboard_that_was_left_is_not_refreshed() {
+    let mut app = filled();
+    app.run("nav.workflows", None);
+    app.tick_dashboards(now_ms() + INTERVAL + 1_000);
+    assert_eq!(out(&app.view), [false; 4]);
+}
+
+#[test]
+fn refresh_can_be_turned_off() {
+    let mut app = filled();
+    app.apply_config(None, None, Some("[refresh]\ndashboard = \"off\""));
+    app.tick_dashboards(now_ms() + INTERVAL * 100);
+    assert_eq!(out(&app.view), [false; 4]);
+}
+
+#[test]
+fn the_timer_reports_a_source_going_bad_once() {
+    let mut app = filled();
+    app.tick_dashboards(now_ms() + INTERVAL + 1_000);
+    timed_reply(&mut app, 1, Err(down()));
+    let logged = app.messages.len();
+    assert_eq!(app.note.as_ref().unwrap().1, Note::Error);
+    assert_eq!(board(&app).items(1).len(), 3, "the old rows stay");
+
+    app.tick_dashboards(now_ms() + INTERVAL * 10);
+    assert!(out(&app.view)[1], "it is tried again");
+    timed_reply(&mut app, 1, Err(down()));
+    assert_eq!(
+        app.messages.len(),
+        logged,
+        "and failing again is not said again"
+    );
+
+    app.run("app.refresh", None);
+    reply(&mut app, 1, Err(down()));
+    assert_eq!(app.messages.len(), logged + 1, "R always answers");
+}
+
+#[test]
+fn a_source_the_server_refuses_is_left_alone_until_r() {
+    let mut app = filled();
+    app.tick_dashboards(now_ms() + INTERVAL + 1_000);
+    timed_reply(
+        &mut app,
+        3,
+        Err(Fault::rpc("ListSchedules", Code::PermissionDenied, "no")),
+    );
+    app.tick_dashboards(now_ms() + INTERVAL * 1_000);
+    assert!(!out(&app.view)[3]);
+
+    app.run("app.refresh", None);
+    assert!(out(&app.view)[3]);
+}
+
+#[test]
+fn a_queue_found_on_running_workflows_is_described_and_kept_fresh() {
+    use tmprl_core::taskqueue::QueueHealth;
+    let mut app = filled();
+    assert_eq!(board(&app).sources().len(), 5, "the probes and queue `tq`");
+    assert!(app.view.dashboard_pacer.in_flight(4));
+
+    reply(
+        &mut app,
+        4,
+        Ok(SourceData::Queue(QueueHealth {
+            backlog: Some(12),
+            pollers: 0,
+            ..QueueHealth::default()
+        })),
+    );
+    let Item::Queue(queue) = &board(&app).items(3)[0] else {
+        panic!("{:?}", board(&app).items(3));
+    };
+    assert!(queue.health.as_ref().unwrap().stuck());
+    assert_eq!(app.row_count(), 10, "health adds no rows");
+
+    app.tick_dashboards(now_ms() + INTERVAL + 1_000);
+    assert!(app.view.dashboard_pacer.in_flight(4));
 }

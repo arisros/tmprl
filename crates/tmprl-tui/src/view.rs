@@ -13,7 +13,7 @@
 use std::cell::RefCell;
 
 use tmprl_client::NamespaceInfo;
-use tmprl_core::dashboard::{Board, Item};
+use tmprl_core::dashboard::{Board, Item, Pacer};
 use tmprl_core::history::NormalizedEvent;
 use tmprl_core::outline::{Outline, Row};
 use tmprl_core::payload::FlatCache;
@@ -32,6 +32,8 @@ pub struct View {
     pub history: Loadable<Outline>,
     pub schedules: Loadable<Vec<ScheduleRow>>,
     pub dashboard: Option<Board>,
+    /// When each of the dashboard's requests is next due.
+    pub dashboard_pacer: Pacer,
     /// Requests the dashboard has out, so leaving it or closing the pane stops them.
     pub dashboard_tasks: Vec<tokio::task::JoinHandle<()>>,
     /// The schedule the next schedule list should put the cursor on.
@@ -121,6 +123,7 @@ impl View {
             history: Loadable::NotAsked,
             schedules: Loadable::NotAsked,
             dashboard: None,
+            dashboard_pacer: Pacer::default(),
             dashboard_tasks: Vec::new(),
             seek_schedule: None,
             viewing: None,
