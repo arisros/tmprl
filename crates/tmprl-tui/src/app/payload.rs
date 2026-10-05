@@ -263,6 +263,112 @@ impl App {
         self.editing = Some(EditRequest { path, dir, what });
     }
 
+    /// `gf`: ask the configured resolver where the code behind the focused event is, and
+    /// open the editor there once it answers.
+    ///
+    /// tmprl does not know anyone's code. It says what is under the cursor, the workflow,
+    /// the event's name, every event of its group and their payloads, and a program the
+    /// user chose turns that into a file and a line.
+    pub(super) fn open_source(&mut self) {
+        if self.view.screen != Screen::History {
+            self.note = Some((
+                "the source of an event is found from a workflow history".into(),
+                Note::Warn,
+            ));
+            return;
+        }
+        let Some(command) = self.source_command.clone() else {
+            self.note = Some((
+                "no `[source] command` in config.toml to ask where the code is".into(),
+                Note::Warn,
+            ));
+            return;
+        };
+        let Some((program, args)) =
+            tmprl_core::source::argv(&command, std::env::var("HOME").ok().as_deref())
+        else {
+            return;
+        };
+        let (Some(workflow), Some(outline)) =
+            (self.view.viewing.as_ref(), self.view.history.value())
+        else {
+            return;
+        };
+        let (group, focused) = match outline.row_at(self.view.cursor) {
+            Some(Row::Group { group, .. }) => (group, None),
+            Some(Row::Event { group, event }) => (group, outline.event(event)),
+            None => {
+                self.note = Some(("nothing here to find the source of".into(), Note::Warn));
+                return;
+            }
+        };
+        let Some(group) = outline.group(group) else {
+            return;
+        };
+        let events: Vec<&tmprl_core::history::NormalizedEvent> = outline
+            .events()
+            .iter()
+            .filter(|e| group.events.contains(&e.id))
+            .collect();
+        let payloads: Vec<(String, tmprl_core::payload::Payload)> = events
+            .iter()
+            .flat_map(|e| e.payloads.iter().cloned())
+            .collect();
+        let payloads = tmprl_core::payload::payloads_as_json(&payloads).0;
+        let request = tmprl_core::source::request(
+            &self.profile,
+            workflow,
+            group,
+            &events,
+            focused,
+            payloads.as_deref(),
+        )
+        .to_string();
+
+        self.note = Some((
+            format!("asking {program} where `{}` comes from…", group.subject),
+            Note::Info,
+        ));
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            let result = run_resolver(&program, &args, request.into_bytes()).await;
+            let _ = tx.send(Msg::Source(result));
+        });
+    }
+
+    /// The resolver has answered: a place to open, or why there is none.
+    pub(super) fn source_reply(&mut self, result: Result<String, String>) {
+        match result.and_then(|out| tmprl_core::source::locate(&out)) {
+            Ok(at) if at.path.is_file() => {
+                self.opening = Some(SourceRequest {
+                    path: at.path,
+                    line: at.line,
+                })
+            }
+            Ok(at) => {
+                self.note = Some((
+                    format!("source: {} is not a file", at.path.display()),
+                    Note::Error,
+                ))
+            }
+            Err(why) => self.note = Some((format!("source: {why}"), Note::Error)),
+        }
+    }
+
+    /// Hand the pending source file to the caller that owns the terminal.
+    pub fn take_source_request(&mut self) -> Option<SourceRequest> {
+        self.opening.take()
+    }
+
+    /// Report how the editor went, once the terminal is back.
+    pub fn finish_source(&mut self, req: &SourceRequest, error: Option<String>) {
+        self.dirty = true;
+        self.note = Some(match error {
+            Some(e) => (format!("editor: {e}"), Note::Error),
+            None => (format!("closed {}", req.path.display()), Note::Info),
+        });
+    }
+
     /// Hand the pending edit to the caller that owns the terminal.
     pub fn take_edit_request(&mut self) -> Option<EditRequest> {
         self.editing.take()

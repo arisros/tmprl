@@ -53,10 +53,17 @@ pub async fn run(
             // terminal again. `ratatui::init` reinstalls the panic hook, so a panic after
             // this still restores.
             ratatui::restore();
-            let outcome = run_editor(&request.path);
+            let outcome = run_editor(&request.path, None);
             terminal = ratatui::init();
             terminal.clear()?;
             app.finish_edit(&request, outcome.err().map(|e| e.to_string()));
+        }
+        if let Some(request) = app.take_source_request() {
+            ratatui::restore();
+            let outcome = run_editor(&request.path, request.line);
+            terminal = ratatui::init();
+            terminal.clear()?;
+            app.finish_source(&request, outcome.err().map(|e| e.to_string()));
         }
         if app.dirty {
             terminal.draw(|f| ui::render(f, &mut app))?;
@@ -94,7 +101,7 @@ pub async fn run(
 /// is common and has to work, while a shell would also make `EDITOR` an injection point for
 /// a file name tmprl chose. Blocking is correct here, the TUI is not on screen and there is
 /// nothing else for this task to be doing.
-fn run_editor(path: &std::path::Path) -> Result<()> {
+fn run_editor(path: &std::path::Path, line: Option<u32>) -> Result<()> {
     let editor = std::env::var("VISUAL")
         .or_else(|_| std::env::var("EDITOR"))
         .unwrap_or_else(|_| "vi".to_string());
@@ -106,6 +113,8 @@ fn run_editor(path: &std::path::Path) -> Result<()> {
 
     let status = std::process::Command::new(program)
         .args(parts)
+        // `+N file`, the form vi, vim, nvim, emacs, nano and helix all take.
+        .args(line.map(|n| format!("+{n}")))
         .arg(path)
         .status()
         .map_err(|e| anyhow::anyhow!("could not run `{program}`: {e}"))?;

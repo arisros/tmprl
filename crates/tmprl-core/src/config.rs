@@ -267,6 +267,9 @@ pub struct Config {
     /// `[yank] max_bytes`. The largest text handed to the clipboard; anything longer is
     /// written to a file instead.
     pub yank_max: usize,
+    /// `[source] command`. The program that says where the code behind a history event
+    /// is. Absent means `gf` has nowhere to go.
+    pub source: Option<String>,
 }
 
 /// Terminals commonly cap OSC 52 around 100 KB and truncate silently past it.
@@ -281,6 +284,7 @@ impl Default for Config {
             payload_pane: PayloadPane::default(),
             dashboard_refresh: Refresh::default(),
             yank_max: DEFAULT_YANK_MAX,
+            source: None,
         }
     }
 }
@@ -394,6 +398,11 @@ pub fn parse_config(src: &str) -> Result<Config, ConfigError> {
         Some(raw) => parse_yank(raw)?,
     };
 
+    let source = match table.get("source") {
+        None => None,
+        Some(raw) => parse_source(raw)?,
+    };
+
     Ok(Config {
         codec,
         timezone,
@@ -401,7 +410,30 @@ pub fn parse_config(src: &str) -> Result<Config, ConfigError> {
         payload_pane,
         dashboard_refresh,
         yank_max,
+        source,
     })
+}
+
+fn parse_source(raw: &toml::Value) -> Result<Option<String>, ConfigError> {
+    const FILE: &str = "config.toml";
+    let table = raw.as_table().ok_or(ConfigError::Type {
+        file: FILE,
+        path: "source".into(),
+        expected: "a table",
+    })?;
+    match table.get("command") {
+        None => Ok(None),
+        Some(v) => v
+            .as_str()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| Some(s.to_string()))
+            .ok_or(ConfigError::Type {
+                file: FILE,
+                path: "source.command".into(),
+                expected: "a program and its arguments, such as \"~/bin/find-source\"",
+            }),
+    }
 }
 
 fn parse_refresh(raw: &toml::Value) -> Result<Refresh, ConfigError> {
@@ -1006,6 +1038,16 @@ accent = "green"
 
     #[test]
     fn the_yank_limit_defaults_to_64_kb() {
+        assert_eq!(parse_config("").unwrap().source, None);
+        assert_eq!(
+            parse_config("[source]\ncommand = \" ~/bin/find-source -x \"")
+                .unwrap()
+                .source
+                .as_deref(),
+            Some("~/bin/find-source -x")
+        );
+        assert!(parse_config("[source]\ncommand = 3").is_err());
+        assert!(parse_config("[source]\ncommand = \"\"").is_err());
         assert_eq!(parse_config("").unwrap().yank_max, DEFAULT_YANK_MAX);
         assert_eq!(parse_config("[yank]\n").unwrap().yank_max, 64 * 1024);
     }

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Go to source**, `gf` in a history: opens `$EDITOR` on the code behind the event under
+  the cursor. tmprl asks a program you name in `config.toml`, `[source] command`, which
+  reads what is under the cursor as JSON on stdin and prints `path:line`. It can be written
+  in anything, and decides for itself how a name maps to a file and which version of the
+  code was running.
+
 ## 0.2.0 — 2026-10-04
 
 - **Yank**: a yank over the limit is written to a file instead of being refused, and the

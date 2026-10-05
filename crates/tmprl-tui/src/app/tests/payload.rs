@@ -341,3 +341,87 @@ fn nothing_is_decoded_without_a_configured_codec() {
     app.run("history.detail", None);
     assert!(app.decoding.is_empty(), "there is nowhere to send it");
 }
+
+#[test]
+fn going_to_the_source_needs_a_history_and_a_resolver() {
+    let mut app = app();
+    four(&mut app);
+    app.run("history.source", None);
+    assert!(app.note.clone().unwrap().0.contains("history"));
+
+    let mut app = viewing_history();
+    app.run("history.source", None);
+    let (msg, level) = app.note.clone().unwrap();
+    assert_eq!(level, Note::Warn);
+    assert!(msg.contains("[source] command"), "{msg}");
+    assert!(app.opening.is_none());
+}
+
+#[test]
+fn a_resolvers_answer_becomes_a_file_to_open_at_its_line() {
+    let mut app = viewing_history();
+    let file = std::env::temp_dir().join(format!("tmprl-source-{}.go", uuid::Uuid::new_v4()));
+    std::fs::write(&file, "package x\n").unwrap();
+
+    app.handle(Msg::Source(Ok(format!("{}:16\n", file.display()))));
+    assert_eq!(
+        app.take_source_request(),
+        Some(SourceRequest {
+            path: file.clone(),
+            line: Some(16),
+        })
+    );
+    assert!(app.opening.is_none(), "taken once");
+    std::fs::remove_file(&file).unwrap();
+
+    app.handle(Msg::Source(Ok(format!("{}:16\n", file.display()))));
+    assert!(app.opening.is_none());
+    assert!(app.note.clone().unwrap().0.contains("is not a file"));
+
+    app.handle(Msg::Source(Err("no deploy found before that time".into())));
+    let (msg, level) = app.note.clone().unwrap();
+    assert_eq!(level, Note::Error);
+    assert_eq!(msg, "source: no deploy found before that time");
+
+    app.handle(Msg::Source(Ok("internal/a.go:3".into())));
+    assert!(app.note.clone().unwrap().0.contains("not an absolute path"));
+}
+
+#[tokio::test]
+async fn the_resolver_is_told_what_is_under_the_cursor_on_stdin() {
+    let dir = std::env::temp_dir().join(format!("tmprl-resolver-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let said = dir.join("said.json");
+    let script = dir.join("resolver.sh");
+    std::fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\ncat > '{}'\necho '{}:7'\n",
+            said.display(),
+            script.display()
+        ),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+
+    let out = super::super::run_resolver(
+        script.to_str().unwrap(),
+        &[],
+        br#"{"version":1,"name":"ChargeCard"}"#.to_vec(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(out.trim(), format!("{}:7", script.display()));
+    assert_eq!(
+        std::fs::read_to_string(&said).unwrap(),
+        r#"{"version":1,"name":"ChargeCard"}"#
+    );
+
+    let missing = super::super::run_resolver("/no/such/resolver", &[], Vec::new()).await;
+    assert!(missing.unwrap_err().contains("could not run"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}

@@ -64,8 +64,8 @@ project testable:
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
 | `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 81 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 428 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 441 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 432 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 444 |
 | `tmprl-ui` | built | Plain unit tests over the layout tree | 47 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -127,6 +127,7 @@ Every file opens with a `//!` line saying what it is; this is those lines, gathe
 | `theme.rs` | colour depth from the environment, `theme.toml`, hex to the nearest of 16 |
 | `dashboard/` | the dashboard: `layout`, `source` (requests and the items made from them), `board`, `compose` (the adaptive layout), `histogram` (a chart's time axis), `pacer` (when to ask again), `parse` (`dashboard.toml`) |
 | `taskqueue.rs` | a task queue's health: backlog, its age, who is polling |
+| `source.rs` | `gf`: what a source resolver is told about an event, and how its answer is read |
 
 **`tmprl-client`**, all network IO: `conn.rs` connects; `ops/` has one file per area of the
 API (`workflow`, `history`, `schedule`, `namespace`, `mutate`, `codec`, `describe`,
