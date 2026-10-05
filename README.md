@@ -22,10 +22,14 @@
 
 <sub>Real history on Temporal Cloud. Two customer values blurred, nothing else.</sub>
 
-[![A recorded tmprl session: search, folds and the payload pane](https://raw.githubusercontent.com/arisros/tmprl/main/docs/img/demo.svg)](https://asciinema.org/a/mTNgbyV9vP1SC5Ed)
+![A recorded tmprl session: the workflow list, search and folds in a history, the dashboard with its charts, and moving between panels](https://raw.githubusercontent.com/arisros/tmprl/main/docs/img/demo.gif)
 
-<sub>Recorded on a local dev server. Payload values and a few identifying words were replaced
-with <code>*</code> afterwards, same length, so the layout and timing are untouched.</sub>
+<sub>Recorded on a real cluster. Namespace, workflow ids and every payload are boxed out, and
+the part where <code>gf</code> opens the editor is cut, since the code it opened is not public.</sub>
+
+![The timeline view of a history, with the payload pane beside it](https://raw.githubusercontent.com/arisros/tmprl/main/docs/img/timeline.png)
+
+<sub>The timeline, <code>&lt;Space&gt;G</code>, beside the payload pane. Values boxed out.</sub>
 
 ## Quickstart
 
