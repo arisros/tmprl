@@ -363,13 +363,28 @@ fn a_resolvers_answer_becomes_a_file_to_open_at_its_line() {
     let file = std::env::temp_dir().join(format!("tmprl-source-{}.go", uuid::Uuid::new_v4()));
     std::fs::write(&file, "package x\n").unwrap();
 
-    app.handle(Msg::Source(Ok(format!("{}:16\n", file.display()))));
+    let root = std::env::temp_dir();
+    app.handle(Msg::Source(Ok(format!(
+        "{}:16\n{}\n",
+        file.display(),
+        root.display()
+    ))));
     assert_eq!(
         app.take_source_request(),
         Some(SourceRequest {
             path: file.clone(),
             line: Some(16),
+            root: Some(root),
         })
+    );
+    app.handle(Msg::Source(Ok(format!(
+        "{}:16\n/no/such/project\n",
+        file.display()
+    ))));
+    assert_eq!(
+        app.take_source_request().unwrap().root,
+        None,
+        "a root that is not there is left out"
     );
     assert!(app.opening.is_none(), "taken once");
     std::fs::remove_file(&file).unwrap();

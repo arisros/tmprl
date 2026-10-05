@@ -695,7 +695,10 @@ is the object `!` pipes, decoded where a codec could. `version` goes up when a f
 renamed or removed, not when one is added.
 
 The resolver prints where to go on its first line, `/absolute/path`, `/absolute/path:line`
-or `/absolute/path:line:column`, and the editor is run as `$EDITOR +line path`. When it
+or `/absolute/path:line:column`, and the editor is run as `$EDITOR +line path`. A second
+line, when it is an absolute path to a directory, is where the editor is started: name the
+project's root there and the editor opens the project, with its file tree, search and
+language server, not one stray file. When it
 cannot say, it exits non-zero and the last line of its stderr is shown.
 
 ## Configuration files

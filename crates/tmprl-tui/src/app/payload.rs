@@ -343,6 +343,8 @@ impl App {
                 self.opening = Some(SourceRequest {
                     path: at.path,
                     line: at.line,
+                    // A root that is not there would stop the editor from starting at all.
+                    root: at.root.filter(|dir| dir.is_dir()),
                 })
             }
             Ok(at) => {

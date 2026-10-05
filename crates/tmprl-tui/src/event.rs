@@ -53,14 +53,14 @@ pub async fn run(
             // terminal again. `ratatui::init` reinstalls the panic hook, so a panic after
             // this still restores.
             ratatui::restore();
-            let outcome = run_editor(&request.path, None);
+            let outcome = run_editor(&request.path, None, None);
             terminal = ratatui::init();
             terminal.clear()?;
             app.finish_edit(&request, outcome.err().map(|e| e.to_string()));
         }
         if let Some(request) = app.take_source_request() {
             ratatui::restore();
-            let outcome = run_editor(&request.path, request.line);
+            let outcome = run_editor(&request.path, request.line, request.root.as_deref());
             terminal = ratatui::init();
             terminal.clear()?;
             app.finish_source(&request, outcome.err().map(|e| e.to_string()));
@@ -101,7 +101,11 @@ pub async fn run(
 /// is common and has to work, while a shell would also make `EDITOR` an injection point for
 /// a file name tmprl chose. Blocking is correct here, the TUI is not on screen and there is
 /// nothing else for this task to be doing.
-fn run_editor(path: &std::path::Path, line: Option<u32>) -> Result<()> {
+fn run_editor(
+    path: &std::path::Path,
+    line: Option<u32>,
+    root: Option<&std::path::Path>,
+) -> Result<()> {
     let editor = std::env::var("VISUAL")
         .or_else(|_| std::env::var("EDITOR"))
         .unwrap_or_else(|_| "vi".to_string());
@@ -111,7 +115,13 @@ fn run_editor(path: &std::path::Path, line: Option<u32>) -> Result<()> {
         anyhow::bail!("$EDITOR is set but empty");
     };
 
-    let status = std::process::Command::new(program)
+    let mut command = std::process::Command::new(program);
+    // In the project's own directory, so the editor's file tree, search and language
+    // server see the project the file belongs to and not wherever tmprl was started.
+    if let Some(root) = root {
+        command.current_dir(root);
+    }
+    let status = command
         .args(parts)
         // `+N file`, the form vi, vim, nvim, emacs, nano and helix all take.
         .args(line.map(|n| format!("+{n}")))

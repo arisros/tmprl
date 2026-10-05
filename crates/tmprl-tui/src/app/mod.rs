@@ -186,6 +186,8 @@ pub struct EditRequest {
 pub struct SourceRequest {
     pub path: std::path::PathBuf,
     pub line: Option<u32>,
+    /// The directory to run the editor in, when the resolver named the project's root.
+    pub root: Option<std::path::PathBuf>,
 }
 
 /// What a prompt at the bottom of the screen is collecting.

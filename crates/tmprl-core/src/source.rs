@@ -21,6 +21,9 @@ pub const CONTRACT: u32 = 1;
 pub struct Location {
     pub path: PathBuf,
     pub line: Option<u32>,
+    /// The directory to run the editor in: the root of the project the file belongs to,
+    /// so that the editor opens the project and not one stray file.
+    pub root: Option<PathBuf>,
 }
 
 fn category(category: Category) -> &'static str {
@@ -94,13 +97,15 @@ pub fn request(
 
 /// Read a resolver's answer: the first line that says anything, `path`, `path:line` or
 /// `path:line:column`. The path must be absolute, since the resolver's working directory
-/// is not the reader's.
+/// is not the reader's. A second line, when it is an absolute path, is the directory to
+/// run the editor in.
 pub fn locate(output: &str) -> Result<Location, String> {
-    let line = output
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .ok_or("the resolver printed nothing")?;
+    let mut lines = output.lines().map(str::trim).filter(|l| !l.is_empty());
+    let line = lines.next().ok_or("the resolver printed nothing")?;
+    let root = lines
+        .next()
+        .filter(|dir| dir.starts_with('/'))
+        .map(PathBuf::from);
 
     let mut path = line;
     let mut numbers: Vec<u32> = Vec::new();
@@ -122,6 +127,7 @@ pub fn locate(output: &str) -> Result<Location, String> {
     Ok(Location {
         path: PathBuf::from(path),
         line: at,
+        root,
     })
 }
 
@@ -214,6 +220,12 @@ mod tests {
         assert_eq!(at("/src/a.go"), Ok(("/src/a.go".into(), None)));
         assert_eq!(at("/src/a.go:16"), Ok(("/src/a.go".into(), Some(16))));
         assert_eq!(at("/src/a.go:16:3"), Ok(("/src/a.go".into(), Some(16))));
+        assert_eq!(
+            locate("/repo/src/a.go:16\n/repo\n").unwrap().root,
+            Some(PathBuf::from("/repo")),
+            "the second line is where to run the editor"
+        );
+        assert_eq!(locate("/repo/src/a.go:16").unwrap().root, None);
         assert_eq!(
             at("\n  /src/a.go:16  \nmore, ignored"),
             Ok(("/src/a.go".into(), Some(16)))
