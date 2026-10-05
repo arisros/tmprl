@@ -100,6 +100,7 @@ pub enum Action {
     OpenPipe,
     /// Open what is under the cursor in `$EDITOR`, `<leader>e`.
     OpenEditor,
+    OpenSource,
 
     // Windows and tabs
     SplitRight,
@@ -228,6 +229,7 @@ impl Registry {
             "history.detail-up",  "History",     "Scroll the payload pane up"   => DetailUp;
             "payload.pipe",       "History",     "Pipe payloads through a command" => OpenPipe;
             "payload.edit",       "History",     "Open the payloads in $EDITOR" => OpenEditor;
+            "history.source",     "History",     "Go to the source of this event" => OpenSource;
 
             "window.split-right", "Windows",     "Split side by side"        => SplitRight;
             "window.split-down",  "Windows",     "Split above and below"     => SplitDown;

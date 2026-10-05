@@ -180,6 +180,16 @@ pub struct EditRequest {
     pub what: String,
 }
 
+/// A place in a source file, waiting for `$EDITOR` to be run on it: what a resolver
+/// answered `gf` with. Left for the event loop for the reason an [`EditRequest`] is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceRequest {
+    pub path: std::path::PathBuf,
+    pub line: Option<u32>,
+    /// The directory to run the editor in, when the resolver named the project's root.
+    pub root: Option<std::path::PathBuf>,
+}
+
 /// What a prompt at the bottom of the screen is collecting.
 ///
 /// Both prompts edit identically, the same keys, the same backspace-on-empty-closes rule,
@@ -276,6 +286,8 @@ pub enum Msg {
     },
     /// Output of an external command a `!` filter ran.
     Piped(Result<String, String>),
+    /// What the source resolver printed, or why it could not say.
+    Source(Result<String, String>),
     /// A mutation finished, one way or the other.
     Mutated {
         mutation: Box<Mutation>,
@@ -430,6 +442,10 @@ pub struct App {
     /// Set when `<leader>e` has written a payload out; the event loop takes it, drops
     /// the terminal, runs the editor and puts the terminal back.
     pub editing: Option<EditRequest>,
+    /// A source file to open, set by `gf` once its resolver has answered.
+    pub opening: Option<SourceRequest>,
+    /// `[source] command`: the program asked where the code behind an event is.
+    source_command: Option<String>,
     /// `<C-o>` / `<C-i>`. Session-level, not per-pane: the jumps you want to retrace
     /// are the ones *you* made, and they cross panes as readily as they cross screens.
     pub jumps: Jumplist<Jump>,
@@ -548,6 +564,8 @@ impl App {
             picker_found: Vec::new(),
             picker_search: 0,
             editing: None,
+            opening: None,
+            source_command: None,
             jumps: Jumplist::default(),
             scan: None,
             search: Search::default(),
@@ -589,6 +607,7 @@ impl App {
                     self.payload_pane = cfg.payload_pane;
                     self.dashboard_refresh = cfg.dashboard_refresh;
                     self.yank_max = cfg.yank_max;
+                    self.source_command = cfg.source;
                     // Already validated by `parse_config`, so this cannot be the zone
                     // failing; unwrapping to the system zone here would be unreachable.
                     if let Ok(clock) = Clock::from_config(cfg.timezone.as_deref()) {
@@ -744,6 +763,7 @@ impl App {
                 self.view.piped = Some(result);
                 self.view.detail_scroll = 0;
             }
+            Msg::Source(result) => self.source_reply(result),
             Msg::Decoded(Ok(pairs)) => {
                 for (key, payload) in pairs {
                     self.decoding.remove(&key);
@@ -1215,6 +1235,7 @@ impl App {
             Action::DetailUp => self.scroll_detail(-(n as isize)),
             Action::OpenPipe => self.open_pipe(),
             Action::OpenEditor => self.open_editor(),
+            Action::OpenSource => self.open_source(),
 
             Action::CancelWorkflow => self.confirm_mutation(MutationKind::Cancel),
             Action::TerminateWorkflow => self.confirm_mutation(MutationKind::Terminate),
@@ -1315,6 +1336,41 @@ async fn pipe_through(command: &str, input: Vec<u8>) -> Result<String, String> {
             stderr
         })
     }
+}
+
+/// Run a source resolver with `input` on stdin and collect what it prints.
+///
+/// The program and its arguments are run as they are, with no shell: what goes in is on
+/// stdin, so nothing a server sent is ever part of a command line.
+async fn run_resolver(program: &str, args: &[String], input: Vec<u8>) -> Result<String, String> {
+    use tokio::io::AsyncWriteExt;
+    use tokio::process::Command;
+
+    let mut child = Command::new(program)
+        .args(args)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("could not run `{program}`: {e}"))?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(&input).await;
+        let _ = stdin.shutdown().await;
+    }
+    let out = child
+        .wait_with_output()
+        .await
+        .map_err(|e| format!("`{program}` failed: {e}"))?;
+
+    if out.status.success() {
+        return Ok(String::from_utf8_lossy(&out.stdout).into_owned());
+    }
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    Err(match stderr.lines().rev().find(|l| !l.trim().is_empty()) {
+        Some(last) => last.trim().to_string(),
+        None => format!("`{program}` exited with {}", out.status),
+    })
 }
 
 #[cfg(test)]

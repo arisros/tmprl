@@ -88,6 +88,9 @@ remove the file. A terminal that takes more can have the limit raised:
 ```toml
 [yank]
 max_bytes = 1048576     # 65536 is the default
+
+[source]
+command = "~/bin/find-source"   # asked by gf where the code behind an event is
 ```
 
 ## Keymap
@@ -449,6 +452,7 @@ closed is refused with a message instead of polling for events that can never ar
 | `K` | show the payloads and the full failure under the cursor | **live** |
 | `<C-e>` / `<C-y>` | scroll the payload pane | **live** |
 | `<leader>e` | open the payloads in `$EDITOR`, read-only | **live** |
+| `gf` | go to the source of the focused event, through the resolver `[source] command` names | **live** |
 
 ### Acting
 
@@ -660,6 +664,42 @@ stays unmistakable whatever the theme says.
 
 The timeline's colours are Temporal's web UI's and are not slots. They go through the same
 depth rule: nearest named colour on 16, none under `NO_COLOR`.
+
+### Going to the source
+
+`gf` on a row of a history opens `$EDITOR` on the code behind it. tmprl knows nothing about
+anyone's code, so it asks: `[source] command` names a program, a *resolver*, in any
+language. It is run as it is written, split on whitespace with a leading `~/` expanded and
+no shell, with one JSON object on stdin:
+
+```json
+{
+  "version": 1,
+  "profile": "prod", "namespace": "orders",
+  "workflow": {"id": "order-7", "run_id": "…", "type": "Checkout", "task_queue": "checkout-v3", "status": "Failed"},
+  "kind": "activity", "name": "ChargeCard",
+  "outcome": "Failed", "attempts": 3,
+  "started_at": "2026-01-02T03:04:05Z", "ended_at": null,
+  "event": null,
+  "events": [{"id": 6, "name": "ActivityTaskStarted", "time": "…", "subject": "ChargeCard", "attempt": 3, "fields": {"identity": "…"}}],
+  "payloads": {"input": {"amount": 4}}
+}
+```
+
+`kind` is one of `workflow`, `workflow_task`, `activity`, `timer`, `child_workflow`,
+`external_workflow`, `update`, `nexus`, `marker`, `search_attributes`, and `name` is the
+activity type, the update or signal name, the timer id. `events` are all of the group's, with
+the detail rows the history view shows; the worker's `identity` is among them. `event` is
+the one event the cursor is on, when it is on one and not on the group's line. `payloads`
+is the object `!` pipes, decoded where a codec could. `version` goes up when a field is
+renamed or removed, not when one is added.
+
+The resolver prints where to go on its first line, `/absolute/path`, `/absolute/path:line`
+or `/absolute/path:line:column`, and the editor is run as `$EDITOR +line path`. A second
+line, when it is an absolute path to a directory, is where the editor is started: name the
+project's root there and the editor opens the project, with its file tree, search and
+language server, not one stray file. When it
+cannot say, it exits non-zero and the last line of its stderr is shown.
 
 ## Configuration files
 
