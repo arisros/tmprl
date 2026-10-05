@@ -24,12 +24,12 @@
 
 ![A recorded tmprl session: the workflow list, search and folds in a history, the dashboard with its charts, and moving between panels](https://raw.githubusercontent.com/arisros/tmprl/main/docs/img/demo.gif)
 
-<sub>Recorded on a real cluster. Namespace, workflow ids and every payload are boxed out, and
+<sub>Recorded on a real cluster. Namespace, workflow ids and every payload are blurred past reading, and
 the part where <code>gf</code> opens the editor is cut, since the code it opened is not public.</sub>
 
 ![The timeline view of a history, with the payload pane beside it](https://raw.githubusercontent.com/arisros/tmprl/main/docs/img/timeline.png)
 
-<sub>The timeline, <code>&lt;Space&gt;G</code>, beside the payload pane. Values boxed out.</sub>
+<sub>The timeline, <code>&lt;Space&gt;G</code>, beside the payload pane. Values blurred past reading.</sub>
 
 ## Quickstart
 
