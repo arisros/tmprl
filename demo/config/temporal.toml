@@ -1,0 +1,4 @@
+# The sample cluster `demo/run.sh up` starts.
+[profile.sample]
+address   = "127.0.0.1:7244"
+namespace = "default"

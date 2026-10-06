@@ -1,0 +1,73 @@
+# The dashboard for the sample cluster. Windows are short, because a cluster started a
+# minute ago has no last week.
+
+[[row]]
+lines = 3
+
+[[row.panel]]
+kind  = "counts"
+title = "All time"
+
+[[row.panel]]
+kind  = "counts"
+title = "Closed, last 30m"
+since = "30m"
+by    = "close"
+
+[[row]]
+lines = 8
+
+[[row.panel]]
+kind   = "histogram"
+title  = "Failures per minute, last 30m"
+query  = "ExecutionStatus IN ('Failed', 'TimedOut', 'Terminated')"
+since  = "30m"
+bucket = "1m"
+by     = "close"
+
+[[row.panel]]
+kind   = "histogram"
+title  = "Completed per minute, last 30m"
+query  = "ExecutionStatus = 'Completed'"
+since  = "30m"
+bucket = "1m"
+by     = "close"
+
+[[row]]
+lines = 6
+
+[[row.panel]]
+kind  = "types"
+title = "Running, by type"
+query = "ExecutionStatus = 'Running'"
+limit = 4
+
+[[row.panel]]
+kind  = "types"
+title = "Failing types, last 1h"
+query = "ExecutionStatus IN ('Failed', 'TimedOut', 'Terminated')"
+since = "1h"
+by    = "close"
+limit = 4
+
+[[row.panel]]
+kind  = "queues"
+title = "Task queues"
+limit = 4
+
+[[row]]
+
+[[row.panel]]
+kind  = "workflows"
+title = "Failures, last 1h"
+query = "ExecutionStatus IN ('Failed', 'TimedOut', 'Terminated')"
+since = "1h"
+by    = "close"
+limit = 20
+
+[[row.panel]]
+kind     = "retrying"
+title    = "Retrying, 3 tries or more"
+query    = "WorkflowType STARTS_WITH 'shipment' AND ExecutionStatus = 'Running'"
+attempts = 3
+limit    = 20

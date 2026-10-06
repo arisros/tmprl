@@ -1,0 +1,13 @@
+# tmprl's config for the sample cluster. `demo/run.sh tmprl` uses this directory in place
+# of ~/.config/tmprl, with @DEMO@ replaced by where the sample lives.
+
+# The sample scrambles its payloads, so reading one takes its codec server.
+[codec]
+endpoint = "http://127.0.0.1:7799"
+
+# gf in a history: the sample's own resolver, which finds the activity in demo/shipment.
+[source]
+command = "@DEMO@/find-source.sh"
+
+[profile.sample]
+accent = "green"

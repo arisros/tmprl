@@ -18,18 +18,15 @@
   <img alt="Rust 1.95+" src="https://img.shields.io/badge/rust-1.95%2B-orange">
 </p>
 
-![A workflow history, groups folded, with an encrypted payload decoded in the pane below](https://raw.githubusercontent.com/arisros/tmprl/main/docs/img/history.png)
+![A workflow history with a failed activity, its failure and its decoded payload in the pane below](https://raw.githubusercontent.com/arisros/tmprl/main/docs/img/history.png)
 
-<sub>Real history on Temporal Cloud. Two customer values blurred, nothing else.</sub>
+![A recorded tmprl session: a query, a failed history, gf into the source, the timeline, the dashboard, and a workflow that keeps retrying](https://raw.githubusercontent.com/arisros/tmprl/main/docs/img/demo.gif)
 
-![A recorded tmprl session: the workflow list, search and folds in a history, the dashboard with its charts, and gf opening the editor on an activity's source](https://raw.githubusercontent.com/arisros/tmprl/main/docs/img/demo.gif)
+![The timeline view of a history, with the payload pane below it](https://raw.githubusercontent.com/arisros/tmprl/main/docs/img/timeline.png)
 
-<sub>Recorded on a real cluster. The profile, namespace, workflow ids and every payload are
-blurred past reading. So is the code <code>gf</code> opens, apart from the line it went to.</sub>
-
-![The timeline view of a history, with the payload pane beside it](https://raw.githubusercontent.com/arisros/tmprl/main/docs/img/timeline.png)
-
-<sub>The timeline, <code>&lt;Space&gt;G</code>, beside the payload pane. Values blurred past reading.</sub>
+<sub>All three are the [sample cluster](demo/README.md): a made-up freight forwarder on a
+local dev server, with invented names and addresses. `demo/run.sh up` starts it and
+`vhs demo/demo.tape` records these again.</sub>
 
 ## Quickstart
 
