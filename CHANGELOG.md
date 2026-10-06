@@ -9,7 +9,8 @@
   code was running.
 - **Fix**: coming back from the editor, after `gf` or `<Space>e`, could end tmprl with
   "The cursor position could not be read within a normal duration". It no longer asks the
-  terminal for its cursor on the way back.
+  terminal for its cursor on the way back, and it drops what the editor left unread on the
+  terminal, which could otherwise arrive as typed keys.
 
 ## 0.2.0 — 2026-10-04
 

@@ -102,7 +102,25 @@ fn retake_terminal() -> Result<DefaultTerminal> {
         std::io::stdout(),
         crossterm::terminal::Clear(crossterm::terminal::ClearType::All)
     )?;
+    drop_pending_input()?;
     Ok(terminal)
+}
+
+/// Throw away what is waiting on stdin.
+///
+/// An editor asks the terminal things as it runs, its background colour, what it is, and
+/// does not always stay to hear the answer. The answer then arrives here and reads as
+/// typing: a colour report opened the command line and filled it with `1717/1717/1717`.
+/// Nothing that arrives in the moment an editor closes was meant for tmprl, so it is
+/// dropped: until the input has been quiet for a moment, and never for long.
+fn drop_pending_input() -> Result<()> {
+    const QUIET: Duration = Duration::from_millis(60);
+    const LONGEST: Duration = Duration::from_millis(400);
+    let started = std::time::Instant::now();
+    while started.elapsed() < LONGEST && crossterm::event::poll(QUIET)? {
+        let _ = crossterm::event::read()?;
+    }
+    Ok(())
 }
 
 /// Run the user's editor over a file, blocking until it exits.
