@@ -39,7 +39,6 @@ Type "]f"
 Sleep 1500ms
 Type "K"
 Sleep 3s
-Screenshot docs/img/history.png
 
 # Go to the code behind it.
 Type "gf"
@@ -54,7 +53,6 @@ Space
 Sleep 300ms
 Type "G"
 Sleep 3500ms
-Screenshot docs/img/timeline.png
 
 # Up a level, and to the dashboard: counts, charts, tallies, failures, and what keeps
 # being retried.

@@ -52,7 +52,7 @@ sample defines it. Press `gf` on `book_carrier` and the editor opens on `func Bo
 ```sh
 demo/run.sh up
 for w in 1 2 3 4 5 6; do demo/run.sh seed $((40 + w * 25)) -seed $w -prefix "s$w"; sleep 50; done
-vhs demo/demo.tape      # writes docs/img/demo.gif, history.png and timeline.png
+vhs demo/demo.tape      # writes docs/img/demo.gif
 ```
 
 The waves a minute apart are what give the per-minute charts a shape.
