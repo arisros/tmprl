@@ -20,9 +20,11 @@
 
 ![A recorded tmprl session: a query, a failed history, gf into the source, the timeline, the dashboard, and a workflow that keeps retrying](https://raw.githubusercontent.com/arisros/tmprl/main/docs/img/demo.gif)
 
-<sub>Recorded on the [sample cluster](demo/README.md): a made-up freight forwarder on a
-local dev server, with invented names and addresses. `demo/run.sh up` starts it and
-`vhs demo/demo.tape` records this again.</sub>
+![The timeline view of a history, with the payload pane below it](https://raw.githubusercontent.com/arisros/tmprl/main/docs/img/timeline.png)
+
+<sub>Both are the [sample cluster](demo/README.md): a made-up freight forwarder on a local
+dev server, with invented names and addresses. `demo/run.sh up` starts it and
+`vhs demo/demo.tape` records them again.</sub>
 
 ## Quickstart
 

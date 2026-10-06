@@ -53,6 +53,7 @@ Space
 Sleep 300ms
 Type "G"
 Sleep 3500ms
+Screenshot docs/img/timeline.png
 
 # Up a level, and to the dashboard: counts, charts, tallies, failures, and what keeps
 # being retried.
