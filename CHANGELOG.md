@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.1 — 2026-10-06
 
 - **Go to source**, `gf` in a history: opens `$EDITOR` on the code behind the event under
   the cursor. tmprl asks a program you name in `config.toml`, `[source] command`, which
