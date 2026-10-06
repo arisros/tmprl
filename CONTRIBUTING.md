@@ -64,6 +64,22 @@ The tests connect with the default profile, so `TEMPORAL_ADDRESS` points them at
 another port. CI runs them against two dev servers, the latest `temporal` CLI and an older one
 pinned in `.github/workflows/ci.yml`.
 
+## A cluster worth looking at
+
+Three seeded workflows prove the connection layer and nothing about how a screen reads at
+volume. `demo/` holds a sample cluster for that: a made-up freight forwarder with two
+workflow types per version, activities that fail, time out and retry for ever, a workflow
+that waits on a person, and payloads behind a codec server.
+
+```sh
+demo/run.sh up && demo/run.sh seed 300
+demo/run.sh tmprl
+```
+
+It is where the dashboard's tallies, its retrying panel and `gf` can be seen working
+without anyone's production, and it is what the README's pictures are recorded from. See
+[demo/README.md](demo/README.md).
+
 ## `scripts/check-docs.sh`
 
 This is the check a first pull request usually fails. It enforces four things:
