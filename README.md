@@ -18,15 +18,13 @@
   <img alt="Rust 1.95+" src="https://img.shields.io/badge/rust-1.95%2B-orange">
 </p>
 
-![A workflow history with a failed activity, its failure and its decoded payload in the pane below](https://raw.githubusercontent.com/arisros/tmprl/main/docs/img/history.png)
-
 ![A recorded tmprl session: a query, a failed history, gf into the source, the timeline, the dashboard, and a workflow that keeps retrying](https://raw.githubusercontent.com/arisros/tmprl/main/docs/img/demo.gif)
 
 ![The timeline view of a history, with the payload pane below it](https://raw.githubusercontent.com/arisros/tmprl/main/docs/img/timeline.png)
 
-<sub>All three are the [sample cluster](demo/README.md): a made-up freight forwarder on a
-local dev server, with invented names and addresses. `demo/run.sh up` starts it and
-`vhs demo/demo.tape` records these again.</sub>
+<sub>Both are the [sample cluster](demo/README.md): a made-up freight forwarder on a local
+dev server, with invented names and addresses. `demo/run.sh up` starts it and
+`vhs demo/demo.tape` records them again.</sub>
 
 ## Quickstart
 

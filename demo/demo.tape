@@ -39,7 +39,6 @@ Type "]f"
 Sleep 1500ms
 Type "K"
 Sleep 3s
-Screenshot docs/img/history.png
 
 # Go to the code behind it.
 Type "gf"
