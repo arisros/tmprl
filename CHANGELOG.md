@@ -7,6 +7,9 @@
   reads what is under the cursor as JSON on stdin and prints `path:line`. It can be written
   in anything, and decides for itself how a name maps to a file and which version of the
   code was running.
+- **Fix**: coming back from the editor, after `gf` or `<Space>e`, could end tmprl with
+  "The cursor position could not be read within a normal duration". It no longer asks the
+  terminal for its cursor on the way back.
 
 ## 0.2.0 — 2026-10-04
 

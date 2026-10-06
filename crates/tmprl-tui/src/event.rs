@@ -54,15 +54,13 @@ pub async fn run(
             // this still restores.
             ratatui::restore();
             let outcome = run_editor(&request.path, None, None);
-            terminal = ratatui::init();
-            terminal.clear()?;
+            terminal = retake_terminal()?;
             app.finish_edit(&request, outcome.err().map(|e| e.to_string()));
         }
         if let Some(request) = app.take_source_request() {
             ratatui::restore();
             let outcome = run_editor(&request.path, request.line, request.root.as_deref());
-            terminal = ratatui::init();
-            terminal.clear()?;
+            terminal = retake_terminal()?;
             app.finish_source(&request, outcome.err().map(|e| e.to_string()));
         }
         if app.dirty {
@@ -90,6 +88,21 @@ pub async fn run(
             _ = tick.tick() => app.handle(Msg::Tick),
         }
     }
+}
+
+/// Take the terminal back after an editor has had it.
+///
+/// Not `Terminal::clear`: that asks the terminal where its cursor is and waits for the
+/// answer on stdin, which the key reader is reading too. When the answer went to the
+/// reader, or came late, the wait timed out and took tmprl down with it. A screen can be
+/// cleared without asking it anything.
+fn retake_terminal() -> Result<DefaultTerminal> {
+    let terminal = ratatui::init();
+    crossterm::execute!(
+        std::io::stdout(),
+        crossterm::terminal::Clear(crossterm::terminal::ClearType::All)
+    )?;
+    Ok(terminal)
 }
 
 /// Run the user's editor over a file, blocking until it exits.
