@@ -102,6 +102,7 @@ Leader is `Space`. A which-key-style popup appears as soon as a prefix is incomp
 | Key | Action | |
 |---|---|---|
 | `j` `k` `gg` `G` `<C-d>` `<C-u>` | move; `j` and `k` take a count | **live** |
+| `<C-f>` `<C-b>`, `<PageDown>` `<PageUp>` | a full page down / up | **live** |
 | `<Down>` `<Up>` | move | **live** |
 | `h` `l` `<Left>` `<Right>` | move sideways on the dashboard, between panels and along a strip of statuses or a chart; nothing on a list | **live** |
 | `Enter` | open the focused item, namespace → workflows → history | **live** |
@@ -452,7 +453,7 @@ closed is refused with a message instead of polling for events that can never ar
 | `!` | pipe the focused payloads through a command | **live** |
 | `K` | show the payloads and the full failure under the cursor | **live** |
 | `<C-e>` / `<C-y>` | scroll the payload pane | **live** |
-| `<C-w>j` (`<C-w>l` when the pane is beside the list) | focus the payload pane: `j` `k` `<C-d>` `<C-u>` `gg` `G` scroll it, `<C-w>k` (`<C-w>h`) or `<Esc>` goes back | **live** |
+| `<C-w>j` (`<C-w>l` when the pane is beside the list) | focus the payload pane: `j` `k` `<C-d>` `<C-u>` `<C-f>` `<C-b>` `gg` `G` scroll it, `<C-w>k` (`<C-w>h`) or `<Esc>` goes back | **live** |
 | `<leader>e` | open the payloads in `$EDITOR`, read-only | **live** |
 | `gf` | go to the source of the focused event, through the resolver `[source] command` names | **live** |
 

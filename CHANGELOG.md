@@ -7,6 +7,9 @@
   the payload instead of moving the row, so a long stack trace is a few keys and not one
   line per press. `<C-w>k` (`<C-w>h`) or `<Esc>` goes back to the list. `<C-e>` / `<C-y>`
   still scroll it from the list.
+- **A full page**, `<C-f>` and `<C-b>`, also on `<PageDown>` and `<PageUp>`: moves a list,
+  the help and messages overlays, or the focused payload pane by what it shows.
+  `<C-d>` / `<C-u>` stay the half page.
 
 ## 0.2.1 — 2026-10-06
 

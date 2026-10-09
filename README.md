@@ -70,7 +70,7 @@ tmprl --config-path                         # every file tmprl reads, and whethe
 | `<Space>G` | timeline, like the web UI | `zg` | fold idle time |
 | `]f` `[f` | next / previous failure | `F` | follow, like `tail -f` |
 | `K` | payloads and the full failure | `!` | pipe them through `jq` |
-| `<C-w>j` | into the payload pane, `j` `k` `<C-d>` `gg` `G` scroll it | `<Esc>` | back to the list |
+| `<C-w>j` | into the payload pane, `j` `k` `<C-d>` `<C-f>` `gg` `G` scroll it | `<Esc>` | back to the list |
 | `y` `Y` | yank value / row | `<Space>y{a,i,r}` | yank payloads |
 | `<Space>m…` | cancel, terminate, signal, delete, reset, update | `gs` `gw` `gd` | schedules / workflows / dashboard |
 | `<Space>s…` `<C-w>hjkl` | splits | `<Space>t…` | tabs |
@@ -196,7 +196,7 @@ flowchart LR
 |---|---|---|
 | `tmprl-client` | 81 | all network IO |
 | `tmprl-core` | 432 | no terminal, no server |
-| `tmprl-tui` | 449 | ratatui |
+| `tmprl-tui` | 450 | ratatui |
 | `tmprl-ui` | 47 | window tree |
 
 ```sh

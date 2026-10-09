@@ -365,6 +365,11 @@ fn the_focused_payload_pane_takes_the_motions() {
         app.view.detail_page / 2,
         "half of the pane, not half of the list"
     );
+    app.run("motion.top", None);
+    app.run("motion.page-down", None);
+    assert_eq!(app.view.detail_scroll, app.view.detail_page);
+    app.run("motion.page-up", None);
+    assert_eq!(app.view.detail_scroll, 0);
     assert_eq!(app.view.cursor, row, "the row under the pane never moved");
 
     let out = draw(&mut app, 110, 20);
@@ -434,4 +439,16 @@ fn moving_to_another_window_leaves_the_payload_pane() {
     app.run("window.focus-right", None);
     app.run("window.focus-left", None);
     assert!(!app.view.detail_focus, "coming back lands on the list");
+}
+
+#[test]
+fn a_full_page_moves_the_list_by_what_it_shows() {
+    let mut app = app_on_a_tall_payload(None, 110);
+    app.run("motion.top", None);
+    let rows = app.view.page;
+
+    app.run("motion.page-down", None);
+    assert!(app.view.cursor > 0 && app.view.cursor <= rows);
+    app.run("motion.page-up", None);
+    assert_eq!(app.view.cursor, 0);
 }

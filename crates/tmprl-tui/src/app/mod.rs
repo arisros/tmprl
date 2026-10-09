@@ -1080,6 +1080,12 @@ impl App {
             Action::HalfPageUp if self.overlay_open() => {
                 self.scroll_overlay(-((self.view.page / 2).max(1) as isize))
             }
+            Action::PageDown if self.overlay_open() => {
+                self.scroll_overlay(self.view.page.max(1) as isize)
+            }
+            Action::PageUp if self.overlay_open() => {
+                self.scroll_overlay(-(self.view.page.max(1) as isize))
+            }
 
             // The payload pane takes the motions while it has the focus. A half page is
             // half of the pane, which is rarely the height of the list beside it.
@@ -1094,6 +1100,12 @@ impl App {
             }
             Action::HalfPageUp if self.detail_focused() => {
                 self.scroll_detail(-((self.view.detail_page / 2).max(1) as isize))
+            }
+            Action::PageDown if self.detail_focused() => {
+                self.scroll_detail(self.view.detail_page.max(1) as isize)
+            }
+            Action::PageUp if self.detail_focused() => {
+                self.scroll_detail(-(self.view.detail_page.max(1) as isize))
             }
 
             // A dashboard is panels side by side and one over another, so the motions go
@@ -1121,6 +1133,8 @@ impl App {
             }
             Action::HalfPageDown => self.move_cursor((self.view.page / 2).max(1) as isize),
             Action::HalfPageUp => self.move_cursor(-((self.view.page / 2).max(1) as isize)),
+            Action::PageDown => self.move_cursor(self.view.page.max(1) as isize),
+            Action::PageUp => self.move_cursor(-(self.view.page.max(1) as isize)),
 
             Action::OpenItem => self.open_focused(),
             Action::GoUp => self.go_up(),
