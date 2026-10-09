@@ -93,6 +93,24 @@ max_bytes = 1048576     # 65536 is the default
 command = "~/bin/find-source"   # asked by gf where the code behind an event is
 ```
 
+### The mouse is optional
+
+tmprl is driven from the keyboard and reports nothing to do with the mouse unless asked:
+
+```toml
+[input]
+mouse = true            # false is the default
+```
+
+With it on, the wheel scrolls what it is over, three lines a notch: a list, the payload
+pane, or the help and messages overlays. A click focuses the window it lands on, and on a
+history it moves the focus between the list and the payload pane. Nothing else is
+clickable, and every action still has its key.
+
+It is off by default because a terminal that reports the mouse to a program stops
+selecting text on a plain drag. With it on, hold Shift while dragging (Option in iTerm2,
+Fn in Terminal.app) to select as before.
+
 ## Keymap
 
 Leader is `Space`. A which-key-style popup appears as soon as a prefix is incomplete.

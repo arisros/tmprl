@@ -136,6 +136,9 @@ dashboard = "1m"          # the dashboard asks again this often; "off" leaves it
 [yank]
 max_bytes = 1048576       # default 65536; a longer yank is written to a file, not refused
 
+[input]
+mouse = true              # the wheel scrolls, a click focuses; off by default
+
 [profile.sit]
 accent = "green"
 
@@ -195,8 +198,8 @@ flowchart LR
 | Crate | Tests | |
 |---|---|---|
 | `tmprl-client` | 81 | all network IO |
-| `tmprl-core` | 432 | no terminal, no server |
-| `tmprl-tui` | 450 | ratatui |
+| `tmprl-core` | 433 | no terminal, no server |
+| `tmprl-tui` | 453 | ratatui |
 | `tmprl-ui` | 47 | window tree |
 
 ```sh

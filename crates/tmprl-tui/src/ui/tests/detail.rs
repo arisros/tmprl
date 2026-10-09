@@ -452,3 +452,59 @@ fn a_full_page_moves_the_list_by_what_it_shows() {
     app.run("motion.page-up", None);
     assert_eq!(app.view.cursor, 0);
 }
+
+use crate::app::{Mouse, Msg};
+
+fn wheel(app: &mut App, down: bool, column: u16, row: u16) {
+    app.handle(Msg::Mouse(Mouse::Wheel { down, column, row }));
+}
+
+fn click(app: &mut App, column: u16, row: u16) {
+    app.handle(Msg::Mouse(Mouse::Click { column, row }));
+}
+
+#[test]
+fn the_wheel_scrolls_whichever_of_the_list_and_the_pane_it_is_over() {
+    let mut app = app_on_a_tall_payload(None, 110);
+    let row = app.view.cursor;
+    let pane = app.view.detail_area;
+
+    wheel(&mut app, true, pane.x + 2, pane.y + 2);
+    assert_eq!(app.view.detail_scroll, 3);
+    assert_eq!(app.view.cursor, row, "the list stayed where it was");
+    wheel(&mut app, false, pane.x + 2, pane.y + 2);
+    assert_eq!(app.view.detail_scroll, 0);
+
+    wheel(&mut app, false, 2, pane.y - 2);
+    assert!(app.view.cursor < row, "over the list it moves the row");
+    assert!(!app.view.detail_focus, "the wheel never takes the focus");
+}
+
+#[test]
+fn a_click_focuses_what_it_lands_on() {
+    let mut app = app_on_a_tall_payload(None, 110);
+    let pane = app.view.detail_area;
+
+    click(&mut app, pane.x + 2, pane.y + 2);
+    assert!(app.view.detail_focus);
+    click(&mut app, 2, pane.y - 2);
+    assert!(!app.view.detail_focus);
+
+    app.run("window.split-right", None);
+    let _ = draw(&mut app, 110, 20);
+    let here = app.tabs.current().focused();
+    click(&mut app, 2, 5);
+    assert_ne!(app.tabs.current().focused(), here, "the window on the left");
+}
+
+#[test]
+fn the_mouse_is_ignored_while_a_prompt_owns_the_keyboard() {
+    let mut app = app_on_a_tall_payload(None, 110);
+    let pane = app.view.detail_area;
+    app.run("search.open", None);
+
+    wheel(&mut app, true, pane.x + 2, pane.y + 2);
+    click(&mut app, pane.x + 2, pane.y + 2);
+    assert_eq!(app.view.detail_scroll, 0);
+    assert!(!app.view.detail_focus);
+}

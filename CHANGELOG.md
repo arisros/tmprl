@@ -10,6 +10,11 @@
 - **A full page**, `<C-f>` and `<C-b>`, also on `<PageDown>` and `<PageUp>`: moves a list,
   the help and messages overlays, or the focused payload pane by what it shows.
   `<C-d>` / `<C-u>` stay the half page.
+- **The mouse, when asked for**: `[input] mouse = true` in `config.toml`. The wheel
+  scrolls the list, the payload pane or an overlay, whichever it is over, and a click
+  focuses a window or the payload pane. It is off by default, because with it on the
+  terminal needs Shift (Option in iTerm2, Fn in Terminal.app) held to select text with a
+  drag.
 
 ## 0.2.1 — 2026-10-06
 

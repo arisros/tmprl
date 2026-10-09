@@ -67,6 +67,8 @@ pub struct View {
     /// stack a pane that was asked to sit beside the list, so only the renderer knows.
     pub detail_beside: bool,
     pub detail_page: usize,
+    /// The cells the pane was last drawn in, which is how a click or the wheel finds it.
+    pub detail_area: tmprl_ui::Rect,
 
     /// The visibility query, verbatim. This string is the interface: everything that
     /// filters the list compiles into it, and it is always on screen and always editable.
@@ -144,6 +146,7 @@ impl View {
             detail_focus: false,
             detail_beside: false,
             detail_page: 0,
+            detail_area: tmprl_ui::Rect::default(),
             query: String::new(),
             scope: vec![namespace.to_string()],
             cursor: 0,

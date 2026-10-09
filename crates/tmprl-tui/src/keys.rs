@@ -3,8 +3,32 @@
 //! This is the only place in the program that knows crossterm's key types. Everything above
 //! works in `tmprl_core::Chord`, which is what lets the keymap be tested without a terminal.
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{
+    KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 use tmprl_core::key::{Chord, Key, Mods};
+
+use crate::app::Mouse;
+
+/// The wheel and a left press. A terminal reporting the mouse also reports every cell the
+/// pointer crosses, and those must not reach the reducer: each one would be a redraw.
+pub fn to_mouse(ev: MouseEvent) -> Option<Mouse> {
+    let (column, row) = (ev.column, ev.row);
+    match ev.kind {
+        MouseEventKind::ScrollDown => Some(Mouse::Wheel {
+            down: true,
+            column,
+            row,
+        }),
+        MouseEventKind::ScrollUp => Some(Mouse::Wheel {
+            down: false,
+            column,
+            row,
+        }),
+        MouseEventKind::Down(MouseButton::Left) => Some(Mouse::Click { column, row }),
+        _ => None,
+    }
+}
 
 pub fn to_chord(ev: KeyEvent) -> Option<Chord> {
     // Terminals with the kitty keyboard protocol send press *and* release; acting on both

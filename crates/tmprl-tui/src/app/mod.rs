@@ -22,12 +22,14 @@
 //! | `load` | every request to the server |
 //! | `startup` | where the command line asked to open |
 //! | `messages` | the note line's history, `:messages` |
+//! | `mouse` | the wheel and the click, when `[input] mouse` asks for them |
 
 mod dashboard;
 mod find;
 mod history;
 mod load;
 mod messages;
+mod mouse;
 mod mutate;
 mod nav;
 mod payload;
@@ -37,6 +39,7 @@ mod startup;
 mod windows;
 mod yank;
 
+pub use mouse::Mouse;
 pub use startup::Startup;
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -260,6 +263,7 @@ pub enum InsertTarget {
 #[derive(Debug)]
 pub enum Msg {
     Key(Chord),
+    Mouse(Mouse),
     Tick,
     Redraw,
     Quit,
@@ -491,6 +495,7 @@ pub struct App {
     audit_sink: AuditSink,
     /// Where `K` opens, from `config.toml`'s `[layout]`.
     payload_pane: tmprl_core::config::PayloadPane,
+    mouse: bool,
     yank_max: usize,
     namespace: String,
     conn: Option<Arc<Conn>>,
@@ -585,6 +590,7 @@ impl App {
             readonly_flag: false,
             audit_sink: AuditSink::File,
             payload_pane: Default::default(),
+            mouse: false,
             yank_max: tmprl_core::config::DEFAULT_YANK_MAX,
             namespace,
             conn,
@@ -605,6 +611,7 @@ impl App {
                     self.accent = resolved.accent;
                     self.readonly = resolved.readonly;
                     self.payload_pane = cfg.payload_pane;
+                    self.mouse = cfg.mouse;
                     self.dashboard_refresh = cfg.dashboard_refresh;
                     self.yank_max = cfg.yank_max;
                     self.source_command = cfg.source;
@@ -712,6 +719,7 @@ impl App {
     fn apply(&mut self, msg: Msg) {
         match msg {
             Msg::Key(chord) => self.on_key(chord),
+            Msg::Mouse(mouse) => self.on_mouse(mouse),
             Msg::Quit => self.should_quit = true,
             Msg::Tick => self.tick_dashboards(now_ms()),
             Msg::Redraw => {}
@@ -1323,6 +1331,10 @@ impl App {
 
     pub fn payload_pane(&self) -> tmprl_core::config::PayloadPane {
         self.payload_pane
+    }
+
+    pub fn mouse(&self) -> bool {
+        self.mouse
     }
 }
 

@@ -74,8 +74,12 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             Some(detail) => {
                 app.view.detail_beside = detail.x > inner.list.x;
                 app.view.detail_page = detail.height.saturating_sub(1) as usize;
+                app.view.detail_area = to_ui(detail);
             }
-            None => app.view.detail_focus = false,
+            None => {
+                app.view.detail_focus = false;
+                app.view.detail_area = tmprl_ui::Rect::default();
+            }
         }
     }
 
