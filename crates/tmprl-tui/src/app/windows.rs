@@ -90,10 +90,53 @@ impl App {
     }
 
     pub(super) fn focus_window(&mut self, dir: Direction) {
+        if self.focus_detail(dir) {
+            return;
+        }
         let previous = self.tabs.current().focused();
         if self.tabs.current_mut().focus_direction(dir, self.frame) {
+            self.view.detail_focus = false;
             self.refocus(previous);
+        } else if self.detail_lies(dir) && !self.view.detail_focus {
+            self.note = Some((
+                "the payload fits its pane, nothing to scroll".into(),
+                Note::Info,
+            ));
         }
+    }
+
+    fn detail_lies(&self, dir: Direction) -> bool {
+        let towards = if self.view.detail_beside {
+            Direction::Right
+        } else {
+            Direction::Down
+        };
+        self.view.show_detail && self.view.screen == Screen::History && dir == towards
+    }
+
+    /// Step into or out of the payload pane. It sits inside its window, so it is nearer
+    /// than any neighbour and is tried first. A pane with nothing to scroll is passed over:
+    /// focus there would only make `j` and `k` look dead.
+    fn focus_detail(&mut self, dir: Direction) -> bool {
+        if !self.view.show_detail || self.view.screen != Screen::History {
+            return false;
+        }
+        if self.view.detail_focus {
+            let out = if self.view.detail_beside {
+                Direction::Left
+            } else {
+                Direction::Up
+            };
+            if dir == out {
+                self.view.detail_focus = false;
+            }
+            return dir == out;
+        }
+        if self.detail_lies(dir) && self.view.detail_max_scroll > 0 {
+            self.view.detail_focus = true;
+            return true;
+        }
+        false
     }
 
     pub(super) fn resize_window(&mut self, dir: Direction) {

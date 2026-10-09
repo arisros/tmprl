@@ -1051,6 +1051,7 @@ impl App {
                     self.overlay_scroll = 0;
                 } else {
                     self.view.anchor = None;
+                    self.view.detail_focus = false;
                     self.mode = Mode::Normal;
                     self.pending.clear();
                     self.which_key.clear();
@@ -1078,6 +1079,21 @@ impl App {
             }
             Action::HalfPageUp if self.overlay_open() => {
                 self.scroll_overlay(-((self.view.page / 2).max(1) as isize))
+            }
+
+            // The payload pane takes the motions while it has the focus. A half page is
+            // half of the pane, which is rarely the height of the list beside it.
+            Action::MoveDown if self.detail_focused() => self.scroll_detail(n as isize),
+            Action::MoveUp if self.detail_focused() => self.scroll_detail(-(n as isize)),
+            Action::MoveTop if self.detail_focused() => self.view.detail_scroll = 0,
+            Action::MoveBottom if self.detail_focused() => {
+                self.view.detail_scroll = self.view.detail_max_scroll
+            }
+            Action::HalfPageDown if self.detail_focused() => {
+                self.scroll_detail((self.view.detail_page / 2).max(1) as isize)
+            }
+            Action::HalfPageUp if self.detail_focused() => {
+                self.scroll_detail(-((self.view.detail_page / 2).max(1) as isize))
             }
 
             // A dashboard is panels side by side and one over another, so the motions go
@@ -1264,6 +1280,7 @@ impl App {
                 if self.view.screen == Screen::History {
                     self.view.show_detail = !self.view.show_detail;
                     self.view.detail_scroll = 0;
+                    self.view.detail_focus = false;
                     self.view.piped = None;
                     self.maybe_decode();
                 } else {

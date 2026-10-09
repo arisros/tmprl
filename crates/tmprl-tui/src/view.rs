@@ -60,6 +60,13 @@ pub struct View {
     /// the part worth reading.
     pub detail_scroll: usize,
     pub detail_max_scroll: usize,
+    /// The motions scroll the payload pane instead of moving the row cursor. Reached with
+    /// the window focus keys, since the pane is part of this window and not one of its own.
+    pub detail_focus: bool,
+    /// Where the last draw put the pane, and how many lines it showed. Narrow terminals
+    /// stack a pane that was asked to sit beside the list, so only the renderer knows.
+    pub detail_beside: bool,
+    pub detail_page: usize,
 
     /// The visibility query, verbatim. This string is the interface: everything that
     /// filters the list compiles into it, and it is always on screen and always editable.
@@ -134,6 +141,9 @@ impl View {
             piped: None,
             detail_scroll: 0,
             detail_max_scroll: 0,
+            detail_focus: false,
+            detail_beside: false,
+            detail_page: 0,
             query: String::new(),
             scope: vec![namespace.to_string()],
             cursor: 0,

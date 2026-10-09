@@ -314,3 +314,124 @@ fn a_search_that_lands_scrolls_the_pane_to_the_match_once() {
         "later draws leave the scroll alone"
     );
 }
+
+/// The second row carrying a payload far taller than any pane, with the pane open on it
+/// and drawn once, since the renderer is what learns how far the pane can scroll.
+fn app_on_a_tall_payload(config: Option<&str>, width: u16) -> App {
+    use tmprl_core::payload::Payload;
+    let mut app = app_with_payloads();
+    app.apply_config(None, None, config);
+    let big: String = (0..60).map(|i| format!("\"k{i}\":{i},")).collect();
+    if let Some(o) = app.view.history.value_mut() {
+        let mut events = o.events().to_vec();
+        events[1].payloads = vec![(
+            "input".into(),
+            Payload::new("json/plain", format!("{{{big}\"last\":1}}").into_bytes()),
+        )];
+        let groups = tmprl_core::history::group_events(&events);
+        o.replace(events, groups);
+    }
+    app.run("motion.down", None);
+    app.run("history.detail", None);
+    let _ = draw(&mut app, width, 20);
+    app
+}
+
+#[test]
+fn the_focused_payload_pane_takes_the_motions() {
+    let mut app = app_on_a_tall_payload(None, 110);
+    let row = app.view.cursor;
+    let max = app.view.detail_max_scroll;
+
+    app.run("window.focus-down", None);
+    assert!(
+        app.view.detail_focus,
+        "the pane sits below, so down enters it"
+    );
+
+    app.run("motion.down", Some(3));
+    assert_eq!(app.view.detail_scroll, 3);
+    app.run("motion.up", None);
+    assert_eq!(app.view.detail_scroll, 2);
+    app.run("motion.bottom", None);
+    assert_eq!(app.view.detail_scroll, max);
+    app.run("motion.down", None);
+    assert_eq!(app.view.detail_scroll, max, "it stops at the end");
+    app.run("motion.top", None);
+    assert_eq!(app.view.detail_scroll, 0);
+    app.run("motion.half-down", None);
+    assert_eq!(
+        app.view.detail_scroll,
+        app.view.detail_page / 2,
+        "half of the pane, not half of the list"
+    );
+    assert_eq!(app.view.cursor, row, "the row under the pane never moved");
+
+    let out = draw(&mut app, 110, 20);
+    assert!(
+        out.contains("<Esc> back"),
+        "a focused pane says how to leave:\n{out}"
+    );
+}
+
+#[test]
+fn leaving_the_payload_pane_gives_the_motions_back_to_the_list() {
+    for leave in ["window.focus-up", "app.cancel", "history.detail"] {
+        let mut app = app_on_a_tall_payload(None, 110);
+        let row = app.view.cursor;
+        app.run("window.focus-down", None);
+        app.run(leave, None);
+        assert!(!app.view.detail_focus, "{leave} should leave the pane");
+
+        app.run("motion.down", None);
+        assert_eq!(app.view.cursor, row + 1, "after {leave}");
+    }
+}
+
+#[test]
+fn a_pane_beside_the_list_is_entered_sideways() {
+    let beside = Some("[layout]\npayload = \"right\"");
+    let mut app = app_on_a_tall_payload(beside, 120);
+    app.run("window.focus-down", None);
+    assert!(!app.view.detail_focus, "nothing is below the list");
+    app.run("window.focus-right", None);
+    assert!(app.view.detail_focus);
+    app.run("window.focus-left", None);
+    assert!(!app.view.detail_focus);
+
+    // Too narrow to sit side by side, so the pane is stacked and down is the way in.
+    let mut app = app_on_a_tall_payload(beside, 80);
+    app.run("window.focus-right", None);
+    assert!(!app.view.detail_focus);
+    app.run("window.focus-down", None);
+    assert!(app.view.detail_focus);
+}
+
+#[test]
+fn a_payload_that_fits_is_not_given_the_focus() {
+    let mut app = app_with_payloads();
+    app.run("history.detail", None);
+    let _ = draw(&mut app, 110, 40);
+    assert_eq!(app.view.detail_max_scroll, 0);
+
+    app.run("window.focus-down", None);
+    assert!(!app.view.detail_focus, "j and k would do nothing in it");
+    assert!(
+        app.note.clone().unwrap().0.contains("nothing to scroll"),
+        "and the key says why it did nothing"
+    );
+}
+
+#[test]
+fn moving_to_another_window_leaves_the_payload_pane() {
+    let mut app = app_on_a_tall_payload(None, 110);
+    app.run("window.split-right", None);
+    app.run("window.focus-left", None);
+    let _ = draw(&mut app, 110, 20);
+    app.run("window.focus-down", None);
+    assert!(app.view.detail_focus);
+
+    app.run("window.focus-right", None);
+    app.run("window.focus-left", None);
+    assert!(!app.view.detail_focus, "coming back lands on the list");
+}

@@ -342,6 +342,7 @@ column of its own rather than painting over a value.
 | `<leader>sv` / `<leader>sh` | split side by side / above and below | **live** |
 | `<leader>se` / `<leader>sx` | equalise / close | **live** |
 | `<C-w>hjkl` | move focus | **live** |
+| `<C-w>j` / `<C-w>l` on a history | step into the payload pane, below or beside the list | **live** |
 | `<leader>r{h,j,k,l}` | resize by 10 | **live** |
 | `<leader>t{o,x,n,p}` | tab open / close / next / previous | **live** |
 
@@ -451,6 +452,7 @@ closed is refused with a message instead of polling for events that can never ar
 | `!` | pipe the focused payloads through a command | **live** |
 | `K` | show the payloads and the full failure under the cursor | **live** |
 | `<C-e>` / `<C-y>` | scroll the payload pane | **live** |
+| `<C-w>j` (`<C-w>l` when the pane is beside the list) | focus the payload pane: `j` `k` `<C-d>` `<C-u>` `gg` `G` scroll it, `<C-w>k` (`<C-w>h`) or `<Esc>` goes back | **live** |
 | `<leader>e` | open the payloads in `$EDITOR`, read-only | **live** |
 | `gf` | go to the source of the focused event, through the resolver `[source] command` names | **live** |
 

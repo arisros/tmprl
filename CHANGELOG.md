@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **The payload pane takes the focus**, `<C-w>j` from a history (`<C-w>l` when the pane is
+  beside the list). While it has it, `j` `k`, counts, `<C-d>` `<C-u>`, `gg` and `G` scroll
+  the payload instead of moving the row, so a long stack trace is a few keys and not one
+  line per press. `<C-w>k` (`<C-w>h`) or `<Esc>` goes back to the list. `<C-e>` / `<C-y>`
+  still scroll it from the list.
+
 ## 0.2.1 — 2026-10-06
 
 - **Go to source**, `gf` in a history: opens `$EDITOR` on the code behind the event under

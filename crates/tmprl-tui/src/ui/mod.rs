@@ -55,13 +55,28 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     // The focused pane's measurements are written back before anything is borrowed
     // immutably: a half page is half of *this* pane, not half the terminal.
     if let Some(pane) = panes.iter().find(|p| p.focused) {
+        // Inside the border a split draws, or a pane asked to sit beside the list could be
+        // measured as fitting there and then drawn stacked.
+        let rect = from_ui(pane.rect);
+        let rect = if panes.len() > 1 {
+            Block::default().borders(Borders::ALL).inner(rect)
+        } else {
+            rect
+        };
         let inner = pane_body(
-            from_ui(pane.rect),
+            rect,
             app.view.screen,
             app.view.show_detail,
             app.payload_pane(),
         );
         app.view.page = inner.list.height.saturating_sub(1) as usize;
+        match inner.detail {
+            Some(detail) => {
+                app.view.detail_beside = detail.x > inner.list.x;
+                app.view.detail_page = detail.height.saturating_sub(1) as usize;
+            }
+            None => app.view.detail_focus = false,
+        }
     }
 
     statusline::render_header(frame, header, app, &theme);
@@ -234,7 +249,7 @@ fn render_pane(
                     frame.render_widget(rule, pane);
                     pane = inner;
                 }
-                return Some(detail::render(frame, pane, view, app, theme));
+                return Some(detail::render(frame, pane, view, app, theme, focused));
             }
         }
     }
