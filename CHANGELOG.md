@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **Fix**: a profile chosen with `TEMPORAL_PROFILE` instead of `-p` now gets its own
+  `config.toml` settings, `readonly` included, rather than those of `default`.
+
 ## 0.2.1 — 2026-10-06
 
 - **Go to source**, `gf` in a history: opens `$EDITOR` on the code behind the event under

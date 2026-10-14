@@ -16,7 +16,7 @@ use tokio::sync::mpsc::unbounded_channel;
 
 #[tokio::main]
 async fn main() -> std::process::ExitCode {
-    let (profile, startup) = match cli::parse(std::env::args().skip(1)) {
+    let (mut profile, startup) = match cli::parse(std::env::args().skip(1)) {
         Ok(Cli::Run { profile, startup }) => (profile, startup),
         Ok(Cli::Help) => {
             print!("{}", cli::USAGE);
@@ -36,6 +36,13 @@ async fn main() -> std::process::ExitCode {
         }
     };
 
+    // Named here rather than left to the loader, so `config.toml` is looked up under the
+    // profile that is actually connected: `readonly` must hold for `TEMPORAL_PROFILE=prod`.
+    if profile.name.is_none() {
+        profile.name = std::env::var("TEMPORAL_PROFILE")
+            .ok()
+            .filter(|p| !p.is_empty());
+    }
     // Connect *before* touching the terminal, so a connection error is an ordinary message
     // on stderr rather than a flash of alternate screen followed by a stack trace.
     let conn = match Conn::connect(&profile).await {
