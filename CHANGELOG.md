@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-10-14
 
 - **The payload pane takes the focus**, `<C-w>j` from a history (`<C-w>l` when the pane is
   beside the list). While it has it, `j` `k`, counts, `<C-d>` `<C-u>`, `gg` and `G` scroll
