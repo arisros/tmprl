@@ -22,7 +22,7 @@ These are the places where a bug is a security bug:
 
 | Area | What tmprl does |
 |---|---|
-| Cluster credentials | Connections come from the Temporal profile file, the `temporal.toml` the `temporal` CLI uses, and the `TEMPORAL_*` variables, through Temporal's own loader. That file can hold an API key and TLS certificate paths. tmprl reads it and never writes it |
+| Cluster credentials | Connections come from the Temporal profile file, the `temporal.toml` the `temporal` CLI uses, and the `TEMPORAL_*` variables, through Temporal's own loader. That file can hold an API key and TLS certificate paths. tmprl reads it and never writes it. A profile in tmprl's `config.toml` can also give the API key, as `api_key` verbatim or as `api_key_cmd`, run without a shell when tmprl connects, whose first printed line is the key. Either is sent only to that profile's cluster, and a command's output never appears in an error. That makes `config.toml` a file that can hold a credential |
 | Codec server | Payloads that need decoding are sent to the codec endpoint set in tmprl's `config.toml`, as `POST {endpoint}/decode` with an `X-Namespace` header. `Authorization` is sent only when `auth` is set there, verbatim. That makes `config.toml` a file that can hold a credential |
 | `!` | Runs the command you type through `sh -c`, with the readable payloads under the cursor as JSON on stdin |
 | A source resolver | `gf` runs the program `[source] command` names, without a shell, with the focused event's names, worker identities and readable payloads as JSON on stdin. It then runs your editor, also without a shell, on the path the resolver printed |

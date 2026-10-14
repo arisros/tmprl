@@ -249,6 +249,7 @@ mod tests {
                 config_file: None,
                 address: Some("localhost:7233".into()),
                 namespace: Some("orders".into()),
+                ..Default::default()
             }
         );
         assert_eq!(

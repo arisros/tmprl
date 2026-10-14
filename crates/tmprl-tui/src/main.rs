@@ -43,6 +43,17 @@ async fn main() -> std::process::ExitCode {
             .ok()
             .filter(|p| !p.is_empty());
     }
+    // A bad config.toml is reported once the app is up; here it only means no API key from it.
+    if let Some(cfg) = config::read("config.toml")
+        .ok()
+        .flatten()
+        .and_then(|src| tmprl_core::config::parse_config(&src).ok())
+    {
+        let resolved = cfg.resolve(profile.name.as_deref().unwrap_or("default"));
+        profile.api_key = resolved.api_key;
+        profile.ignore_env = !resolved.env;
+    }
+
     // Connect *before* touching the terminal, so a connection error is an ordinary message
     // on stderr rather than a flash of alternate screen followed by a stack trace.
     let conn = match Conn::connect(&profile).await {

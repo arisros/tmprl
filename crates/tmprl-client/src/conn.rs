@@ -16,6 +16,7 @@ use temporalio_client::{
     grpc::{CloudService, OperatorService, WorkflowService},
 };
 use temporalio_common::envconfig::load_client_config_profile;
+use tmprl_core::config::ApiKey;
 
 /// Which profile to connect as, and what the command line overrides in it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -29,6 +30,10 @@ pub struct ProfileRef {
     pub address: Option<String>,
     /// Override the profile's namespace.
     pub namespace: Option<String>,
+    /// The API key from tmprl's `config.toml`, over the file's and `TEMPORAL_API_KEY`.
+    pub api_key: Option<ApiKey>,
+    /// Load the profile without the `TEMPORAL_*` variables layered over it.
+    pub ignore_env: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -158,17 +163,63 @@ fn options_from(
     Ok((conn_opts, ClientOptions::new(namespace).build()))
 }
 
+/// Run `api_key_cmd` without a shell. Its output is never put in an error: it is the key.
+async fn run_api_key_cmd(command: &str) -> Result<String, ConnectError> {
+    let home = std::env::var("HOME").ok();
+    let (program, args) = tmprl_core::source::argv(command, home.as_deref())
+        .ok_or_else(|| ConnectError::Config("api_key_cmd is empty".into()))?;
+    let output = tokio::process::Command::new(&program)
+        .args(&args)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .await
+        .map_err(|e| ConnectError::Config(format!("api_key_cmd `{program}` did not run: {e}")))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let why = stderr.lines().next().unwrap_or("").trim();
+        return Err(ConnectError::Config(format!(
+            "api_key_cmd `{program}` failed ({}){}",
+            output.status,
+            if why.is_empty() {
+                String::new()
+            } else {
+                format!(": {why}")
+            }
+        )));
+    }
+    first_line(&output.stdout)
+        .ok_or_else(|| ConnectError::Config(format!("api_key_cmd `{program}` printed no key")))
+}
+
+/// `pass show` prints the secret on the first line and metadata after it.
+fn first_line(stdout: &[u8]) -> Option<String> {
+    let line = String::from_utf8_lossy(stdout)
+        .lines()
+        .next()?
+        .trim()
+        .to_string();
+    (!line.is_empty()).then_some(line)
+}
+
 impl Conn {
     pub async fn connect(profile: &ProfileRef) -> Result<Self, ConnectError> {
         let load = LoadClientConfigProfileOptions::builder()
             .maybe_config_file_profile(profile.name.clone())
             .maybe_config_source(config_source(profile.config_file.as_deref()))
+            .disable_env(profile.ignore_env)
             .build();
 
         // The loader applies the environment, so a flag outranks `TEMPORAL_ADDRESS` and
         // `TEMPORAL_NAMESPACE`, which outrank the file.
-        let loaded = load_client_config_profile(load, None)
+        let mut loaded = load_client_config_profile(load, None)
             .map_err(|e| ConnectError::Config(e.to_string()))?;
+        match &profile.api_key {
+            None => {}
+            Some(ApiKey::Literal(key)) => loaded.api_key = Some(key.clone()),
+            Some(ApiKey::Command(command)) => {
+                loaded.api_key = Some(run_api_key_cmd(command).await?)
+            }
+        }
         let (conn_opts, client_opts) = options_from(loaded, profile)?;
         let namespace: Arc<str> = client_opts.namespace.as_str().into();
         // Read before `connect` consumes the options. A namespace name is not unique
@@ -274,6 +325,41 @@ mod tests {
             namespace: namespace.map(str::to_string),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn the_key_is_the_first_line_and_metadata_after_it_is_dropped() {
+        assert_eq!(
+            first_line(b"  secret  \nlogin: me\n").as_deref(),
+            Some("secret")
+        );
+        assert_eq!(first_line(b"\n"), None);
+        assert_eq!(first_line(b""), None);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_api_key_cmd_runs_without_a_shell() {
+        assert_eq!(
+            run_api_key_cmd("printf secret\\nmeta").await.unwrap(),
+            "secret"
+        );
+        // Through a shell `$HOME` would expand; here it is just an argument.
+        assert_eq!(run_api_key_cmd("echo $HOME").await.unwrap(), "$HOME");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_failing_api_key_cmd_names_the_program() {
+        let err = run_api_key_cmd("tmprl-no-such-program")
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("`tmprl-no-such-program` did not run"), "{err}");
+        let err = run_api_key_cmd("false").await.unwrap_err().to_string();
+        assert!(err.contains("`false` failed"), "{err}");
+        let err = run_api_key_cmd("true").await.unwrap_err().to_string();
+        assert!(err.contains("printed no key"), "{err}");
     }
 
     #[test]
