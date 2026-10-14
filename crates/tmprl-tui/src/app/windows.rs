@@ -140,9 +140,55 @@ impl App {
     }
 
     pub(super) fn resize_window(&mut self, dir: Direction) {
+        // The pane is nearer than any neighbouring window, so with the focus in it a resize
+        // means the pane; from the list, the windows come first and the pane after them.
+        if self.view.detail_focus && self.resize_detail(dir) {
+            return;
+        }
         // Ten cells' worth, as `<leader>r{hjkl}` promises. Weights are relative, so this is
         // a nudge rather than an exact cell count.
-        self.tabs.current_mut().resize(dir, 10);
+        if !self.tabs.current_mut().resize(dir, 10) {
+            self.resize_detail(dir);
+        }
+    }
+
+    /// The list and the payload pane resize as two windows would: whichever has the focus
+    /// grows on `l` / `j` and shrinks on `h` / `k`.
+    fn resize_detail(&mut self, dir: Direction) -> bool {
+        if !self.view.show_detail || self.view.screen != Screen::History {
+            return false;
+        }
+        let across = if self.view.detail_beside {
+            tmprl_ui::Axis::Columns
+        } else {
+            tmprl_ui::Axis::Rows
+        };
+        if dir.axis() != across {
+            return false;
+        }
+        let step = if dir.is_forward() == self.view.detail_focus {
+            5
+        } else {
+            -5
+        };
+        let size = tmprl_core::config::clamp_payload_size(self.payload_size as i32 + step);
+        let moved = size != self.payload_size;
+        self.payload_size = size;
+        moved
+    }
+
+    /// A drag of the pane's top rule: the pane takes everything from the pointer onwards.
+    pub(super) fn drag_detail(&mut self, column: u16, row: u16) {
+        let body = self.view.body_area;
+        let (from, total) = if self.view.detail_beside {
+            (body.right().saturating_sub(column), body.width)
+        } else {
+            (body.bottom().saturating_sub(row), body.height)
+        };
+        if total > 0 {
+            self.payload_size =
+                tmprl_core::config::clamp_payload_size((from as u32 * 100 / total as u32) as i32);
+        }
     }
 
     pub(super) fn new_tab(&mut self) {

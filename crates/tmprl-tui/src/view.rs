@@ -10,7 +10,7 @@
 //! application held one cursor and one history, so a second pane had nothing of its own to
 //! show.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 use tmprl_client::NamespaceInfo;
 use tmprl_core::dashboard::{Board, Item, Pacer};
@@ -23,6 +23,22 @@ use tmprl_core::{Loadable, ScheduleRow, StatusCounts, WorkflowList, WorkflowRow}
 
 use crate::app::Screen;
 use crate::ui::category_label;
+
+/// One row per line from `area.y` down, the first of them being row `first`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RowsDrawn {
+    pub area: tmprl_ui::Rect,
+    pub first: usize,
+}
+
+impl RowsDrawn {
+    /// The row a click on `column`, `line` landed on, if it landed on one.
+    pub fn row_at(&self, column: u16, line: u16) -> Option<usize> {
+        let a = self.area;
+        (column >= a.x && column < a.right() && line >= a.y && line < a.bottom())
+            .then(|| self.first + (line - a.y) as usize)
+    }
+}
 
 pub struct View {
     pub screen: Screen,
@@ -69,6 +85,11 @@ pub struct View {
     pub detail_page: usize,
     /// The cells the pane was last drawn in, which is how a click or the wheel finds it.
     pub detail_area: tmprl_ui::Rect,
+    /// The cells the history and the pane share, so a drag of the pane's top rule can be
+    /// turned into a share of them.
+    pub body_area: tmprl_ui::Rect,
+    /// The rows the last draw put on screen, which is how a click finds the row under it.
+    pub rows_drawn: Cell<Option<RowsDrawn>>,
 
     /// The visibility query, verbatim. This string is the interface: everything that
     /// filters the list compiles into it, and it is always on screen and always editable.
@@ -147,6 +168,8 @@ impl View {
             detail_beside: false,
             detail_page: 0,
             detail_area: tmprl_ui::Rect::default(),
+            body_area: tmprl_ui::Rect::default(),
+            rows_drawn: Cell::new(None),
             query: String::new(),
             scope: vec![namespace.to_string()],
             cursor: 0,

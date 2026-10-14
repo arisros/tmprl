@@ -68,6 +68,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             app.view.screen,
             app.view.show_detail,
             app.payload_pane(),
+            app.payload_size(),
         );
         app.view.page = inner.list.height.saturating_sub(1) as usize;
         match inner.detail {
@@ -75,10 +76,12 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                 app.view.detail_beside = detail.x > inner.list.x;
                 app.view.detail_page = detail.height.saturating_sub(1) as usize;
                 app.view.detail_area = to_ui(detail);
+                app.view.body_area = to_ui(inner.list.union(detail));
             }
             None => {
                 app.view.detail_focus = false;
                 app.view.detail_area = tmprl_ui::Rect::default();
+                app.view.body_area = tmprl_ui::Rect::default();
             }
         }
     }
@@ -169,6 +172,7 @@ fn pane_body(
     screen: Screen,
     show_detail: bool,
     payload: PayloadPane,
+    size: u16,
 ) -> PaneAreas {
     // The query bar is part of the workflow screen's chrome, not an overlay: it is always
     // on screen so the query is never something you have to go and open.
@@ -180,13 +184,13 @@ fn pane_body(
         Layout::vertical([Constraint::Length(query_height), Constraint::Min(1)]).areas(area);
 
     if screen == Screen::History && show_detail {
-        // Roughly half each: enough list to keep your place, enough pane to read a payload
-        // without scrolling for every value.
+        // The list keeps a floor however large the pane is asked to be: enough of it to keep
+        // your place, which is what `j` and `k` move through.
         let [list, detail] =
             if payload == PayloadPane::Right && rest.width >= MIN_SIDE_BY_SIDE_WIDTH {
-                Layout::horizontal([Constraint::Min(40), Constraint::Percentage(50)]).areas(rest)
+                Layout::horizontal([Constraint::Min(40), Constraint::Percentage(size)]).areas(rest)
             } else {
-                Layout::vertical([Constraint::Min(3), Constraint::Percentage(50)]).areas(rest)
+                Layout::vertical([Constraint::Min(3), Constraint::Percentage(size)]).areas(rest)
             };
         PaneAreas {
             query,
@@ -227,7 +231,14 @@ fn render_pane(
         return None;
     }
 
-    let areas = pane_body(area, view.screen, view.show_detail, app.payload_pane());
+    view.rows_drawn.set(None);
+    let areas = pane_body(
+        area,
+        view.screen,
+        view.show_detail,
+        app.payload_pane(),
+        app.payload_size(),
+    );
     match view.screen {
         Screen::Namespaces => namespaces::render(frame, areas.list, view, app, theme),
         Screen::Workflows => {

@@ -245,11 +245,12 @@ impl Default for Resolved {
 /// Where the payload pane (`K`) opens, relative to the history list.
 ///
 /// Both keep the list on screen, so `j` / `k` still move the row the pane is showing. There
-/// is no popup on purpose: it would cover the rows you are stepping through.
+/// is no popup on purpose: it would cover the rows you are stepping through. Right by
+/// default, since a terminal is wider than it is tall; one too narrow stacks it anyway.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PayloadPane {
-    #[default]
     Bottom,
+    #[default]
     Right,
 }
 
@@ -261,6 +262,17 @@ impl PayloadPane {
             _ => None,
         }
     }
+}
+
+/// The payload pane's share of the history, in percent: `[layout] payload_size`, then
+/// `<leader>r{hjkl}` or a drag of its top rule.
+pub const PAYLOAD_SIZE: u16 = 50;
+pub const PAYLOAD_SIZE_MIN: u16 = 20;
+pub const PAYLOAD_SIZE_MAX: u16 = 80;
+
+/// A payload pane size kept where both the pane and the list stay readable.
+pub fn clamp_payload_size(percent: i32) -> u16 {
+    percent.clamp(PAYLOAD_SIZE_MIN as i32, PAYLOAD_SIZE_MAX as i32) as u16
 }
 
 /// How often a screen that refreshes itself does so.
@@ -300,6 +312,8 @@ pub struct Config {
     /// `[layout] payload`. Global rather than per profile: it is about your terminal, not
     /// the cluster.
     pub payload_pane: PayloadPane,
+    /// `[layout] payload_size`, in percent.
+    pub payload_size: u16,
     /// `[refresh] dashboard`.
     pub dashboard_refresh: Refresh,
     /// `[yank] max_bytes`. The largest text handed to the clipboard; anything longer is
@@ -323,6 +337,7 @@ impl Default for Config {
             timezone: None,
             profiles: Vec::new(),
             payload_pane: PayloadPane::default(),
+            payload_size: PAYLOAD_SIZE,
             dashboard_refresh: Refresh::default(),
             yank_max: DEFAULT_YANK_MAX,
             mouse: false,
@@ -361,7 +376,8 @@ impl Config {
 /// timezone = "Asia/Jakarta"      # optional, default: the machine's zone
 ///
 /// [layout]
-/// payload = "right"              # or "bottom", the default
+/// payload = "bottom"             # or "right", the default
+/// payload_size = 40              # percent of the history, 20 to 80; default 50
 ///
 /// [refresh]
 /// dashboard = "30s"              # or "off"; the default is 30s, the least is 5s
@@ -429,8 +445,8 @@ pub fn parse_config(src: &str) -> Result<Config, ConfigError> {
         }
     };
 
-    let payload_pane = match table.get("layout") {
-        None => PayloadPane::default(),
+    let (payload_pane, payload_size) = match table.get("layout") {
+        None => (PayloadPane::default(), PAYLOAD_SIZE),
         Some(raw) => parse_layout(raw)?,
     };
 
@@ -459,6 +475,7 @@ pub fn parse_config(src: &str) -> Result<Config, ConfigError> {
         timezone,
         profiles,
         payload_pane,
+        payload_size,
         dashboard_refresh,
         yank_max,
         source,
@@ -550,15 +567,15 @@ fn parse_input(raw: &toml::Value) -> Result<bool, ConfigError> {
     }
 }
 
-fn parse_layout(raw: &toml::Value) -> Result<PayloadPane, ConfigError> {
+fn parse_layout(raw: &toml::Value) -> Result<(PayloadPane, u16), ConfigError> {
     const FILE: &str = "config.toml";
     let table = raw.as_table().ok_or(ConfigError::Type {
         file: FILE,
         path: "layout".into(),
         expected: "a table",
     })?;
-    match table.get("payload") {
-        None => Ok(PayloadPane::default()),
+    let pane = match table.get("payload") {
+        None => PayloadPane::default(),
         Some(v) => v
             .as_str()
             .and_then(PayloadPane::parse)
@@ -566,8 +583,21 @@ fn parse_layout(raw: &toml::Value) -> Result<PayloadPane, ConfigError> {
                 file: FILE,
                 path: "layout.payload".into(),
                 expected: "\"bottom\" or \"right\"",
-            }),
-    }
+            })?,
+    };
+    let size = match table.get("payload_size") {
+        None => PAYLOAD_SIZE,
+        Some(v) => v
+            .as_integer()
+            .filter(|n| (PAYLOAD_SIZE_MIN as i64..=PAYLOAD_SIZE_MAX as i64).contains(n))
+            .map(|n| n as u16)
+            .ok_or(ConfigError::Type {
+                file: FILE,
+                path: "layout.payload_size".into(),
+                expected: "a percentage from 20 to 80",
+            })?,
+    };
+    Ok((pane, size))
 }
 
 fn parse_profile(raw: &toml::Value, name: &str) -> Result<ProfileConfig, ConfigError> {
@@ -1189,12 +1219,34 @@ accent = "green"
     }
 
     #[test]
-    fn the_payload_pane_defaults_to_bottom() {
-        assert_eq!(parse_config("").unwrap().payload_pane, PayloadPane::Bottom);
+    fn the_payload_pane_defaults_to_the_right_at_half() {
+        let cfg = parse_config("").unwrap();
+        assert_eq!(cfg.payload_pane, PayloadPane::Right);
+        assert_eq!(cfg.payload_size, PAYLOAD_SIZE);
         assert_eq!(
             parse_config("[layout]\n").unwrap().payload_pane,
-            PayloadPane::Bottom
+            PayloadPane::Right
         );
+    }
+
+    #[test]
+    fn the_payload_pane_size_is_a_bounded_percentage() {
+        let cfg = parse_config("[layout]\npayload = \"bottom\"\npayload_size = 30").unwrap();
+        assert_eq!(
+            (cfg.payload_pane, cfg.payload_size),
+            (PayloadPane::Bottom, 30)
+        );
+        for src in [
+            "[layout]\npayload_size = 10",
+            "[layout]\npayload_size = 90",
+            "[layout]\npayload_size = \"half\"",
+        ] {
+            let err = parse_config(src).unwrap_err();
+            assert!(matches!(err, ConfigError::Type { .. }), "{src}: {err:?}");
+        }
+        assert_eq!(clamp_payload_size(5), PAYLOAD_SIZE_MIN);
+        assert_eq!(clamp_payload_size(95), PAYLOAD_SIZE_MAX);
+        assert_eq!(clamp_payload_size(55), 55);
     }
 
     #[test]
@@ -1241,9 +1293,9 @@ accent = "green"
     }
 
     #[test]
-    fn the_payload_pane_can_open_on_the_right() {
-        let cfg = parse_config("[layout]\npayload = \"right\"").unwrap();
-        assert_eq!(cfg.payload_pane, PayloadPane::Right);
+    fn the_payload_pane_can_open_at_the_bottom() {
+        let cfg = parse_config("[layout]\npayload = \"bottom\"").unwrap();
+        assert_eq!(cfg.payload_pane, PayloadPane::Bottom);
     }
 
     #[test]

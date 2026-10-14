@@ -128,7 +128,8 @@ api_key   = "…"
 ```toml
 # ~/.config/tmprl/config.toml
 [layout]
-payload = "right"         # K opens beside the list; "bottom" is the default
+payload = "bottom"        # K opens under the list; "right" is the default
+payload_size = 40         # the pane's share in percent; <leader>r{hjkl} or a drag resizes it
 
 [refresh]
 dashboard = "1m"          # the dashboard asks again this often; "off" leaves it to R
@@ -137,7 +138,7 @@ dashboard = "1m"          # the dashboard asks again this often; "off" leaves it
 max_bytes = 1048576       # default 65536; a longer yank is written to a file, not refused
 
 [input]
-mouse = true              # the wheel scrolls, a click focuses; off by default
+mouse = true              # the wheel scrolls, a click selects, a second click opens; off by default
 
 [profile.sit]
 accent  = "green"
@@ -201,8 +202,8 @@ flowchart LR
 | Crate | Tests | |
 |---|---|---|
 | `tmprl-client` | 84 | all network IO |
-| `tmprl-core` | 437 | no terminal, no server |
-| `tmprl-tui` | 453 | ratatui |
+| `tmprl-core` | 438 | no terminal, no server |
+| `tmprl-tui` | 459 | ratatui |
 | `tmprl-ui` | 47 | window tree |
 
 ```sh

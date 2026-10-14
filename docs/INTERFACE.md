@@ -103,9 +103,11 @@ mouse = true            # false is the default
 ```
 
 With it on, the wheel scrolls what it is over, three lines a notch: a list, the payload
-pane, or the help and messages overlays. A click focuses the window it lands on, and on a
-history it moves the focus between the list and the payload pane. Nothing else is
-clickable, and every action still has its key.
+pane, or the help and messages overlays. A click focuses the window it lands on and puts
+the cursor on the row under it, and a second click on that row opens it, as `<CR>` does. On
+a history a click moves the focus between the list and the payload pane, and the pane's top
+rule is its handle: press on it and drag to resize the pane. Every action still has its
+key.
 
 It is off by default because a terminal that reports the mouse to a program stops
 selecting text on a plain drag. With it on, hold Shift while dragging (Option in iTerm2,
@@ -362,7 +364,7 @@ column of its own rather than painting over a value.
 | `<leader>se` / `<leader>sx` | equalise / close | **live** |
 | `<C-w>hjkl` | move focus | **live** |
 | `<C-w>j` / `<C-w>l` on a history | step into the payload pane, below or beside the list | **live** |
-| `<leader>r{h,j,k,l}` | resize by 10 | **live** |
+| `<leader>r{h,j,k,l}` | resize by 10; on a history with no window that way, the payload pane by 5% | **live** |
 | `<leader>t{o,x,n,p}` | tab open / close / next / previous | **live** |
 
 Two histories in a split will be the diff feature. There is no separate diff screen.
@@ -773,15 +775,19 @@ api_key_cmd = "pass show temporal/prod"   # a failure names the program, never i
 env         = false                       # default true, as in the temporal CLI
 ```
 
-`K` opens the payload pane under the list. To have it beside the list instead:
+`K` opens the payload pane beside the list, at half its width. To have it under the list,
+or at another size:
 
 ```toml
 [layout]
-payload = "right"       # "bottom" is the default
+payload      = "bottom"   # "right" is the default
+payload_size = 40         # percent of the history, 20 to 80; 50 is the default
 ```
 
 Either way the list stays on screen and `j` / `k` move the row the pane shows. Below 100
-columns `right` stacks anyway, since neither half would be readable.
+columns `right` stacks anyway, since neither half would be readable. `<leader>r{hjkl}`
+resizes the pane as it would a window, the focused side growing on `l` / `j`, and with the
+mouse on, its top rule can be dragged. The size holds for the session.
 
 The dashboard refreshes every 30 seconds. To change that, or to stop it:
 
