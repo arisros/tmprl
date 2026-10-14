@@ -15,7 +15,9 @@ use temporalio_client::{
     envconfig::{ClientConfigProfile, DataSource, LoadClientConfigProfileOptions},
     grpc::{CloudService, OperatorService, WorkflowService},
 };
-use temporalio_common::envconfig::load_client_config_profile;
+use temporalio_common::envconfig::{
+    LoadClientConfigOptions, load_client_config, load_client_config_profile,
+};
 use tmprl_core::config::ApiKey;
 
 /// Which profile to connect as, and what the command line overrides in it.
@@ -124,6 +126,42 @@ fn dirs_config_dir() -> Option<PathBuf> {
     }
 }
 
+/// A profile in `temporal.toml`, as a list of them shows it. Never carries credentials.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProfileSummary {
+    pub name: String,
+    pub address: Option<String>,
+    pub namespace: Option<String>,
+}
+
+/// Every profile in the file the connection would be read from, sorted by name.
+///
+/// As written in the file: the `TEMPORAL_*` variables are applied when a profile is
+/// connected, not here, so the list shows what each profile says rather than what the
+/// environment would turn it into.
+pub fn list_profiles(config_file: Option<&str>) -> Result<Vec<ProfileSummary>, ConnectError> {
+    profiles_from(config_source(config_file))
+}
+
+fn profiles_from(source: Option<DataSource>) -> Result<Vec<ProfileSummary>, ConnectError> {
+    let options = LoadClientConfigOptions::builder()
+        .maybe_config_source(source)
+        .build();
+    let config =
+        load_client_config(options, None).map_err(|e| ConnectError::Config(e.to_string()))?;
+    let mut profiles: Vec<ProfileSummary> = config
+        .profiles
+        .into_iter()
+        .map(|(name, p)| ProfileSummary {
+            name,
+            address: p.address,
+            namespace: p.namespace,
+        })
+        .collect();
+    profiles.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(profiles)
+}
+
 /// A live, namespace-bound connection. Cheap to clone, clones share one HTTP/2 channel,
 /// which is what makes multi-namespace fan-out cheap.
 #[derive(Clone)]
@@ -132,6 +170,16 @@ pub struct Conn {
     profile: Arc<str>,
     namespace: Arc<str>,
     address: Arc<str>,
+}
+
+impl std::fmt::Debug for Conn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Conn")
+            .field("profile", &self.profile)
+            .field("namespace", &self.namespace)
+            .field("address", &self.address)
+            .finish_non_exhaustive()
+    }
 }
 
 /// The namespace Temporal's loader falls back to when a profile names none.
@@ -418,6 +466,43 @@ mod tests {
         let (_, client) =
             options_from(ClientConfigProfile::default(), &ProfileRef::default()).unwrap();
         assert_eq!(client.namespace, "default");
+    }
+
+    #[test]
+    fn profiles_are_listed_by_name_without_their_credentials() {
+        let toml = br#"
+[profile.prod]
+address = "prod.example:7233"
+namespace = "orders"
+api_key = "secret"
+
+[profile.dev]
+address = "localhost:7233"
+"#;
+        let profiles = profiles_from(Some(DataSource::Data(toml.to_vec()))).unwrap();
+        assert_eq!(
+            profiles,
+            vec![
+                ProfileSummary {
+                    name: "dev".into(),
+                    address: Some("localhost:7233".into()),
+                    namespace: None,
+                },
+                ProfileSummary {
+                    name: "prod".into(),
+                    address: Some("prod.example:7233".into()),
+                    namespace: Some("orders".into()),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn an_empty_config_lists_no_profiles() {
+        assert_eq!(
+            profiles_from(Some(DataSource::Data(Vec::new()))).unwrap(),
+            vec![]
+        );
     }
 
     #[test]
