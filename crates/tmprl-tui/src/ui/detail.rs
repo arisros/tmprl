@@ -24,14 +24,22 @@ use crate::view::View;
 
 /// Draw the pane. Returns how far it can scroll and where it ended up, which moves when a
 /// search asked it to find the match.
-pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) -> (usize, usize) {
+pub fn render(
+    frame: &mut Frame,
+    area: Rect,
+    view: &View,
+    app: &App,
+    t: &Theme,
+    window_focused: bool,
+) -> (usize, usize) {
     if area.height < 2 {
         return (0, 0);
     }
+    let focused = window_focused && view.detail_focus;
     // A filter result replaces the payloads: you asked to see the filtered value, and
     // showing both would bury it.
     if let Some(piped) = view.piped.clone() {
-        let max = render_piped(frame, area, view, &piped, t);
+        let max = render_piped(frame, area, view, &piped, t, focused);
         return (max, view.detail_scroll.min(max));
     }
 
@@ -73,18 +81,10 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
     }
     .min(max_scroll);
 
-    let title = if max_scroll == 0 {
-        " payloads (K to close) ".to_string()
-    } else {
-        format!(
-            " payloads (<C-e>/<C-y> to scroll, {}/{}, K to close) ",
-            scroll + 1,
-            max_scroll + 1
-        )
-    };
+    let title = title("payloads", view, focused, scroll, max_scroll);
     let block = Block::default()
         .borders(Borders::TOP)
-        .border_style(t.faint)
+        .border_style(t.border(focused))
         .title(Span::styled(title, t.accent));
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -93,6 +93,24 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
     let inner = super::list_scrollbar(frame, inner, scroll, lines.len(), t);
     frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, 0)), inner);
     (max_scroll, scroll)
+}
+
+/// The pane's top rule says how to move in it, which differs with where the focus is.
+fn title(label: &str, view: &View, focused: bool, scroll: usize, max_scroll: usize) -> String {
+    let at = format!("{}/{}", scroll + 1, max_scroll + 1);
+    match (max_scroll, focused) {
+        (0, true) => format!(" {label} (<Esc> back) "),
+        (0, false) => format!(" {label} (K to close) "),
+        (_, true) => format!(" {label} (j/k <C-d>/<C-u> gg/G, {at}, <Esc> back) "),
+        (_, false) => {
+            let key = if view.detail_beside {
+                "<C-w>l"
+            } else {
+                "<C-w>j"
+            };
+            format!(" {label} ({key} to scroll, {at}, K to close) ")
+        }
+    }
 }
 
 fn group_lines<'a>(
@@ -319,6 +337,7 @@ fn render_piped(
     view: &View,
     piped: &Result<String, String>,
     t: &Theme,
+    focused: bool,
 ) -> usize {
     let (body, style, label) = match piped {
         Ok(out) => (out, t.fg, "filtered"),
@@ -336,18 +355,14 @@ fn render_piped(
     let max_scroll = lines.len().saturating_sub(visible);
     let scroll = view.detail_scroll.min(max_scroll);
 
-    let title = if max_scroll == 0 {
-        format!(" {label} (K to close) ")
-    } else {
-        format!(
-            " {label} (<C-e>/<C-y> to scroll, {}/{}, K to close) ",
-            scroll + 1,
-            max_scroll + 1
-        )
-    };
+    let title = title(label, view, focused, scroll, max_scroll);
     let block = Block::default()
         .borders(Borders::TOP)
-        .border_style(if piped.is_err() { t.err } else { t.faint })
+        .border_style(if piped.is_err() {
+            t.err
+        } else {
+            t.border(focused)
+        })
         .title(Span::styled(title, t.accent));
     let inner = block.inner(area);
     frame.render_widget(block, area);

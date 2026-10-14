@@ -270,6 +270,9 @@ pub struct Config {
     /// `[source] command`. The program that says where the code behind a history event
     /// is. Absent means `gf` has nowhere to go.
     pub source: Option<String>,
+    /// `[input] mouse`. Off unless asked for: a terminal that reports the mouse to tmprl no
+    /// longer selects text with a plain drag.
+    pub mouse: bool,
 }
 
 /// Terminals commonly cap OSC 52 around 100 KB and truncate silently past it.
@@ -284,6 +287,7 @@ impl Default for Config {
             payload_pane: PayloadPane::default(),
             dashboard_refresh: Refresh::default(),
             yank_max: DEFAULT_YANK_MAX,
+            mouse: false,
             source: None,
         }
     }
@@ -403,6 +407,11 @@ pub fn parse_config(src: &str) -> Result<Config, ConfigError> {
         Some(raw) => parse_source(raw)?,
     };
 
+    let mouse = match table.get("input") {
+        None => false,
+        Some(raw) => parse_input(raw)?,
+    };
+
     Ok(Config {
         codec,
         timezone,
@@ -411,6 +420,7 @@ pub fn parse_config(src: &str) -> Result<Config, ConfigError> {
         dashboard_refresh,
         yank_max,
         source,
+        mouse,
     })
 }
 
@@ -478,6 +488,23 @@ fn parse_yank(raw: &toml::Value) -> Result<usize, ConfigError> {
                 path: "yank.max_bytes".into(),
                 expected: "a number of bytes above zero",
             }),
+    }
+}
+
+fn parse_input(raw: &toml::Value) -> Result<bool, ConfigError> {
+    const FILE: &str = "config.toml";
+    let table = raw.as_table().ok_or(ConfigError::Type {
+        file: FILE,
+        path: "input".into(),
+        expected: "a table",
+    })?;
+    match table.get("mouse") {
+        None => Ok(false),
+        Some(v) => v.as_bool().ok_or(ConfigError::Type {
+            file: FILE,
+            path: "input.mouse".into(),
+            expected: "true or false",
+        }),
     }
 }
 
@@ -1050,6 +1077,14 @@ accent = "green"
         assert!(parse_config("[source]\ncommand = \"\"").is_err());
         assert_eq!(parse_config("").unwrap().yank_max, DEFAULT_YANK_MAX);
         assert_eq!(parse_config("[yank]\n").unwrap().yank_max, 64 * 1024);
+    }
+
+    #[test]
+    fn the_mouse_is_off_until_asked_for() {
+        assert!(!parse_config("").unwrap().mouse);
+        assert!(!parse_config("[input]\n").unwrap().mouse);
+        assert!(parse_config("[input]\nmouse = true").unwrap().mouse);
+        assert!(parse_config("[input]\nmouse = \"yes\"").is_err());
     }
 
     #[test]

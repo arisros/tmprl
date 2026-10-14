@@ -70,6 +70,7 @@ tmprl --config-path                         # every file tmprl reads, and whethe
 | `<Space>G` | timeline, like the web UI | `zg` | fold idle time |
 | `]f` `[f` | next / previous failure | `F` | follow, like `tail -f` |
 | `K` | payloads and the full failure | `!` | pipe them through `jq` |
+| `<C-w>j` | into the payload pane, `j` `k` `<C-d>` `<C-f>` `gg` `G` scroll it | `<Esc>` | back to the list |
 | `y` `Y` | yank value / row | `<Space>y{a,i,r}` | yank payloads |
 | `<Space>m…` | cancel, terminate, signal, delete, reset, update | `gs` `gw` `gd` | schedules / workflows / dashboard |
 | `<Space>s…` `<C-w>hjkl` | splits | `<Space>t…` | tabs |
@@ -135,6 +136,9 @@ dashboard = "1m"          # the dashboard asks again this often; "off" leaves it
 [yank]
 max_bytes = 1048576       # default 65536; a longer yank is written to a file, not refused
 
+[input]
+mouse = true              # the wheel scrolls, a click focuses; off by default
+
 [profile.sit]
 accent = "green"
 
@@ -194,8 +198,8 @@ flowchart LR
 | Crate | Tests | |
 |---|---|---|
 | `tmprl-client` | 81 | all network IO |
-| `tmprl-core` | 432 | no terminal, no server |
-| `tmprl-tui` | 444 | ratatui |
+| `tmprl-core` | 433 | no terminal, no server |
+| `tmprl-tui` | 453 | ratatui |
 | `tmprl-ui` | 47 | window tree |
 
 ```sh
