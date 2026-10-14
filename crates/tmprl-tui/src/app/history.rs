@@ -141,16 +141,33 @@ impl App {
     }
 
     pub(super) fn jump_failure(&mut self, forward: bool) {
-        let Some(outline) = self.view.history.value() else {
+        let (pending, cursor) = (&self.view.pending, self.view.cursor);
+        let Some(outline) = self.view.history.value_mut() else {
             return;
         };
+        let events = outline.events();
+        let retrying = |g: &tmprl_core::history::Group| {
+            tmprl_core::pending::for_group(pending, g, events)
+                .is_some_and(tmprl_core::pending::PendingActivity::is_retrying)
+        };
         let found = if forward {
-            outline.next_failure(self.view.cursor)
+            outline.next_failing(cursor, retrying)
         } else {
-            outline.prev_failure(self.view.cursor)
+            outline.prev_failing(cursor, retrying)
         };
         match found {
-            Some(row) => self.view.cursor = row,
+            Some(group) => {
+                if !outline.is_shown(group) {
+                    outline.set_show_plumbing(true);
+                    self.note = Some((
+                        "a workflow task failed; workflow tasks shown, zp hides them".into(),
+                        Note::Warn,
+                    ));
+                }
+                if let Some(row) = outline.row_of_group(group) {
+                    self.view.cursor = row;
+                }
+            }
             None => {
                 self.note = Some((
                     if forward {
