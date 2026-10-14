@@ -40,6 +40,10 @@ impl App {
         self.clamp_cursor();
     }
 
+    pub(super) fn detail_focused(&self) -> bool {
+        self.view.detail_focus && self.view.show_detail && self.view.screen == Screen::History
+    }
+
     pub(super) fn scroll_detail(&mut self, delta: isize) {
         let next = (self.view.detail_scroll as isize + delta)
             .clamp(0, self.view.detail_max_scroll as isize);

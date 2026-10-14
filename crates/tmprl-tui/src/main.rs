@@ -93,9 +93,24 @@ async fn main() -> std::process::ExitCode {
     app.apply_config(keys.as_deref(), views.as_deref(), config.as_deref());
     app.start(startup);
 
+    let mouse = app.mouse();
     let terminal = ratatui::init();
+    if mouse {
+        // After `ratatui::init`, so this runs before the hook it installed: a panic must
+        // not leave the shell with a terminal that still reports the mouse.
+        let restore = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let _ = event::capture_mouse(false);
+            restore(info);
+        }));
+        if let Err(e) = event::capture_mouse(true) {
+            event::release_terminal(mouse);
+            eprintln!("tmprl: {e}");
+            return std::process::ExitCode::FAILURE;
+        }
+    }
     let result = event::run(terminal, app, rx, tx).await;
-    ratatui::restore();
+    event::release_terminal(mouse);
 
     match result {
         Ok(()) => std::process::ExitCode::SUCCESS,

@@ -93,6 +93,24 @@ max_bytes = 1048576     # 65536 is the default
 command = "~/bin/find-source"   # asked by gf where the code behind an event is
 ```
 
+### The mouse is optional
+
+tmprl is driven from the keyboard and reports nothing to do with the mouse unless asked:
+
+```toml
+[input]
+mouse = true            # false is the default
+```
+
+With it on, the wheel scrolls what it is over, three lines a notch: a list, the payload
+pane, or the help and messages overlays. A click focuses the window it lands on, and on a
+history it moves the focus between the list and the payload pane. Nothing else is
+clickable, and every action still has its key.
+
+It is off by default because a terminal that reports the mouse to a program stops
+selecting text on a plain drag. With it on, hold Shift while dragging (Option in iTerm2,
+Fn in Terminal.app) to select as before.
+
 ## Keymap
 
 Leader is `Space`. A which-key-style popup appears as soon as a prefix is incomplete.
@@ -102,6 +120,7 @@ Leader is `Space`. A which-key-style popup appears as soon as a prefix is incomp
 | Key | Action | |
 |---|---|---|
 | `j` `k` `gg` `G` `<C-d>` `<C-u>` | move; `j` and `k` take a count | **live** |
+| `<C-f>` `<C-b>`, `<PageDown>` `<PageUp>` | a full page down / up | **live** |
 | `<Down>` `<Up>` | move | **live** |
 | `h` `l` `<Left>` `<Right>` | move sideways on the dashboard, between panels and along a strip of statuses or a chart; nothing on a list | **live** |
 | `Enter` | open the focused item, namespace → workflows → history | **live** |
@@ -342,6 +361,7 @@ column of its own rather than painting over a value.
 | `<leader>sv` / `<leader>sh` | split side by side / above and below | **live** |
 | `<leader>se` / `<leader>sx` | equalise / close | **live** |
 | `<C-w>hjkl` | move focus | **live** |
+| `<C-w>j` / `<C-w>l` on a history | step into the payload pane, below or beside the list | **live** |
 | `<leader>r{h,j,k,l}` | resize by 10 | **live** |
 | `<leader>t{o,x,n,p}` | tab open / close / next / previous | **live** |
 
@@ -451,6 +471,7 @@ closed is refused with a message instead of polling for events that can never ar
 | `!` | pipe the focused payloads through a command | **live** |
 | `K` | show the payloads and the full failure under the cursor | **live** |
 | `<C-e>` / `<C-y>` | scroll the payload pane | **live** |
+| `<C-w>j` (`<C-w>l` when the pane is beside the list) | focus the payload pane: `j` `k` `<C-d>` `<C-u>` `<C-f>` `<C-b>` `gg` `G` scroll it, `<C-w>k` (`<C-w>h`) or `<Esc>` goes back | **live** |
 | `<leader>e` | open the payloads in `$EDITOR`, read-only | **live** |
 | `gf` | go to the source of the focused event, through the resolver `[source] command` names | **live** |
 

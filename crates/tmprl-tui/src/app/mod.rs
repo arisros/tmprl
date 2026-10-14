@@ -22,12 +22,14 @@
 //! | `load` | every request to the server |
 //! | `startup` | where the command line asked to open |
 //! | `messages` | the note line's history, `:messages` |
+//! | `mouse` | the wheel and the click, when `[input] mouse` asks for them |
 
 mod dashboard;
 mod find;
 mod history;
 mod load;
 mod messages;
+mod mouse;
 mod mutate;
 mod nav;
 mod payload;
@@ -37,6 +39,7 @@ mod startup;
 mod windows;
 mod yank;
 
+pub use mouse::Mouse;
 pub use startup::Startup;
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -260,6 +263,7 @@ pub enum InsertTarget {
 #[derive(Debug)]
 pub enum Msg {
     Key(Chord),
+    Mouse(Mouse),
     Tick,
     Redraw,
     Quit,
@@ -491,6 +495,7 @@ pub struct App {
     audit_sink: AuditSink,
     /// Where `K` opens, from `config.toml`'s `[layout]`.
     payload_pane: tmprl_core::config::PayloadPane,
+    mouse: bool,
     yank_max: usize,
     namespace: String,
     conn: Option<Arc<Conn>>,
@@ -585,6 +590,7 @@ impl App {
             readonly_flag: false,
             audit_sink: AuditSink::File,
             payload_pane: Default::default(),
+            mouse: false,
             yank_max: tmprl_core::config::DEFAULT_YANK_MAX,
             namespace,
             conn,
@@ -605,6 +611,7 @@ impl App {
                     self.accent = resolved.accent;
                     self.readonly = resolved.readonly;
                     self.payload_pane = cfg.payload_pane;
+                    self.mouse = cfg.mouse;
                     self.dashboard_refresh = cfg.dashboard_refresh;
                     self.yank_max = cfg.yank_max;
                     self.source_command = cfg.source;
@@ -712,6 +719,7 @@ impl App {
     fn apply(&mut self, msg: Msg) {
         match msg {
             Msg::Key(chord) => self.on_key(chord),
+            Msg::Mouse(mouse) => self.on_mouse(mouse),
             Msg::Quit => self.should_quit = true,
             Msg::Tick => self.tick_dashboards(now_ms()),
             Msg::Redraw => {}
@@ -1051,6 +1059,7 @@ impl App {
                     self.overlay_scroll = 0;
                 } else {
                     self.view.anchor = None;
+                    self.view.detail_focus = false;
                     self.mode = Mode::Normal;
                     self.pending.clear();
                     self.which_key.clear();
@@ -1079,6 +1088,33 @@ impl App {
             Action::HalfPageUp if self.overlay_open() => {
                 self.scroll_overlay(-((self.view.page / 2).max(1) as isize))
             }
+            Action::PageDown if self.overlay_open() => {
+                self.scroll_overlay(self.view.page.max(1) as isize)
+            }
+            Action::PageUp if self.overlay_open() => {
+                self.scroll_overlay(-(self.view.page.max(1) as isize))
+            }
+
+            // The payload pane takes the motions while it has the focus. A half page is
+            // half of the pane, which is rarely the height of the list beside it.
+            Action::MoveDown if self.detail_focused() => self.scroll_detail(n as isize),
+            Action::MoveUp if self.detail_focused() => self.scroll_detail(-(n as isize)),
+            Action::MoveTop if self.detail_focused() => self.view.detail_scroll = 0,
+            Action::MoveBottom if self.detail_focused() => {
+                self.view.detail_scroll = self.view.detail_max_scroll
+            }
+            Action::HalfPageDown if self.detail_focused() => {
+                self.scroll_detail((self.view.detail_page / 2).max(1) as isize)
+            }
+            Action::HalfPageUp if self.detail_focused() => {
+                self.scroll_detail(-((self.view.detail_page / 2).max(1) as isize))
+            }
+            Action::PageDown if self.detail_focused() => {
+                self.scroll_detail(self.view.detail_page.max(1) as isize)
+            }
+            Action::PageUp if self.detail_focused() => {
+                self.scroll_detail(-(self.view.detail_page.max(1) as isize))
+            }
 
             // A dashboard is panels side by side and one over another, so the motions go
             // where they point there. Everywhere else there is one list, and no sideways.
@@ -1105,6 +1141,8 @@ impl App {
             }
             Action::HalfPageDown => self.move_cursor((self.view.page / 2).max(1) as isize),
             Action::HalfPageUp => self.move_cursor(-((self.view.page / 2).max(1) as isize)),
+            Action::PageDown => self.move_cursor(self.view.page.max(1) as isize),
+            Action::PageUp => self.move_cursor(-(self.view.page.max(1) as isize)),
 
             Action::OpenItem => self.open_focused(),
             Action::GoUp => self.go_up(),
@@ -1264,6 +1302,7 @@ impl App {
                 if self.view.screen == Screen::History {
                     self.view.show_detail = !self.view.show_detail;
                     self.view.detail_scroll = 0;
+                    self.view.detail_focus = false;
                     self.view.piped = None;
                     self.maybe_decode();
                 } else {
@@ -1292,6 +1331,10 @@ impl App {
 
     pub fn payload_pane(&self) -> tmprl_core::config::PayloadPane {
         self.payload_pane
+    }
+
+    pub fn mouse(&self) -> bool {
+        self.mouse
     }
 }
 

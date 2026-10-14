@@ -52,15 +52,15 @@ pub async fn run(
             // and stderr inherited so it is a normal interactive program, then take the
             // terminal again. `ratatui::init` reinstalls the panic hook, so a panic after
             // this still restores.
-            ratatui::restore();
+            release_terminal(app.mouse());
             let outcome = run_editor(&request.path, None, None);
-            terminal = retake_terminal()?;
+            terminal = retake_terminal(app.mouse())?;
             app.finish_edit(&request, outcome.err().map(|e| e.to_string()));
         }
         if let Some(request) = app.take_source_request() {
-            ratatui::restore();
+            release_terminal(app.mouse());
             let outcome = run_editor(&request.path, request.line, request.root.as_deref());
-            terminal = retake_terminal()?;
+            terminal = retake_terminal(app.mouse())?;
             app.finish_source(&request, outcome.err().map(|e| e.to_string()));
         }
         if app.dirty {
@@ -76,6 +76,11 @@ pub async fn run(
                 Some(Ok(Event::Key(k))) => {
                     if let Some(chord) = keys::to_chord(k) {
                         app.handle(Msg::Key(chord));
+                    }
+                }
+                Some(Ok(Event::Mouse(m))) => {
+                    if let Some(mouse) = keys::to_mouse(m) {
+                        app.handle(Msg::Mouse(mouse));
                     }
                 }
                 Some(Ok(Event::Resize(_, _))) => app.handle(Msg::Redraw),
@@ -96,14 +101,35 @@ pub async fn run(
 /// answer on stdin, which the key reader is reading too. When the answer went to the
 /// reader, or came late, the wait timed out and took tmprl down with it. A screen can be
 /// cleared without asking it anything.
-fn retake_terminal() -> Result<DefaultTerminal> {
+fn retake_terminal(mouse: bool) -> Result<DefaultTerminal> {
     let terminal = ratatui::init();
     crossterm::execute!(
         std::io::stdout(),
         crossterm::terminal::Clear(crossterm::terminal::ClearType::All)
     )?;
     drop_pending_input()?;
+    if mouse {
+        capture_mouse(true)?;
+    }
     Ok(terminal)
+}
+
+/// Hand the terminal back, to an editor or to the shell. `ratatui::restore` does not know
+/// the mouse was being reported, and a shell left with it on prints every click as text.
+pub fn release_terminal(mouse: bool) {
+    if mouse {
+        let _ = capture_mouse(false);
+    }
+    ratatui::restore();
+}
+
+pub fn capture_mouse(on: bool) -> std::io::Result<()> {
+    use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
+    if on {
+        crossterm::execute!(std::io::stdout(), EnableMouseCapture)
+    } else {
+        crossterm::execute!(std::io::stdout(), DisableMouseCapture)
+    }
 }
 
 /// Throw away what is waiting on stdin.

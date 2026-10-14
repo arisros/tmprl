@@ -51,6 +51,8 @@ pub enum Action {
     MoveBottom,
     HalfPageDown,
     HalfPageUp,
+    PageDown,
+    PageUp,
 
     // Modes
     EnterInsert,
@@ -180,6 +182,8 @@ impl Registry {
             "motion.bottom",      "Motion",      "Go to last item"           => MoveBottom;
             "motion.half-down",   "Motion",      "Half page down"            => HalfPageDown;
             "motion.half-up",     "Motion",      "Half page up"              => HalfPageUp;
+            "motion.page-down",   "Motion",      "Page down"                 => PageDown;
+            "motion.page-up",     "Motion",      "Page up"                   => PageUp;
 
             "mode.insert",        "Mode",        "Enter Insert mode"         => EnterInsert;
             "mode.normal",        "Mode",        "Leave Insert mode"         => LeaveInsert;

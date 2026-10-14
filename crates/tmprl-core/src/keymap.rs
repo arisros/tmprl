@@ -213,6 +213,10 @@ pub fn default_keymap() -> Keymap {
         bind(mode, "G", "motion.bottom");
         bind(mode, "<C-d>", "motion.half-down");
         bind(mode, "<C-u>", "motion.half-up");
+        bind(mode, "<C-f>", "motion.page-down");
+        bind(mode, "<C-b>", "motion.page-up");
+        bind(mode, "<PageDown>", "motion.page-down");
+        bind(mode, "<PageUp>", "motion.page-up");
         bind(mode, "y", "yank.field");
         bind(mode, "Y", "yank.record");
         bind(mode, "<Esc>", "app.cancel");

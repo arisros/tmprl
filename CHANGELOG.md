@@ -2,11 +2,24 @@
 
 ## Unreleased
 
+- **The payload pane takes the focus**, `<C-w>j` from a history (`<C-w>l` when the pane is
+  beside the list). While it has it, `j` `k`, counts, `<C-d>` `<C-u>`, `gg` and `G` scroll
+  the payload instead of moving the row, so a long stack trace is a few keys and not one
+  line per press. `<C-w>k` (`<C-w>h`) or `<Esc>` goes back to the list. `<C-e>` / `<C-y>`
+  still scroll it from the list.
+- **A full page**, `<C-f>` and `<C-b>`, also on `<PageDown>` and `<PageUp>`: moves a list,
+  the help and messages overlays, or the focused payload pane by what it shows.
+  `<C-d>` / `<C-u>` stay the half page.
+- **The mouse, when asked for**: `[input] mouse = true` in `config.toml`. The wheel
+  scrolls the list, the payload pane or an overlay, whichever it is over, and a click
+  focuses a window or the payload pane. It is off by default, because with it on the
+  terminal needs Shift (Option in iTerm2, Fn in Terminal.app) held to select text with a
+  drag.
 - **API key per profile in `config.toml`**: `api_key` as written, or `api_key_cmd`, which
   runs a program such as `pass show temporal/prod` and uses the first line it prints, so the
-  key never has to sit in a plain text file. Either one wins over `temporal.toml`. `env = false` keeps the `TEMPORAL_*` variables
-  from overriding that profile, so a shell set up for a local server cannot redirect
-  `tmprl -p prod` to it.
+  key never has to sit in a plain text file. Either one wins over `temporal.toml`.
+  `env = false` keeps the `TEMPORAL_*` variables from overriding that profile, so a shell
+  set up for a local server cannot redirect `tmprl -p prod` to it.
 - **Fix**: a profile chosen with `TEMPORAL_PROFILE` instead of `-p` now gets its own
   `config.toml` settings, `readonly` included, rather than those of `default`.
 
