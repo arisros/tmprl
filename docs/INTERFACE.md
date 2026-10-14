@@ -238,7 +238,7 @@ its room:
 |---|---|
 | failures in the last day | "Recent failures", and "Failing types" once two or more types are failing |
 | no failures, but running workflows | "Running", in the room the failures would have had |
-| running workflows | "Task queues" |
+| running workflows | "Retrying", a row of its own under the failures: workflows with an activity on its 3rd try or later, among the 10 running longest. "Task queues" |
 | paused schedules | "Paused schedules" |
 | schedules with a next run | "Upcoming schedules", soonest first |
 | schedules that are neither | "Schedules" |

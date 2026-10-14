@@ -64,7 +64,7 @@ project testable:
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
 | `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 84 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 443 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 446 |
 | `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 456 |
 | `tmprl-ui` | built | Plain unit tests over the layout tree | 47 |
 

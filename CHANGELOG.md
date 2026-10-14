@@ -6,6 +6,10 @@
   being retried counts as a failure, though Temporal writes no event for it until the retries
   run out. A failed workflow task, such as a non-determinism error, is found too while
   workflow tasks are folded away; the jump shows them.
+- **A "Retrying" panel on the default dashboard** once the namespace has running workflows:
+  the workflows with an activity on its 3rd try or later, which every status still calls
+  Running. It looks into the 10 running longest, so a busy namespace costs ten describes a
+  refresh.
 
 ## 0.3.0 — 2026-10-14
 

@@ -201,7 +201,7 @@ flowchart LR
 | Crate | Tests | |
 |---|---|---|
 | `tmprl-client` | 84 | all network IO |
-| `tmprl-core` | 443 | no terminal, no server |
+| `tmprl-core` | 446 | no terminal, no server |
 | `tmprl-tui` | 456 | ratatui |
 | `tmprl-ui` | 47 | window tree |
 
@@ -218,7 +218,7 @@ TMPRL_REQUIRE_SERVER=1 cargo test  # what CI runs
 - [x] histories, follow mode, retries in progress, the timeline, `jq`, codec server
 - [x] search that reaches the server, pickers, jumplist, splits and tabs
 - [x] mutations, schedules, batch over a selection of rows
-- [x] a dashboard: counts, recent failures, failing types, task queues in use, schedules
+- [x] a dashboard: counts, recent failures, failing types, activities retrying, task queues in use, schedules
 
 | Next | |
 |---|---|
