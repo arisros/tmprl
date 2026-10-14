@@ -10,6 +10,9 @@
   dragged. `[layout] payload_size` sets where it starts, 20 to 80 percent, 50 by default.
 - **Clicking a row selects it**, in every list, and a second click on the same row opens
   it, as `Enter` does.
+- **Drag to copy in the payload pane**: with the mouse on, a drag below the pane's top rule
+  highlights the payload's text, and letting go copies it, the way `y` does. Only the
+  pane's text, never the list beside it, which a terminal's own selection cannot avoid.
 
 ## 0.3.0 — 2026-10-14
 

@@ -1,6 +1,7 @@
 //! The wheel and the click, for a terminal that was asked to report them.
 
 use super::*;
+use crate::view::TextSelection;
 
 /// How far one notch of the wheel goes. Three is what terminals and editors scroll by.
 const WHEEL: isize = 3;
@@ -33,6 +34,7 @@ impl App {
     pub(super) fn on_mouse(&mut self, mouse: Mouse) {
         if mouse == Mouse::Release {
             self.dragging = false;
+            self.copy_selection();
             return;
         }
         // Whatever owns the keyboard owns the screen too. Acting on a window behind a
@@ -50,6 +52,12 @@ impl App {
             Mouse::Drag { column, row } => {
                 if self.dragging {
                     self.drag_detail(column, row);
+                } else if let Some(selection) = &mut self.text_selection {
+                    let area = self.view.detail_text.borrow().area;
+                    selection.to = (
+                        column.clamp(area.x, area.right().saturating_sub(1)),
+                        row.clamp(area.y, area.bottom().saturating_sub(1)),
+                    );
                 }
                 return;
             }
@@ -81,9 +89,17 @@ impl App {
         match mouse {
             Mouse::Click { .. } => {
                 self.view.detail_focus = on_payload && self.view.detail_max_scroll > 0;
+                self.text_selection = None;
                 if on_payload {
-                    // The top rule is the pane's handle: held, it resizes the pane.
+                    // The top rule is the pane's handle: held, it resizes the pane. Below
+                    // it, a press starts selecting the text, the way a terminal would.
                     self.dragging = row == self.view.detail_area.y;
+                    if !self.dragging && holds(self.view.detail_text.borrow().area, column, row) {
+                        self.text_selection = Some(TextSelection {
+                            from: (column, row),
+                            to: (column, row),
+                        });
+                    }
                 } else {
                     self.click_row(column, row);
                 }
@@ -97,6 +113,21 @@ impl App {
             }
             Mouse::Wheel { down, .. } => self.move_cursor(if down { WHEEL } else { -WHEEL }),
             Mouse::Drag { .. } | Mouse::Release => {}
+        }
+    }
+
+    /// Copy what a drag over the payload pane covered. A press let go where it started is a
+    /// click, which copies nothing.
+    fn copy_selection(&mut self) {
+        let Some(selection) = self.text_selection.take() else {
+            return;
+        };
+        if selection.from == selection.to {
+            return;
+        }
+        let text = self.view.detail_text.borrow().text(&selection);
+        if !text.trim().is_empty() {
+            self.yank(text);
         }
     }
 

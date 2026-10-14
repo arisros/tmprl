@@ -116,6 +116,17 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         app.view.detail_max_scroll = max;
         app.view.detail_scroll = scroll;
     }
+    if let Some(selection) = app.text_selection() {
+        let area = app.view.detail_text.borrow().area;
+        let buf = frame.buffer_mut();
+        for (y, first, last) in selection.lines(area) {
+            for x in first..=last {
+                if let Some(cell) = buf.cell_mut((x, y)) {
+                    cell.modifier.insert(ratatui::style::Modifier::REVERSED);
+                }
+            }
+        }
+    }
     // Spent on this draw whether or not the pane was open: opening `K` later is not the
     // moment the search landed, and jumping then would move a pane you had not asked to.
     app.view.detail_seek = false;

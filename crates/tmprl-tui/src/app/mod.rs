@@ -500,6 +500,9 @@ pub struct App {
     payload_size: u16,
     /// A press on the payload pane's top rule, held: the moves that follow resize it.
     dragging: bool,
+    /// A press inside the payload pane, held: the moves that follow select its text, and
+    /// letting go copies it.
+    text_selection: Option<crate::view::TextSelection>,
     /// Where and when the last click landed, so a second one on the same row opens it.
     last_click: Option<(std::time::Instant, u16, u16)>,
     mouse: bool,
@@ -599,6 +602,7 @@ impl App {
             payload_pane: Default::default(),
             payload_size: tmprl_core::config::PAYLOAD_SIZE,
             dragging: false,
+            text_selection: None,
             last_click: None,
             mouse: false,
             yank_max: tmprl_core::config::DEFAULT_YANK_MAX,
@@ -1342,6 +1346,10 @@ impl App {
 
     pub fn payload_pane(&self) -> tmprl_core::config::PayloadPane {
         self.payload_pane
+    }
+
+    pub fn text_selection(&self) -> Option<crate::view::TextSelection> {
+        self.text_selection
     }
 
     pub fn payload_size(&self) -> u16 {

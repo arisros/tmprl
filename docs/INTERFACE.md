@@ -106,12 +106,14 @@ With it on, the wheel scrolls what it is over, three lines a notch: a list, the 
 pane, or the help and messages overlays. A click focuses the window it lands on and puts
 the cursor on the row under it, and a second click on that row opens it, as `<CR>` does. On
 a history a click moves the focus between the list and the payload pane, and the pane's top
-rule is its handle: press on it and drag to resize the pane. Every action still has its
-key.
+rule is its handle: press on it and drag to resize the pane. Below the rule, a drag selects
+the payload's text, only the pane's and never the list beside it, and letting go copies it
+the way `y` does. Every action still has its key.
 
 It is off by default because a terminal that reports the mouse to a program stops
 selecting text on a plain drag. With it on, hold Shift while dragging (Option in iTerm2,
-Fn in Terminal.app) to select as before.
+Fn in Terminal.app) to select as before; that selection is the terminal's, across the whole
+screen. Inside tmux with `mouse on`, a drag reaches tmprl rather than tmux's copy mode.
 
 ## Keymap
 

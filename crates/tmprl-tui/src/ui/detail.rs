@@ -92,7 +92,23 @@ pub fn render(
     // than being drawn over the payload.
     let inner = super::list_scrollbar(frame, inner, scroll, lines.len(), t);
     frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, 0)), inner);
+    record_text(frame, inner, view);
     (max_scroll, scroll)
+}
+
+fn record_text(frame: &mut Frame, area: Rect, view: &View) {
+    let buf = frame.buffer_mut();
+    let cells = (area.y..area.bottom())
+        .map(|y| {
+            (area.x..area.right())
+                .map(|x| buf[(x, y)].symbol().to_string())
+                .collect()
+        })
+        .collect();
+    *view.detail_text.borrow_mut() = crate::view::DrawnText {
+        area: tmprl_ui::Rect::new(area.x, area.y, area.width, area.height),
+        cells,
+    };
 }
 
 /// The pane's top rule says how to move in it, which differs with where the focus is.
@@ -367,5 +383,6 @@ fn render_piped(
     let inner = block.inner(area);
     frame.render_widget(block, area);
     frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, 0)), inner);
+    record_text(frame, inner, view);
     max_scroll
 }

@@ -40,6 +40,60 @@ impl RowsDrawn {
     }
 }
 
+/// A stretch of the payload pane being dragged over, in screen cells, in the order the
+/// pointer went: `from` where the press was, `to` where it is now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TextSelection {
+    pub from: (u16, u16),
+    pub to: (u16, u16),
+}
+
+impl TextSelection {
+    /// Each line it covers as `(row, first column, last column)`, in reading order, the way
+    /// a terminal selects: the first line from the press on, whole lines between, the last
+    /// up to the pointer.
+    pub fn lines(&self, area: tmprl_ui::Rect) -> Vec<(u16, u16, u16)> {
+        let key = |(x, y): (u16, u16)| (y, x);
+        let (start, end) = if key(self.from) <= key(self.to) {
+            (self.from, self.to)
+        } else {
+            (self.to, self.from)
+        };
+        let last_column = area.right().saturating_sub(1);
+        (start.1..=end.1)
+            .map(|y| {
+                let first = if y == start.1 { start.0 } else { area.x };
+                let last = if y == end.1 { end.0 } else { last_column };
+                (y, first, last)
+            })
+            .collect()
+    }
+}
+
+/// What the payload pane put on screen at its last draw, cell by cell, so a drag over it
+/// copies exactly the text that was under the pointer.
+#[derive(Debug, Default)]
+pub struct DrawnText {
+    pub area: tmprl_ui::Rect,
+    pub cells: Vec<Vec<String>>,
+}
+
+impl DrawnText {
+    pub fn text(&self, selection: &TextSelection) -> String {
+        selection
+            .lines(self.area)
+            .into_iter()
+            .filter_map(|(y, first, last)| {
+                let row = self.cells.get(y.checked_sub(self.area.y)? as usize)?;
+                let from = first.saturating_sub(self.area.x) as usize;
+                let to = (last.saturating_sub(self.area.x) as usize + 1).min(row.len());
+                Some(row.get(from..to)?.concat().trim_end().to_string())
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
 pub struct View {
     pub screen: Screen,
     pub namespaces: Loadable<Vec<NamespaceInfo>>,
@@ -90,6 +144,8 @@ pub struct View {
     pub body_area: tmprl_ui::Rect,
     /// The rows the last draw put on screen, which is how a click finds the row under it.
     pub rows_drawn: Cell<Option<RowsDrawn>>,
+    /// The payload pane's text as last drawn, for a drag to copy from.
+    pub detail_text: RefCell<DrawnText>,
 
     /// The visibility query, verbatim. This string is the interface: everything that
     /// filters the list compiles into it, and it is always on screen and always editable.
@@ -170,6 +226,7 @@ impl View {
             detail_area: tmprl_ui::Rect::default(),
             body_area: tmprl_ui::Rect::default(),
             rows_drawn: Cell::new(None),
+            detail_text: RefCell::default(),
             query: String::new(),
             scope: vec![namespace.to_string()],
             cursor: 0,

@@ -628,3 +628,72 @@ fn dragging_the_panes_top_rule_resizes_it() {
         "released, the pointer is free again"
     );
 }
+
+#[test]
+fn a_selection_reads_like_a_terminals_whichever_way_it_was_dragged() {
+    use crate::view::{DrawnText, TextSelection};
+    let drawn = DrawnText {
+        area: tmprl_ui::Rect::new(10, 5, 6, 3),
+        cells: ["  {   ", "  \"a\":", "  1 } "]
+            .iter()
+            .map(|l| l.chars().map(String::from).collect())
+            .collect(),
+    };
+    let down = TextSelection {
+        from: (12, 5),
+        to: (13, 7),
+    };
+    let up = TextSelection {
+        from: down.to,
+        to: down.from,
+    };
+    assert_eq!(drawn.text(&down), "{\n  \"a\":\n  1");
+    assert_eq!(drawn.text(&up), drawn.text(&down));
+}
+
+#[test]
+fn dragging_over_the_payload_copies_what_it_covered() {
+    let mut app = app_on_a_tall_payload(None, 120);
+    let area = app.view.detail_text.borrow().area;
+
+    click(&mut app, area.x, area.y);
+    app.handle(Msg::Mouse(Mouse::Drag {
+        column: area.right() + 20,
+        row: area.y + 1,
+    }));
+    let selection = app.text_selection().expect("a press in the pane selects");
+    assert_eq!(
+        selection.to,
+        (area.right() - 1, area.y + 1),
+        "kept inside the pane"
+    );
+    let text = app.view.detail_text.borrow().text(&selection);
+    assert_eq!(text.lines().count(), 2, "{text}");
+    assert!(!text.contains('│'), "nothing of the list beside it: {text}");
+
+    let mut term = Terminal::new(TestBackend::new(120, 20)).unwrap();
+    term.draw(|f| render(f, &mut app)).unwrap();
+    let cell = &term.backend().buffer()[(area.x + 2, area.y)];
+    assert!(cell.modifier.contains(ratatui::style::Modifier::REVERSED));
+
+    app.handle(Msg::Mouse(Mouse::Release));
+    assert!(app.text_selection().is_none());
+    let note = app.note.clone().unwrap().0;
+    assert!(note.starts_with("yanked"), "{note}");
+}
+
+#[test]
+fn a_click_in_the_payload_copies_nothing() {
+    let mut app = app_on_a_tall_payload(None, 120);
+    let area = app.view.detail_text.borrow().area;
+    click(&mut app, area.x + 2, area.y + 1);
+    app.handle(Msg::Mouse(Mouse::Release));
+    assert!(app.text_selection().is_none());
+    assert!(
+        app.note
+            .as_ref()
+            .is_none_or(|(n, _)| !n.starts_with("yanked")),
+        "{:?}",
+        app.note
+    );
+}
