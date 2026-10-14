@@ -65,7 +65,7 @@ project testable:
 |---|---|---|---|
 | `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 86 |
 | `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 437 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 453 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 465 |
 | `tmprl-ui` | built | Plain unit tests over the layout tree | 47 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -194,6 +194,11 @@ that spends most of its life parked inside a single RPC, pushing batches of even
 messages. The reducer never waits on it; it only starts it, and aborts it when following stops
 or the screen is left. Aborting matters, a poll left running holds a request open and keeps
 feeding a view that has moved on.
+
+A profile switch replaces the connection under every task still out. Each task reports through
+an `Outbox` that stamps its reply with the connection's epoch, and the reducer drops a reply
+from an older one. A mutation's reply is the exception: it still happened on the old cluster,
+so it is audited against the profile and address it was sent to.
 
 The corollary is that **every piece of remote data is explicitly four-state**:
 
@@ -761,4 +766,5 @@ Collected because each one cost real time to discover.
 | **`GROUP BY` returns payloads** | An `AggregationGroup`'s `group_values` are `Payload`s, not strings: `json/plain`, type `Keyword`, data `"Running"` *with* the quotes. |
 | **A count groups by status only** | `GROUP BY WorkflowType` is refused. Counting by type or task queue is one `CountWorkflowExecutions` per name, which is why the dashboard caps how many it asks for. |
 | **Grouped counts are approximate** | Temporal documents this. Sum the groups and you understate the total, so read `response.count` for the total instead. |
+| **`TEMPORAL_ADDRESS` overrides every profile** | Temporal's loader layers `TEMPORAL_ADDRESS` and `TEMPORAL_NAMESPACE` over whichever profile is loaded, so with one exported, switching profile reaches the same cluster under another name. The switch says so in its note; `env = false` in that profile's `[profile.<name>]` turns the layering off. |
 | **Debug info does not fit** | 228 crates, and `temporalio-protos` dominates. `[profile.dev] debug = false`; use `--profile dbg` when you actually need a debugger. |

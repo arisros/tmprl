@@ -14,6 +14,7 @@ mod messages;
 mod mutate;
 mod nav;
 mod payload;
+mod profile;
 mod startup;
 mod windows;
 mod yank;

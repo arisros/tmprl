@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **Switch connection profile without restarting**: `<Space>P` picks a profile from
+  `temporal.toml`, and `-` on the namespace list now shows the profiles. The old connection
+  stays until the new one answers, so a profile that cannot be reached leaves you where you
+  were. A switch opens the new profile on its namespace list with one pane, and takes its
+  `readonly`, `accent`, codec and API key from `config.toml`.
+- **The cluster address in the header**, beside the profile name, when the terminal is wide
+  enough to keep the namespace readable.
+
 ## 0.3.0 — 2026-10-14
 
 - **The payload pane takes the focus**, `<C-w>j` from a history (`<C-w>l` when the pane is

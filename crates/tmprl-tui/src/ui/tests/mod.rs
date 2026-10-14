@@ -14,6 +14,7 @@ mod dashboard;
 mod detail;
 mod history;
 mod messages;
+mod profiles;
 mod schedules;
 mod theme;
 mod timeline;

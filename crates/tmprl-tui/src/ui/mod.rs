@@ -13,6 +13,7 @@ mod history;
 mod messages;
 mod namespaces;
 mod picker;
+mod profiles;
 mod query;
 mod schedules;
 mod statusline;
@@ -174,7 +175,11 @@ fn pane_body(
     // on screen so the query is never something you have to go and open.
     let query_height = match screen {
         Screen::Workflows => 1,
-        Screen::Namespaces | Screen::History | Screen::Schedules | Screen::Dashboard => 0,
+        Screen::Profiles
+        | Screen::Namespaces
+        | Screen::History
+        | Screen::Schedules
+        | Screen::Dashboard => 0,
     };
     let [query, rest] =
         Layout::vertical([Constraint::Length(query_height), Constraint::Min(1)]).areas(area);
@@ -229,6 +234,7 @@ fn render_pane(
 
     let areas = pane_body(area, view.screen, view.show_detail, app.payload_pane());
     match view.screen {
+        Screen::Profiles => profiles::render(frame, areas.list, view, app, theme),
         Screen::Namespaces => namespaces::render(frame, areas.list, view, app, theme),
         Screen::Workflows => {
             query::render(frame, areas.query, view, app, theme, focused);

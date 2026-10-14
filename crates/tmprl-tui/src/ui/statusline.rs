@@ -15,6 +15,7 @@ pub fn render_header(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
     // the left side has to fit in. Rendering the left side at full length and the summary
     // on top of it is how the two collide on a narrow terminal or a long workflow id.
     let right = match app.view.screen {
+        Screen::Profiles => profile_summary(app, t),
         Screen::Namespaces => namespace_summary(app, t),
         Screen::Workflows => workflow_summary(app, t),
         Screen::History => history_summary(app, t),
@@ -27,11 +28,17 @@ pub fn render_header(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
     // signal, but it has to survive a 16-colour terminal and a colour-blind reader.
     let ro = if app.readonly() { " [ro]" } else { "" };
 
-    // Everything on the left except the scope: " tmprl profile=<name>[ro]  ns=".
+    // Everything on the left except the scope: " tmprl profile=<name>[ro] (<address>)  ns=".
     let fixed = " tmprl profile=  ns=".len() + app.profile().chars().count() + ro.chars().count();
-    let budget = (area.width as usize)
-        .saturating_sub(right_width + fixed + 3)
-        .max(8);
+    // The address goes before the scope does: the profile name already says which cluster.
+    let address = format!(" ({})", short_address(app.address()));
+    let room = (area.width as usize).saturating_sub(right_width + fixed + 3);
+    let address = if room >= address.chars().count() + MIN_SCOPE {
+        address
+    } else {
+        String::new()
+    };
+    let budget = room.saturating_sub(address.chars().count()).max(8);
     // The scope is the part that varies without bound, so it is the part that gives way.
     let scope = super::truncate(&scope_label(app), budget);
 
@@ -40,6 +47,7 @@ pub fn render_header(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
         Span::styled("profile=", t.faint),
         Span::styled(app.profile().to_string(), profile_style(app, t)),
         Span::styled(ro, profile_style(app, t)),
+        Span::styled(address, t.faint),
         Span::styled("  ns=", t.faint),
         Span::styled(scope, t.fg),
     ]);
@@ -54,6 +62,16 @@ pub fn render_header(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
         };
         frame.render_widget(Paragraph::new(Line::from(right)), r);
     }
+}
+
+/// The scope is cut to this before the address is dropped to make room for it.
+const MIN_SCOPE: usize = 16;
+
+/// `https://prod.example:7233/` as `prod.example:7233`: the scheme and the slash are noise
+/// next to a profile name.
+fn short_address(url: &str) -> &str {
+    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
+    rest.strip_suffix('/').unwrap_or(rest)
 }
 
 /// How the profile name is painted. An accent makes it bold as well as coloured, so the
@@ -76,6 +94,15 @@ fn scope_label(app: &App) -> String {
         0 | 1 => app.namespace().to_string(),
         n => format!("{} +{}", app.view.scope[0], n - 1),
     }
+}
+
+fn profile_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
+    let text = if app.view.profiles.is_loading() {
+        "loading…".to_string()
+    } else {
+        format!("{} profiles", app.profile_rows().len())
+    };
+    vec![Span::styled(text, t.dim)]
 }
 
 fn namespace_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {

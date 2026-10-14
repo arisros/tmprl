@@ -12,7 +12,7 @@
 
 use std::cell::RefCell;
 
-use tmprl_client::NamespaceInfo;
+use tmprl_client::{NamespaceInfo, ProfileSummary};
 use tmprl_core::dashboard::{Board, Item, Pacer};
 use tmprl_core::history::NormalizedEvent;
 use tmprl_core::outline::{Outline, Row};
@@ -26,6 +26,7 @@ use crate::ui::category_label;
 
 pub struct View {
     pub screen: Screen,
+    pub profiles: Loadable<Vec<ProfileSummary>>,
     pub namespaces: Loadable<Vec<NamespaceInfo>>,
     pub workflows: Loadable<WorkflowList>,
     pub counts: Loadable<StatusCounts>,
@@ -126,6 +127,7 @@ impl View {
     pub fn new(namespace: &str) -> Self {
         Self {
             screen: Screen::Namespaces,
+            profiles: Loadable::NotAsked,
             namespaces: Loadable::NotAsked,
             workflows: Loadable::NotAsked,
             counts: Loadable::NotAsked,
@@ -222,6 +224,10 @@ impl Drop for View {
 }
 
 impl View {
+    pub fn profile_rows(&self) -> &[ProfileSummary] {
+        self.profiles.value().map(Vec::as_slice).unwrap_or(&[])
+    }
+
     pub fn namespace_rows(&self) -> &[NamespaceInfo] {
         self.namespaces.value().map(Vec::as_slice).unwrap_or(&[])
     }
@@ -269,6 +275,18 @@ impl View {
     /// carrying a flattened input would push the name off the line.
     pub fn row_labels(&self) -> Vec<String> {
         match self.screen {
+            Screen::Profiles => self
+                .profile_rows()
+                .iter()
+                .map(|p| {
+                    format!(
+                        "{} {} {}",
+                        p.name,
+                        p.address.as_deref().unwrap_or_default(),
+                        p.namespace.as_deref().unwrap_or_default()
+                    )
+                })
+                .collect(),
             Screen::Namespaces => self
                 .namespace_rows()
                 .iter()
@@ -391,6 +409,7 @@ impl View {
     /// How many rows this pane's screen has.
     pub fn row_count(&self) -> usize {
         match self.screen {
+            Screen::Profiles => self.profile_rows().len(),
             Screen::Namespaces => self.namespace_rows().len(),
             Screen::Workflows => self.workflow_rows().len(),
             Screen::History => self.history.value().map(Outline::len).unwrap_or(0),

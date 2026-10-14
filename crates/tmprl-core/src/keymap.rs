@@ -344,6 +344,7 @@ pub fn default_keymap() -> Keymap {
     // `<leader>N` sits outside the `f` family on purpose: switching namespace is changing
     // *where you are*, not finding something inside where you already are.
     bind(Mode::Normal, "<leader>N", "find.namespace");
+    bind(Mode::Normal, "<leader>P", "find.profile");
     bind(Mode::Normal, "<leader>xx", "list.problems");
     bind(Mode::Normal, "<leader>xm", "app.messages");
     bind(Mode::Normal, "<leader>e", "payload.edit");
