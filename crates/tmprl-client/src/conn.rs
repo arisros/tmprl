@@ -498,6 +498,33 @@ address = "localhost:7233"
     }
 
     #[test]
+    fn a_config_that_does_not_parse_is_an_error_not_an_empty_list() {
+        let err = profiles_from(Some(DataSource::Data(b"[profile.dev\n".to_vec())))
+            .unwrap_err()
+            .to_string();
+        assert!(err.starts_with("could not load Temporal profile"), "{err}");
+    }
+
+    #[test]
+    fn a_listed_profile_never_carries_tls_or_grpc_meta() {
+        let toml = br#"
+[profile.cloud]
+address = "ns.a1b2c.tmprl.cloud:7233"
+namespace = "ns.a1b2c"
+api_key = "secret"
+[profile.cloud.tls]
+client_cert_path = "/keys/client.pem"
+[profile.cloud.grpc_meta]
+authorization = "Bearer secret"
+"#;
+        let profiles = profiles_from(Some(DataSource::Data(toml.to_vec()))).unwrap();
+        let shown = format!("{profiles:?}");
+        assert!(!shown.contains("secret"), "{shown}");
+        assert!(!shown.contains("client.pem"), "{shown}");
+        assert_eq!(profiles[0].namespace.as_deref(), Some("ns.a1b2c"));
+    }
+
+    #[test]
     fn an_empty_config_lists_no_profiles() {
         assert_eq!(
             profiles_from(Some(DataSource::Data(Vec::new()))).unwrap(),

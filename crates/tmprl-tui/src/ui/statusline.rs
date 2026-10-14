@@ -69,7 +69,7 @@ const MIN_SCOPE: usize = 16;
 
 /// `https://prod.example:7233/` as `prod.example:7233`: the scheme and the slash are noise
 /// next to a profile name.
-fn short_address(url: &str) -> &str {
+pub(super) fn short_address(url: &str) -> &str {
     let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
     rest.strip_suffix('/').unwrap_or(rest)
 }

@@ -411,6 +411,22 @@ mod tests {
     }
 
     #[test]
+    fn leader_capital_p_switches_profile_beside_leader_capital_n() {
+        let m = map();
+        for (key, id) in [('P', "find.profile"), ('N', "find.namespace")] {
+            let mut p = Pending::default();
+            assert!(matches!(
+                m.resolve(Mode::Normal, &mut p, m.leader()),
+                Resolution::Pending { .. }
+            ));
+            assert_eq!(
+                m.resolve(Mode::Normal, &mut p, Chord::ch(key)),
+                Resolution::Run { id, count: None }
+            );
+        }
+    }
+
+    #[test]
     fn resolves_a_single_key() {
         let (m, mut p) = (map(), Pending::default());
         assert_eq!(

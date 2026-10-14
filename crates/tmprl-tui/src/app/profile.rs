@@ -22,6 +22,15 @@ pub(super) struct Switch {
 
 const OVERRIDING_VARS: [&str; 2] = ["TEMPORAL_ADDRESS", "TEMPORAL_NAMESPACE"];
 
+/// The first variable set that the loader would layer over a profile that takes the
+/// environment.
+pub(super) fn env_override(env: bool, is_set: impl Fn(&str) -> bool) -> Option<&'static str> {
+    if !env {
+        return None;
+    }
+    OVERRIDING_VARS.into_iter().find(|v| is_set(v))
+}
+
 impl App {
     pub(super) fn epoch(&self) -> u64 {
         self.tx.epoch
@@ -194,14 +203,9 @@ impl App {
             .as_ref()
             .map(|c| c.resolve(name))
             .unwrap_or_default();
-        let env_override = resolved
-            .env
-            .then(|| {
-                OVERRIDING_VARS
-                    .into_iter()
-                    .find(|v| std::env::var_os(v).is_some_and(|x| !x.is_empty()))
-            })
-            .flatten();
+        let env_override = env_override(resolved.env, |v| {
+            std::env::var_os(v).is_some_and(|x| !x.is_empty())
+        });
         self.switch_seq += 1;
         let seq = self.switch_seq;
         self.switching = Some(Switch {
