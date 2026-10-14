@@ -15,6 +15,13 @@
   focuses a window or the payload pane. It is off by default, because with it on the
   terminal needs Shift (Option in iTerm2, Fn in Terminal.app) held to select text with a
   drag.
+- **API key per profile in `config.toml`**: `api_key` as written, or `api_key_cmd`, which
+  runs a program such as `pass show temporal/prod` and uses the first line it prints, so the
+  key never has to sit in a plain text file. Either one wins over `temporal.toml`.
+  `env = false` keeps the `TEMPORAL_*` variables from overriding that profile, so a shell
+  set up for a local server cannot redirect `tmprl -p prod` to it.
+- **Fix**: a profile chosen with `TEMPORAL_PROFILE` instead of `-p` now gets its own
+  `config.toml` settings, `readonly` included, rather than those of `default`.
 
 ## 0.2.1 — 2026-10-06
 

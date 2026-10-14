@@ -140,11 +140,14 @@ max_bytes = 1048576       # default 65536; a longer yank is written to a file, n
 mouse = true              # the wheel scrolls, a click focuses; off by default
 
 [profile.sit]
-accent = "green"
+accent  = "green"
+api_key = "…"             # over temporal.toml; or api_key_cmd below, not both
 
 [profile.prod]
-accent   = "red"          # colours the profile name, bold too
-readonly = true           # refuses every mutation, shown as prod [ro]; --readonly does it for one run
+accent      = "red"       # colours the profile name, bold too
+readonly    = true        # refuses every mutation, shown as prod [ro]; --readonly does it for one run
+api_key_cmd = "pass show temporal/prod"   # the API key, kept out of temporal.toml
+env         = false       # TEMPORAL_ADDRESS and friends do not override this profile
 
 [profile.prod.codec]
 endpoint = "https://codec.internal"
@@ -197,8 +200,8 @@ flowchart LR
 
 | Crate | Tests | |
 |---|---|---|
-| `tmprl-client` | 81 | all network IO |
-| `tmprl-core` | 433 | no terminal, no server |
+| `tmprl-client` | 84 | all network IO |
+| `tmprl-core` | 437 | no terminal, no server |
 | `tmprl-tui` | 453 | ratatui |
 | `tmprl-ui` | 47 | window tree |
 

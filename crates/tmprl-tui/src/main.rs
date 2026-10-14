@@ -16,7 +16,7 @@ use tokio::sync::mpsc::unbounded_channel;
 
 #[tokio::main]
 async fn main() -> std::process::ExitCode {
-    let (profile, startup) = match cli::parse(std::env::args().skip(1)) {
+    let (mut profile, startup) = match cli::parse(std::env::args().skip(1)) {
         Ok(Cli::Run { profile, startup }) => (profile, startup),
         Ok(Cli::Help) => {
             print!("{}", cli::USAGE);
@@ -35,6 +35,24 @@ async fn main() -> std::process::ExitCode {
             return std::process::ExitCode::from(2);
         }
     };
+
+    // Named here rather than left to the loader, so `config.toml` is looked up under the
+    // profile that is actually connected: `readonly` must hold for `TEMPORAL_PROFILE=prod`.
+    if profile.name.is_none() {
+        profile.name = std::env::var("TEMPORAL_PROFILE")
+            .ok()
+            .filter(|p| !p.is_empty());
+    }
+    // A bad config.toml is reported once the app is up; here it only means no API key from it.
+    if let Some(cfg) = config::read("config.toml")
+        .ok()
+        .flatten()
+        .and_then(|src| tmprl_core::config::parse_config(&src).ok())
+    {
+        let resolved = cfg.resolve(profile.name.as_deref().unwrap_or("default"));
+        profile.api_key = resolved.api_key;
+        profile.ignore_env = !resolved.env;
+    }
 
     // Connect *before* touching the terminal, so a connection error is an ordinary message
     // on stderr rather than a flash of alternate screen followed by a stack trace.

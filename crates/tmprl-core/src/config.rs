@@ -155,6 +155,15 @@ pub struct CodecConfig {
     pub auth: Option<String>,
 }
 
+/// Where a profile's API key comes from, over `temporal.toml` and `TEMPORAL_API_KEY`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ApiKey {
+    /// `api_key`, used as written.
+    Literal(String),
+    /// `api_key_cmd`, run without a shell; the first line it prints is the key.
+    Command(String),
+}
+
 /// A colour name for a profile's accent.
 ///
 /// Named rather than a hex triple: this has to read on a 16-colour terminal, and the point
@@ -186,7 +195,7 @@ impl Accent {
 }
 
 /// Per-profile settings, keyed by the profile name in `temporal.toml`.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProfileConfig {
     /// Colour for the profile name in the statusline.
     pub accent: Option<Accent>,
@@ -194,14 +203,43 @@ pub struct ProfileConfig {
     pub readonly: bool,
     /// Overrides the top-level codec for this profile.
     pub codec: Option<CodecConfig>,
+    pub api_key: Option<ApiKey>,
+    /// Whether `TEMPORAL_*` variables override this profile, as they do in the `temporal` CLI.
+    pub env: bool,
+}
+
+impl Default for ProfileConfig {
+    fn default() -> Self {
+        Self {
+            accent: None,
+            readonly: false,
+            codec: None,
+            api_key: None,
+            env: true,
+        }
+    }
 }
 
 /// What applies to the profile actually connected, after falling back to the globals.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Resolved {
     pub accent: Option<Accent>,
     pub readonly: bool,
     pub codec: Option<CodecConfig>,
+    pub api_key: Option<ApiKey>,
+    pub env: bool,
+}
+
+impl Default for Resolved {
+    fn default() -> Self {
+        Self {
+            accent: None,
+            readonly: false,
+            codec: None,
+            api_key: None,
+            env: true,
+        }
+    }
 }
 
 /// Where the payload pane (`K`) opens, relative to the history list.
@@ -300,9 +338,8 @@ impl Config {
         let found = self.profiles.iter().find(|(name, _)| name == profile);
         match found {
             None => Resolved {
-                accent: None,
-                readonly: false,
                 codec: self.codec.clone(),
+                ..Resolved::default()
             },
             Some((_, p)) => Resolved {
                 accent: p.accent,
@@ -311,6 +348,8 @@ impl Config {
                 // the codec you set up for SIT is exactly the mistake worth preventing, but
                 // a single-cluster config must keep working unchanged.
                 codec: p.codec.clone().or_else(|| self.codec.clone()),
+                api_key: p.api_key.clone(),
+                env: p.env,
             },
         }
     }
@@ -335,8 +374,11 @@ impl Config {
 /// auth     = "Bearer …"          # optional
 ///
 /// [profile.prod]                 # keyed by the profile in temporal.toml
-/// accent   = "red"
-/// readonly = true
+/// accent      = "red"
+/// readonly    = true
+/// api_key_cmd = "pass show temporal/prod"   # first line of its output is the API key,
+///                                           # or api_key = "…" as written, not both
+/// env         = false                       # TEMPORAL_* variables do not override it
 ///
 /// [profile.prod.codec]           # overrides the codec above, for this profile only
 /// endpoint = "https://codec.internal"
@@ -566,10 +608,49 @@ fn parse_profile(raw: &toml::Value, name: &str) -> Result<ProfileConfig, ConfigE
         Some(raw) => Some(parse_codec(raw, &format!("profile.{name}.codec"))?),
     };
 
+    let text = |key: &str, expected: &'static str| match table.get(key) {
+        None => Ok(None),
+        Some(v) => v
+            .as_str()
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| Some(s.to_string()))
+            .ok_or_else(|| ConfigError::Type {
+                file: FILE,
+                path: format!("profile.{name}.{key}"),
+                expected,
+            }),
+    };
+    let api_key = match (
+        text("api_key", "a non-empty key")?,
+        text("api_key_cmd", "a non-empty command")?,
+    ) {
+        (Some(_), Some(_)) => {
+            return Err(ConfigError::Type {
+                file: FILE,
+                path: format!("profile.{name}.api_key"),
+                expected: "absent when api_key_cmd is set",
+            });
+        }
+        (Some(key), None) => Some(ApiKey::Literal(key)),
+        (None, Some(cmd)) => Some(ApiKey::Command(cmd)),
+        (None, None) => None,
+    };
+
+    let env = match table.get("env") {
+        None => true,
+        Some(v) => v.as_bool().ok_or_else(|| ConfigError::Type {
+            file: FILE,
+            path: format!("profile.{name}.env"),
+            expected: "true or false",
+        })?,
+    };
+
     Ok(ProfileConfig {
         accent,
         readonly,
         codec,
+        api_key,
+        env,
     })
 }
 
@@ -1014,6 +1095,59 @@ endpoint = "https://codec.internal"
         assert_eq!(
             cfg.resolve("sit").codec.unwrap().endpoint,
             "http://localhost:8081"
+        );
+    }
+
+    #[test]
+    fn a_profile_carries_its_key_command_and_ignores_the_environment() {
+        let cfg = parse_config(
+            r#"
+[profile.prod]
+api_key_cmd = "pass show temporal/prod"
+env         = false
+"#,
+        )
+        .unwrap();
+        let r = cfg.resolve("prod");
+        assert_eq!(
+            r.api_key,
+            Some(ApiKey::Command("pass show temporal/prod".into()))
+        );
+        assert!(!r.env);
+        let other = cfg.resolve("sit");
+        assert_eq!(other.api_key, None);
+        assert!(
+            other.env,
+            "the environment applies unless a profile says otherwise"
+        );
+    }
+
+    #[test]
+    fn a_profile_can_carry_its_key_as_written() {
+        let cfg = parse_config("[profile.sit]\napi_key = \"secret\"").unwrap();
+        assert_eq!(
+            cfg.resolve("sit").api_key,
+            Some(ApiKey::Literal("secret".into()))
+        );
+    }
+
+    #[test]
+    fn a_key_and_a_key_command_together_are_refused() {
+        let err =
+            parse_config("[profile.sit]\napi_key = \"secret\"\napi_key_cmd = \"pass show x\"")
+                .unwrap_err();
+        assert!(
+            matches!(err, ConfigError::Type { ref path, .. } if path == "profile.sit.api_key"),
+            "got {err}"
+        );
+    }
+
+    #[test]
+    fn an_empty_key_command_is_refused() {
+        let err = parse_config("[profile.prod]\napi_key_cmd = \"  \"").unwrap_err();
+        assert!(
+            matches!(err, ConfigError::Type { ref path, .. } if path == "profile.prod.api_key_cmd"),
+            "got {err}"
         );
     }
 

@@ -726,7 +726,7 @@ cannot say, it exits non-zero and the last line of its stderr is shown.
 
 | File | Holds |
 |---|---|
-| `~/.config/tmprl/config.toml` | codec server endpoint, payload pane position, display timezone, yank limit and the dashboard's refresh interval, **live**; other refresh intervals and defaults *planned* |
+| `~/.config/tmprl/config.toml` | codec server endpoint, payload pane position, display timezone, yank limit, the dashboard's refresh interval and per-profile accent, `readonly`, `api_key`, `api_key_cmd` and `env`, **live**; other refresh intervals and defaults *planned* |
 | `~/.config/tmprl/dashboard.toml` | the dashboard's panels and their arrangement, **live** |
 | `~/.config/tmprl/keys.toml` | key chord → command id, **live** |
 | `~/.config/tmprl/theme.toml` | palette slot → colour, **live** |
@@ -755,6 +755,23 @@ UTC and misdating every row by hours.
 Encrypted payloads are decoded lazily, only what the pane is showing, never a whole history,
 and cached, so scrolling back over a row costs nothing. Without an endpoint the badge says
 where to set one.
+
+A profile on Temporal Cloud needs an API key. In `temporal.toml` or `TEMPORAL_API_KEY` it
+works as it does for the `temporal` CLI. tmprl's `config.toml` can also give one, over both:
+`api_key` as written, or `api_key_cmd`, a program run without a shell when tmprl connects
+whose first printed line is the key, which keeps it out of every plain text file. A profile
+sets one or the other. `env = false` stops
+the `TEMPORAL_*` variables from overriding the profile, so a shell that exports
+`TEMPORAL_ADDRESS` for a local server does not redirect `tmprl -p prod` to it:
+
+```toml
+[profile.sit]
+api_key     = "…"                         # as written
+
+[profile.prod]
+api_key_cmd = "pass show temporal/prod"   # a failure names the program, never its output
+env         = false                       # default true, as in the temporal CLI
+```
 
 `K` opens the payload pane under the list. To have it beside the list instead:
 
