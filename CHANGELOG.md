@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-10-15
 
 - **Switch connection profile without restarting**: `<Space>P` picks a profile from
   `temporal.toml`, and `-` on the namespace list now shows the profiles. The old connection
