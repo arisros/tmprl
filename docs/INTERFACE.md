@@ -1,7 +1,7 @@
 # Interface design
 
 > **Status: partly implemented.** The modal core, the namespace and workflow lists, the
-> workflow history outline, follow mode, payload rendering and piping, the visibility query
+> workflow history outline, profile switching, follow mode, payload rendering and piping, the visibility query
 > bar, saved views, search, the pickers, the jumplist, counts, which-key, the `:` command
 > line, the help overlay and yank all work today. Bindings for features that do not exist
 > yet (marks, macros, `.`, and the quickfix list) are **specified here but deliberately
@@ -125,13 +125,21 @@ Leader is `Space`. A which-key-style popup appears as soon as a prefix is incomp
 | `h` `l` `<Left>` `<Right>` | move sideways on the dashboard, between panels and along a strip of statuses or a chart; nothing on a list | **live** |
 | `Enter` | open the focused item, namespace → workflows → history | **live** |
 | `Enter` (in Visual) | open every selected namespace as one merged list | **live** |
-| `-` | **go up a level**, run → workflow → namespace → cluster | **live** |
+| `-` | **go up a level**, run → workflow → namespace → profile | **live** |
 | `<leader>-` | floating object browser | planned |
 | `<C-o>` / `<C-i>` (or `<Tab>`) | jumplist back / forward | **live** |
 | `<leader>N` | switch namespace | **live** |
 | `gd` | the dashboard, over this pane's namespaces | **live** |
 | `]p` / `[p` | next / previous dashboard panel | **live** |
-| `<leader>P` | switch connection profile | planned |
+| `<leader>P` | switch connection profile | **live** |
+
+A profile is the level above the namespaces. `-` on the namespace list shows every profile in
+`temporal.toml`, with its address and namespace, and `<CR>` connects to the one under the
+cursor; `<leader>P` is the same list as a picker. A switch is the whole session: the old
+connection is kept until the new one answers, then every pane, tab and jump is dropped and the
+new profile opens on its namespace list. `readonly`, `accent` and the codec are taken from the
+new profile's `[profile.<name>]`, and `--readonly` keeps holding. `--address` and `-n` apply
+only to the profile tmprl started on.
 
 Multi-namespace is a visual selection rather than a picker: `V j <CR>` on the namespace list
 opens those namespaces as one table, merge-sorted by start time, with each row tagged by the

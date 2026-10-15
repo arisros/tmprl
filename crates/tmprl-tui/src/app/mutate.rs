@@ -42,7 +42,7 @@ impl App {
         match self.view.screen {
             Screen::Workflows => self.view.workflow_rows().get(self.view.cursor).cloned(),
             Screen::History => self.view.viewing.clone(),
-            Screen::Namespaces | Screen::Schedules | Screen::Dashboard => None,
+            Screen::Profiles | Screen::Namespaces | Screen::Schedules | Screen::Dashboard => None,
         }
     }
 
@@ -385,11 +385,13 @@ impl App {
             Note::Info,
         ));
         let tx = self.tx.clone();
+        let sent_to = (self.profile.clone(), self.address.clone());
         tokio::spawn(async move {
             for (i, mutation) in mutations.into_iter().enumerate() {
                 let result = conn.mutate(&mutation).await;
                 let _ = tx.send(Msg::Mutated {
                     mutation: Box::new(mutation),
+                    sent_to: sent_to.clone(),
                     result,
                     batch: (total > 1).then_some((i + 1, total)),
                 });
@@ -420,10 +422,15 @@ impl App {
     ///
     /// Appended, never rewritten, and failures go in too: the log is what was *attempted*,
     /// which is the question being asked when someone reads it.
-    pub(super) fn audit(&mut self, mutation: &Mutation, outcome: &str) {
+    pub(super) fn audit_to(
+        &mut self,
+        mutation: &Mutation,
+        outcome: &str,
+        sent_to: &(String, String),
+    ) {
         let target = tmprl_core::mutation::Target {
-            profile: &self.profile,
-            address: &self.address,
+            profile: &sent_to.0,
+            address: &sent_to.1,
         };
         let line = mutation.audit_line(now_ms(), target, outcome);
         match &mut self.audit_sink {

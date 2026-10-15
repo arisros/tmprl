@@ -195,6 +195,7 @@ fn a_failed_mutation_is_logged_as_a_failure() {
             workflow_id: "order-r1".into(),
             run_id: "r1".into(),
         }),
+        sent_to: ("prod".into(), "http://detached".into()),
         result: Err(Fault::rpc(
             "RequestCancelWorkflowExecution",
             Code::PermissionDenied,

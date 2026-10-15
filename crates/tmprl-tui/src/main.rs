@@ -68,6 +68,7 @@ async fn main() -> std::process::ExitCode {
 
     let (tx, rx) = unbounded_channel();
     let mut app = app::App::new(conn, tx.clone());
+    app.set_temporal_config(profile.config_file.clone());
 
     // Config is applied before the terminal is touched, so a bad keys.toml is a plain
     // message on stderr rather than an error flashed behind an alternate screen. A file

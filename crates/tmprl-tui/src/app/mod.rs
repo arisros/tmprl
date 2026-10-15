@@ -23,6 +23,7 @@
 //! | `startup` | where the command line asked to open |
 //! | `messages` | the note line's history, `:messages` |
 //! | `mouse` | the wheel and the click, when `[input] mouse` asks for them |
+//! | `profile` | listing the connection profiles and switching to one |
 
 mod dashboard;
 mod find;
@@ -33,6 +34,7 @@ mod mouse;
 mod mutate;
 mod nav;
 mod payload;
+mod profile;
 mod prompt;
 mod query;
 mod startup;
@@ -45,7 +47,7 @@ pub use startup::Startup;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
-use tmprl_client::{Codec, Conn, NamespaceInfo};
+use tmprl_client::{Codec, Conn, NamespaceInfo, ProfileSummary};
 use tmprl_core::ScheduleRow;
 use tmprl_core::clock::{Clock, TimeFormat};
 use tmprl_core::complete::{self, Completion};
@@ -107,6 +109,7 @@ use tmprl_client::Continuation as Tokens;
 /// this is a level rather than a tab.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
+    Profiles,
     Namespaces,
     Workflows,
     History,
@@ -268,6 +271,18 @@ pub enum Msg {
     Redraw,
     Quit,
     Namespaces(Result<Vec<NamespaceInfo>, Fault>),
+    Profiles(Result<Vec<ProfileSummary>, Fault>),
+    /// A connection to the profile a switch asked for. `seq` names the switch, so only the
+    /// last one asked for is taken.
+    Connected {
+        seq: u64,
+        result: Result<Box<Conn>, String>,
+    },
+    /// A reply from a spawned task, stamped with the connection it was sent on.
+    Reply {
+        epoch: u64,
+        msg: Box<Msg>,
+    },
     /// What the cluster lets you filter on, for the namespace named.
     SearchAttributes {
         namespace: String,
@@ -295,6 +310,8 @@ pub enum Msg {
     /// A mutation finished, one way or the other.
     Mutated {
         mutation: Box<Mutation>,
+        /// The profile and address it was sent to, which a switch since may have changed.
+        sent_to: (String, String),
         result: Result<(), Fault>,
         /// `Some((done, total))` when this is one row of a batch, so the status line can
         /// count up rather than flashing each row's name in turn.
@@ -338,6 +355,35 @@ pub enum Msg {
         generation: u64,
         result: Result<Vec<PendingActivity>, Fault>,
     },
+}
+
+fn audit_outcome(result: &Result<(), Fault>) -> String {
+    match result {
+        Ok(()) => "ok".to_string(),
+        Err(e) => format!("failed: {e}"),
+    }
+}
+
+/// The sender every spawned task reports through.
+///
+/// Each reply is stamped with the connection it was asked on, so one that lands after a
+/// profile switch is dropped instead of showing another cluster's rows.
+#[derive(Clone)]
+pub struct Outbox {
+    tx: UnboundedSender<Msg>,
+    epoch: u64,
+}
+
+impl Outbox {
+    /// Fails only once the event loop has gone, when nobody is left to tell.
+    pub fn send(&self, msg: Msg) -> Result<(), ()> {
+        self.tx
+            .send(Msg::Reply {
+                epoch: self.epoch,
+                msg: Box::new(msg),
+            })
+            .map_err(drop)
+    }
 }
 
 /// A `/` still looking, one page of history at a time.
@@ -499,7 +545,15 @@ pub struct App {
     yank_max: usize,
     namespace: String,
     conn: Option<Arc<Conn>>,
-    tx: UnboundedSender<Msg>,
+    /// `config.toml` as parsed at startup, re-resolved for each profile switched to.
+    config: Option<tmprl_core::config::Config>,
+    /// `--temporal-config`, which every profile is read from.
+    temporal_config: Option<String>,
+    switching: Option<profile::Switch>,
+    switch_seq: u64,
+    /// The profile picker was asked for before the list had loaded.
+    profile_picker_pending: bool,
+    tx: Outbox,
 }
 
 impl App {
@@ -594,7 +648,12 @@ impl App {
             yank_max: tmprl_core::config::DEFAULT_YANK_MAX,
             namespace,
             conn,
-            tx,
+            config: None,
+            temporal_config: None,
+            switching: None,
+            switch_seq: 0,
+            profile_picker_pending: false,
+            tx: Outbox { tx, epoch: 0 },
         }
     }
 
@@ -604,22 +663,18 @@ impl App {
         if let Some(src) = config {
             match tmprl_core::config::parse_config(src) {
                 Ok(cfg) => {
-                    let resolved = cfg.resolve(&self.profile);
-                    self.codec = resolved
-                        .codec
-                        .map(|c| Arc::new(Codec::new(c.endpoint, c.auth)));
-                    self.accent = resolved.accent;
-                    self.readonly = resolved.readonly;
                     self.payload_pane = cfg.payload_pane;
                     self.mouse = cfg.mouse;
                     self.dashboard_refresh = cfg.dashboard_refresh;
                     self.yank_max = cfg.yank_max;
-                    self.source_command = cfg.source;
+                    self.source_command = cfg.source.clone();
                     // Already validated by `parse_config`, so this cannot be the zone
                     // failing; unwrapping to the system zone here would be unreachable.
                     if let Ok(clock) = Clock::from_config(cfg.timezone.as_deref()) {
                         self.clock = clock;
                     }
+                    self.config = Some(cfg);
+                    self.apply_profile_config();
                 }
                 Err(e) => self.note = Some((e.to_string(), Note::Error)),
             }
@@ -673,6 +728,9 @@ impl App {
     pub fn profile(&self) -> &str {
         &self.profile
     }
+    pub fn address(&self) -> &str {
+        &self.address
+    }
     pub fn namespace(&self) -> &str {
         &self.namespace
     }
@@ -723,16 +781,29 @@ impl App {
             Msg::Quit => self.should_quit = true,
             Msg::Tick => self.tick_dashboards(now_ms()),
             Msg::Redraw => {}
+            Msg::Reply { epoch, msg } if epoch == self.epoch() => self.apply(*msg),
+            // The connection it was asked on is gone. A mutation it reports still happened
+            // over there, and the audit log must say so.
+            Msg::Reply { msg, .. } => {
+                if let Msg::Mutated {
+                    mutation,
+                    sent_to,
+                    result,
+                    ..
+                } = *msg
+                {
+                    self.audit_to(&mutation, &audit_outcome(&result), &sent_to);
+                }
+            }
+            Msg::Profiles(result) => self.on_profiles(result),
+            Msg::Connected { seq, result } => self.on_connected(seq, result),
             Msg::Mutated {
                 mutation,
+                sent_to,
                 result,
                 batch,
             } => {
-                let outcome = match &result {
-                    Ok(()) => "ok".to_string(),
-                    Err(e) => format!("failed: {e}"),
-                };
-                self.audit(&mutation, &outcome);
+                self.audit_to(&mutation, &audit_outcome(&result), &sent_to);
                 match result {
                     Ok(()) => {
                         self.note = Some((
@@ -1229,6 +1300,7 @@ impl App {
             Action::FindCommand => self.open_picker(picker::Kind::Commands),
             Action::FindFilter => self.open_picker(picker::Kind::Filters),
             Action::FindNamespace => self.open_picker(picker::Kind::Namespaces),
+            Action::FindProfile => self.find_profile(),
             Action::ProblemList => self.show_problems(),
             Action::SearchNext => self.jump_match(true),
             Action::SearchPrev => self.jump_match(false),

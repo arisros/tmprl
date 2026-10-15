@@ -293,6 +293,7 @@ fn a_batch_reports_progress_rather_than_each_row_in_turn() {
             workflow_id: "order-r1".into(),
             run_id: "r1".into(),
         }),
+        sent_to: ("prod".into(), "http://detached".into()),
         result: Ok(()),
         batch: Some((2, 3)),
     });
@@ -427,6 +428,7 @@ fn a_finished_mutation_reports_and_refreshes() {
     };
     app.handle(Msg::Mutated {
         mutation: Box::new(m),
+        sent_to: ("prod".into(), "http://detached".into()),
         result: Ok(()),
         batch: None,
     });
@@ -444,6 +446,7 @@ fn a_failed_mutation_shows_the_servers_reason() {
             workflow_id: "w".into(),
             run_id: "r".into(),
         }),
+        sent_to: ("prod".into(), "http://detached".into()),
         result: Err("PermissionDenied: not allowed".into()),
         batch: None,
     });
@@ -613,6 +616,7 @@ fn a_paused_schedule_shows_the_new_state_before_the_list_catches_up() {
             schedule_id: "nightly".into(),
             paused: true,
         }),
+        sent_to: ("prod".into(), "http://detached".into()),
         result: Ok(()),
         batch: None,
     });
@@ -645,6 +649,7 @@ fn a_test_run_captures_the_audit_line_instead_of_writing_the_real_log() {
             workflow_id: "order-r1".into(),
             run_id: "r1".into(),
         }),
+        sent_to: ("prod".into(), "http://detached".into()),
         result: Ok(()),
         batch: None,
     });

@@ -72,6 +72,7 @@ pub enum Action {
     FindCommand,
     FindFilter,
     FindNamespace,
+    FindProfile,
     /// The failed-and-stuck list, `<leader>xx`. A query preset, not a screen of its own.
     ProblemList,
 
@@ -209,6 +210,7 @@ impl Registry {
             "find.command",       "Find",        "Find a command"            => FindCommand;
             "find.filter",        "Find",        "Build a query filter"      => FindFilter;
             "find.namespace",     "Find",        "Switch namespace"          => FindNamespace;
+            "find.profile",       "Find",        "Switch connection profile" => FindProfile;
             "list.problems",      "Find",        "Failed and stuck workflows" => ProblemList;
 
             "yank.field",         "Yank",        "Yank the focused value"    => YankField;

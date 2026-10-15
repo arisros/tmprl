@@ -6,6 +6,7 @@ use super::*;
 impl App {
     pub(super) fn open_focused(&mut self) {
         match self.view.screen {
+            Screen::Profiles => self.open_focused_profile(),
             Screen::Namespaces => {
                 // A visual selection opens every namespace in it as one merged list. That
                 // is the whole multi-namespace fan-out: `V j j <CR>`, using the selection
@@ -100,7 +101,8 @@ impl App {
                 self.view.anchor = None;
                 self.clamp_cursor();
             }
-            Screen::Namespaces => {
+            Screen::Namespaces => self.open_profiles(),
+            Screen::Profiles => {
                 self.note = Some(("already at the top level".into(), Note::Warn));
             }
         }
@@ -247,7 +249,7 @@ impl App {
         self.view.cursor_key = to.cursor_key;
 
         match to.screen {
-            Screen::Namespaces => self.clamp_cursor(),
+            Screen::Profiles | Screen::Namespaces => self.clamp_cursor(),
             Screen::Workflows => self.load_workflows(false),
             Screen::Schedules => self.load_schedules(),
             Screen::Dashboard => self.load_dashboard(),
@@ -267,6 +269,7 @@ impl App {
         self.decode_failed.clear();
         self.forget_search_attributes();
         match self.view.screen {
+            Screen::Profiles => self.load_profiles(),
             Screen::Namespaces => self.load_namespaces(),
             Screen::Workflows => self.load_workflows(false),
             Screen::History => {
@@ -374,13 +377,14 @@ impl App {
                     self.load_history();
                 }
             }
-            Screen::Namespaces | Screen::Schedules | Screen::Dashboard => {}
+            Screen::Profiles | Screen::Namespaces | Screen::Schedules | Screen::Dashboard => {}
         }
     }
 
     /// Load whatever the focused pane's screen needs. A fresh pane has asked for nothing.
     pub(super) fn load_for_screen(&mut self) {
         match self.view.screen {
+            Screen::Profiles => self.load_profiles(),
             Screen::Namespaces => self.load_namespaces(),
             Screen::Workflows => self.load_workflows(false),
             Screen::History => self.load_history(),
@@ -395,7 +399,7 @@ impl App {
     /// one workflow, and jumping sideways from there would lose their place with no way back.
     pub(super) fn go_to(&mut self, screen: Screen) {
         match self.view.screen {
-            Screen::Namespaces => {
+            Screen::Profiles | Screen::Namespaces => {
                 self.note = Some(("open a namespace first".into(), Note::Warn));
                 return;
             }

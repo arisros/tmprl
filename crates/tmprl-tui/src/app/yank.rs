@@ -5,6 +5,11 @@ use super::*;
 impl App {
     pub(super) fn field_under_cursor(&self) -> String {
         match self.view.screen {
+            Screen::Profiles => self
+                .profile_rows()
+                .get(self.view.cursor)
+                .map(|p| p.name.clone())
+                .unwrap_or_default(),
             Screen::Namespaces => self
                 .namespace_rows()
                 .get(self.view.cursor)
@@ -62,6 +67,20 @@ impl App {
             .unwrap_or((self.view.cursor, self.view.cursor));
         let take = hi.saturating_sub(lo) + 1;
         let picked: Vec<String> = match self.view.screen {
+            Screen::Profiles => self
+                .profile_rows()
+                .iter()
+                .skip(lo)
+                .take(take)
+                .map(|p| {
+                    format!(
+                        r#"{{"name":{},"address":{},"namespace":{}}}"#,
+                        json_string(&p.name),
+                        json_string(p.address.as_deref().unwrap_or_default()),
+                        json_string(p.namespace.as_deref().unwrap_or_default())
+                    )
+                })
+                .collect(),
             Screen::Namespaces => self
                 .namespace_rows()
                 .iter()

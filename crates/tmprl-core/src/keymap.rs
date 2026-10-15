@@ -344,6 +344,7 @@ pub fn default_keymap() -> Keymap {
     // `<leader>N` sits outside the `f` family on purpose: switching namespace is changing
     // *where you are*, not finding something inside where you already are.
     bind(Mode::Normal, "<leader>N", "find.namespace");
+    bind(Mode::Normal, "<leader>P", "find.profile");
     bind(Mode::Normal, "<leader>xx", "list.problems");
     bind(Mode::Normal, "<leader>xm", "app.messages");
     bind(Mode::Normal, "<leader>e", "payload.edit");
@@ -407,6 +408,22 @@ mod tests {
             seen.push((b.mode, &b.seq));
         }
         assert!(clashes.is_empty(), "duplicate bindings: {clashes:?}");
+    }
+
+    #[test]
+    fn leader_capital_p_switches_profile_beside_leader_capital_n() {
+        let m = map();
+        for (key, id) in [('P', "find.profile"), ('N', "find.namespace")] {
+            let mut p = Pending::default();
+            assert!(matches!(
+                m.resolve(Mode::Normal, &mut p, m.leader()),
+                Resolution::Pending { .. }
+            ));
+            assert_eq!(
+                m.resolve(Mode::Normal, &mut p, Chord::ch(key)),
+                Resolution::Run { id, count: None }
+            );
+        }
     }
 
     #[test]

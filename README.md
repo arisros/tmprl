@@ -74,6 +74,7 @@ tmprl --config-path                         # every file tmprl reads, and whethe
 | `y` `Y` | yank value / row | `<Space>y{a,i,r}` | yank payloads |
 | `<Space>m…` | cancel, terminate, signal, delete, reset, update | `gs` `gw` `gd` | schedules / workflows / dashboard |
 | `<Space>s…` `<C-w>hjkl` | splits | `<Space>t…` | tabs |
+| `<Space>N` | switch namespace | `<Space>P` | switch profile, or `-` from the namespaces |
 | `<Space>T` | times as a clock or an age | `R` | reload from the server |
 | `?` `:` | help / command line | `<Space>q` | quit |
 
@@ -200,9 +201,9 @@ flowchart LR
 
 | Crate | Tests | |
 |---|---|---|
-| `tmprl-client` | 84 | all network IO |
-| `tmprl-core` | 446 | no terminal, no server |
-| `tmprl-tui` | 456 | ratatui |
+| `tmprl-client` | 88 | all network IO |
+| `tmprl-core` | 447 | no terminal, no server |
+| `tmprl-tui` | 486 | ratatui |
 | `tmprl-ui` | 47 | window tree |
 
 ```sh
