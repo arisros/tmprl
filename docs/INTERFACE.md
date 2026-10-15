@@ -238,7 +238,7 @@ its room:
 |---|---|
 | failures in the last day | "Recent failures", and "Failing types" once two or more types are failing |
 | no failures, but running workflows | "Running", in the room the failures would have had |
-| running workflows | "Task queues" |
+| running workflows | "Retrying", a row of its own under the failures: workflows with an activity on its 3rd try or later, among the 10 running longest. "Task queues" |
 | paused schedules | "Paused schedules" |
 | schedules with a next run | "Upcoming schedules", soonest first |
 | schedules that are neither | "Schedules" |
@@ -447,6 +447,13 @@ off, and the last failure; `K` adds the state, the next attempt time and the las
 is fetched when the history opens and on `R`, and every 5 seconds under `F`, because a retry
 writes no event for the follow long poll to wake on.
 
+`]f` / `[f` stop on such an activity too, one that has failed at least once and is still being
+retried, since its row is the failure even though no event says so yet. They also find a failed
+workflow task, a non-determinism error or a panic in workflow code, while workflow tasks are
+folded away: the jump shows them, as `zp` would, and says so. A workflow task that timed out is
+not stopped on until `zp` shows them, because a sticky queue timing out when a worker restarts
+is routine.
+
 `F` tails a running workflow, the way `tail -f` does. The statusline carries a **FOLLOW**
 badge while it is on, because a view that rewrites itself under you needs to say so, a
 screen that changes on its own otherwise reads as a glitch. Following stops on `F`, on leaving
@@ -464,7 +471,7 @@ closed is refused with a message instead of polling for events that can never ar
 | `zp` | show or hide the workflow-task plumbing | **live** |
 | `<leader>G` | the history as a timeline, like the web UI's | **live** |
 | `zg` | fold or unfold the timeline's idle stretches | **live** |
-| `]f` / `[f` | jump to the next / previous failure | **live** |
+| `]f` / `[f` | jump to the next / previous failure: a failed or timed-out group, an activity between retries, a failed workflow task | **live** |
 | `F` | follow, tail a running workflow | **live** |
 | `<leader>cs` | call stack (`__stack_trace` query) | planned |
 | `<leader>cq` | send a query to the workflow | planned |

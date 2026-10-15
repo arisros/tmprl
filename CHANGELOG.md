@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- **`]f` finds an activity that keeps failing**: an activity that has failed and is still
+  being retried counts as a failure, though Temporal writes no event for it until the retries
+  run out. A failed workflow task, such as a non-determinism error, is found too while
+  workflow tasks are folded away; the jump shows them.
+- **A "Retrying" panel on the default dashboard** once the namespace has running workflows:
+  the workflows with an activity on its 3rd try or later, which every status still calls
+  Running. It looks into the 10 running longest, so a busy namespace costs ten describes a
+  refresh.
+
 ## 0.3.0 — 2026-10-14
 
 - **The payload pane takes the focus**, `<C-w>j` from a history (`<C-w>l` when the pane is

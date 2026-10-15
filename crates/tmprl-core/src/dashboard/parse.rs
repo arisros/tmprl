@@ -19,7 +19,7 @@ const TOP_KEYS: &str = "row";
 const ROW_KEYS: &str = "height, lines or panel";
 
 /// The try an activity is on before a retrying panel lists its workflow.
-const DEFAULT_ATTEMPTS: i32 = 3;
+pub(super) const DEFAULT_ATTEMPTS: i32 = 3;
 
 fn allowed(kind: &str) -> Option<(&'static [&'static str], &'static str)> {
     Some(match kind {

@@ -3,10 +3,15 @@
 use super::layout::{
     DAY_MS, Layout, PanelKind, PanelSpec, RUNNING, RowSpec, Show, Size, TimeField, Window,
 };
+use super::parse::DEFAULT_ATTEMPTS;
 use super::source::tally_types;
 use crate::query;
 use crate::schedule::ScheduleRow;
 use crate::workflow::WorkflowRow;
+
+/// Workflows the builtin retrying panel describes each refresh, the longest running first.
+/// Lower than a written panel's default: nobody asked for this one.
+const BUILTIN_SCAN: usize = 10;
 
 /// A panel the adaptive layout may or may not show.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16,6 +21,8 @@ pub enum Slot {
     Failures,
     Types,
     Running,
+    /// Running workflows with an activity failing between tries, which no status shows.
+    Retrying,
     Queues,
     Paused,
     Upcoming,
@@ -23,11 +30,12 @@ pub enum Slot {
 }
 
 impl Slot {
-    pub(super) const ALL: [Slot; 8] = [
+    pub(super) const ALL: [Slot; 9] = [
         Slot::Trend,
         Slot::Failures,
         Slot::Types,
         Slot::Running,
+        Slot::Retrying,
         Slot::Queues,
         Slot::Paused,
         Slot::Upcoming,
@@ -68,6 +76,12 @@ impl Slot {
                 spec.width = 2;
                 spec
             }
+            Slot::Retrying => PanelSpec::new(PanelKind::Retrying {
+                query: running(),
+                window: Window::default(),
+                attempts: DEFAULT_ATTEMPTS,
+                scan: BUILTIN_SCAN,
+            }),
             Slot::Queues => PanelSpec::new(PanelKind::Queues {
                 query: running(),
                 names: Vec::new(),
@@ -108,6 +122,8 @@ pub fn compose(facts: &Facts, kept: &[Slot]) -> Layout {
             Slot::Failures => facts.failures.is_none_or(|rows| !rows.is_empty()),
             Slot::Types => facts.failures.is_none_or(|rows| distinct_types(rows) > 1),
             Slot::Running => false,
+            // Only once something is known to run: each refresh describes what it lists.
+            Slot::Retrying => facts.running.is_some_and(|rows| !rows.is_empty()),
             Slot::Queues => facts.running.is_none_or(|rows| !rows.is_empty()),
             Slot::Paused => facts
                 .schedules
@@ -165,6 +181,11 @@ pub fn compose(facts: &Facts, kept: &[Slot]) -> Layout {
     if !middle.is_empty() {
         rows.push(row(Size::Weight(3), middle));
     }
+    // A row of its own, under the failures: each line is an id, an activity and the
+    // failure it last ended on, which needs the width more than the height.
+    if wanted(Slot::Retrying) {
+        rows.push(row(Size::Weight(1), vec![Slot::Retrying]));
+    }
     if !bottom.is_empty() {
         rows.push(row(Size::Weight(2), bottom));
     }
@@ -201,7 +222,64 @@ mod tests {
         };
         assert_eq!(
             titles(&compose(&facts, &[])),
-            [vec!["Status"], vec!["Running"], vec!["Task queues"]]
+            [
+                vec!["Status"],
+                vec!["Running"],
+                vec!["Retrying"],
+                vec!["Task queues"]
+            ]
+        );
+    }
+
+    #[test]
+    fn retrying_activities_get_a_panel_once_something_is_known_to_run() {
+        let running = [wf("a", "Order", "orders", 1)];
+        let has_retrying = |running| {
+            let facts = Facts {
+                failures: Some(&[]),
+                running,
+                schedules: Some(&[]),
+            };
+            titles(&compose(&facts, &[])).concat().contains(&"Retrying")
+        };
+        assert!(has_retrying(Some(&running[..])));
+        assert!(
+            !has_retrying(Some(&[])),
+            "nothing runs, so nothing can retry"
+        );
+        assert!(
+            !has_retrying(None),
+            "not known yet, and each refresh would describe what it lists"
+        );
+    }
+
+    #[test]
+    fn the_builtin_retrying_panel_describes_few_workflows() {
+        let PanelKind::Retrying {
+            attempts,
+            scan,
+            query,
+            ..
+        } = Slot::Retrying.spec().kind
+        else {
+            panic!("the retrying slot is a retrying panel");
+        };
+        assert_eq!((attempts, scan), (DEFAULT_ATTEMPTS, BUILTIN_SCAN));
+        assert!(scan < 50, "below what a written panel describes");
+        assert_eq!(query, RUNNING);
+    }
+
+    #[test]
+    fn a_retrying_panel_that_had_items_is_kept_when_running_goes_unknown() {
+        let facts = Facts {
+            failures: Some(&[]),
+            running: None,
+            schedules: Some(&[]),
+        };
+        assert!(
+            titles(&compose(&facts, &[Slot::Retrying]))
+                .concat()
+                .contains(&"Retrying")
         );
     }
 
