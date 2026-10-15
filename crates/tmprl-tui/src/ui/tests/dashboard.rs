@@ -114,6 +114,7 @@ fn a_namespace_with_something_of_everything_draws_every_panel() {
         "Failures per hour",
         "Recent failures",
         "Failing types",
+        "Retrying",
         "Task queues",
         "Paused schedules",
         "Upcoming schedules",
@@ -130,7 +131,7 @@ fn a_namespace_with_something_of_everything_draws_every_panel() {
     assert!(out.contains("paused"), "{out}");
     assert!(!out.contains("hidden"), "{out}");
     assert!(
-        out.lines().next().unwrap().contains("7 panels  auto 30s"),
+        out.lines().next().unwrap().contains("8 panels  auto 30s"),
         "{out}"
     );
 }
@@ -197,7 +198,7 @@ fn panels_that_do_not_fit_are_counted_not_squeezed() {
     let mut app = app_with_dashboard();
     let out = draw(&mut app, 40, 8);
     assert!(out.contains("Status"), "{out}");
-    assert!(out.contains("+5 hidden"), "{out}");
+    assert!(out.contains("+6 hidden"), "{out}");
     assert!(!out.contains("schedules"), "{out}");
 }
 

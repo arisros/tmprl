@@ -11,6 +11,10 @@ impl App {
     pub(super) fn open_dashboard(&mut self) {
         match self.view.screen {
             Screen::Dashboard => return,
+            Screen::Profiles => {
+                self.note = Some(("open a profile first".into(), Note::Warn));
+                return;
+            }
             Screen::History => {
                 self.note = Some(("go up with `-` first".into(), Note::Warn));
                 return;
@@ -275,7 +279,7 @@ fn ask(
     id: ViewId,
     sources: Vec<usize>,
     conn: Option<Arc<Conn>>,
-    tx: &UnboundedSender<Msg>,
+    tx: &Outbox,
     timed: bool,
     deadline: std::time::Duration,
 ) {

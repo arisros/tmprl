@@ -57,12 +57,12 @@ broken.
 
 | Item | Today | Effort |
 |---|---|---|
-| Dashboard | Built, `gd` or `--dashboard`: counts by status, recent failures, the types failing most, task queues in use and schedules, each item one `Enter` from the workflows it stands for, laid out by `dashboard.toml`, or by what the namespace shows when there is none. Refreshes itself, `[refresh] dashboard`. Shows each task queue's backlog and pollers. Still wanted: arranging panels in the app | L |
+| Dashboard | Built, `gd` or `--dashboard`: counts by status, recent failures, the types failing most, activities being retried, task queues in use and schedules, each item one `Enter` from the workflows it stands for, laid out by `dashboard.toml`, or by what the namespace shows when there is none. Refreshes itself, `[refresh] dashboard`. Shows each task queue's backlog and pollers. Still wanted: arranging panels in the app | L |
 | Task queue describe | The dashboard shows backlog, its age and the poller count for queues with running workflows. Still wanted: a view of one queue, with each poller and the rates, reached from a workflow's task queue or a typed name | M |
 | Build id display | Nothing. Shown on the info pane and on pollers; no browser, see below | S |
 | Open a history from a file | The app cannot start without a server. Wanted: `tmprl --history <file>` and a capture command. This also gives a demo with no server and fixtures for tests | M to L |
 | Export | `Y` yanks JSON, and past the yank limit writes it to a file in the temp directory. Wanted: a Markdown summary of a workflow and JSON to a file | M |
-| Switch profile in the app | One connection per process. Also show the cluster address in the header | M |
+| ✓ Switch profile in the app | Done: `<leader>P`, or `-` from the namespace list, and the cluster address is in the header. Still one profile per process; a pane on its own profile is the table across clusters below | M |
 | Stricter confirmation per profile | Three tiers exist. Wanted: an opt-in that asks for more on a named profile | S |
 | Headless `--exec` | No non-interactive mode. Every action already runs through one dispatch point | M |
 

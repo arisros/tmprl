@@ -1687,7 +1687,12 @@ mod tests {
         board.apply(3, Ok(SourceData::Schedules(Vec::new())));
         assert_eq!(
             board_titles(&board),
-            [vec!["Status"], vec!["Running"], vec!["Task queues"]]
+            [
+                vec!["Status"],
+                vec!["Running"],
+                vec!["Retrying"],
+                vec!["Task queues"]
+            ]
         );
         assert_eq!(
             board.sources().iter().filter(|s| !s.settles(NOW)).count(),

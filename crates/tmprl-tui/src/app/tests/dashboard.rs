@@ -1,6 +1,7 @@
 //! The dashboard: opening it, replies finding their pane, and what `<CR>` opens.
 
 use super::*;
+use tmprl_core::dashboard::PanelKind;
 use tmprl_core::fault::Code;
 use tmprl_core::query::PROBLEMS;
 
@@ -459,7 +460,10 @@ fn without_a_dashboard_file_the_panels_follow_what_the_namespace_shows() {
         }),
     );
     reply(&mut app, 3, Ok(SourceData::Schedules(Vec::new())));
-    assert_eq!(titles(&app), ["Status", "Running", "Task queues"]);
+    assert_eq!(
+        titles(&app),
+        ["Status", "Running", "Retrying", "Task queues"]
+    );
 }
 
 #[test]
@@ -637,8 +641,16 @@ fn a_queue_found_on_running_workflows_is_described_and_kept_fresh() {
             ..QueueHealth::default()
         })),
     );
-    let Item::Queue(described) = &board(&app).items(4)[0] else {
-        panic!("{:?}", board(&app).items(4));
+    let panel = (0..board(&app).panel_count())
+        .find(|p| {
+            matches!(
+                board(&app).spec(*p).map(|s| &s.kind),
+                Some(PanelKind::Queues { .. })
+            )
+        })
+        .expect("a task queue panel");
+    let Item::Queue(described) = &board(&app).items(panel)[0] else {
+        panic!("{:?}", board(&app).items(panel));
     };
     assert!(described.health.as_ref().unwrap().stuck());
     assert_eq!(app.row_count(), 10, "health adds no rows");

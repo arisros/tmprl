@@ -56,6 +56,12 @@ pub struct PendingActivity {
 }
 
 impl PendingActivity {
+    /// Failed at least once and not given up on: the case `]f` stops on, since no event
+    /// says so until the retries run out.
+    pub fn is_retrying(&self) -> bool {
+        self.attempt > 1 || self.last_failure.is_some()
+    }
+
     /// `3/5`, or `3/∞` when the policy never gives up.
     pub fn attempts_label(&self) -> String {
         if self.maximum_attempts > 0 {
@@ -191,5 +197,28 @@ mod tests {
         assert_eq!(p.attempts_label(), "3/∞");
         p.maximum_attempts = 5;
         assert_eq!(p.attempts_label(), "3/5");
+    }
+
+    #[test]
+    fn retrying_means_failed_at_least_once() {
+        let first = PendingActivity {
+            attempt: 1,
+            ..Default::default()
+        };
+        assert!(!first.is_retrying());
+        let second = PendingActivity {
+            attempt: 2,
+            ..Default::default()
+        };
+        assert!(second.is_retrying());
+        let failed_once = PendingActivity {
+            attempt: 1,
+            last_failure: Some(Failure::default()),
+            ..Default::default()
+        };
+        assert!(
+            failed_once.is_retrying(),
+            "a failure on record counts whatever the attempt says"
+        );
     }
 }

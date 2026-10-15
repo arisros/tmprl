@@ -231,7 +231,7 @@ fn a_refused_dash_does_not_destroy_the_forward_jumps() {
     //
     // Getting to the state that shows it needs care: a *legal* `-` truncates the
     // forward entries too, and correctly so. What is needed is to be sitting on the
-    // namespace list, where `-` is refused, with forward entries still ahead.
+    // profile list, where `-` is refused, with forward entries still ahead.
     let mut app = app();
     app.handle(Msg::Namespaces(Ok(vec![NamespaceInfo {
         name: "default".into(),
@@ -239,16 +239,18 @@ fn a_refused_dash_does_not_destroy_the_forward_jumps() {
         retention_days: 3,
         description: String::new(),
     }])));
+    app.handle(Msg::Profiles(Ok(Vec::new())));
     app.view.screen = Screen::Namespaces;
 
+    app.run("nav.up", None); // namespaces -> profiles
+    app.run("nav.open", None); // the connected profile -> its namespaces
     app.run("nav.open", None); // namespaces -> workflows
     four(&mut app);
-    app.run("nav.open", None); // workflows -> history
-    assert_eq!(app.view.screen, Screen::History);
+    assert_eq!(app.view.screen, Screen::Workflows);
 
-    app.run("nav.jump-back", None); // -> workflows
-    app.run("nav.jump-back", None); // -> namespaces, with two entries ahead
-    assert_eq!(app.view.screen, Screen::Namespaces);
+    app.run("nav.jump-back", None); // -> namespaces
+    app.run("nav.jump-back", None); // -> profiles, with two entries ahead
+    assert_eq!(app.view.screen, Screen::Profiles);
 
     let ahead = app.jumps.len();
     app.run("nav.up", None); // refused: already at the top level
@@ -261,7 +263,7 @@ fn a_refused_dash_does_not_destroy_the_forward_jumps() {
     app.run("nav.jump-forward", None);
     assert_eq!(
         app.view.screen,
-        Screen::Workflows,
+        Screen::Namespaces,
         "the forward list should still lead back down"
     );
 }
@@ -689,9 +691,33 @@ fn opening_nothing_says_so_instead_of_changing_screen() {
 }
 
 #[test]
-fn going_up_from_the_top_level_says_so() {
+fn going_up_from_the_namespaces_lists_the_profiles() {
+    let mut app = app();
+    app.handle(Msg::Profiles(Ok(vec![
+        ProfileSummary {
+            name: "dev".into(),
+            address: Some("localhost:7233".into()),
+            namespace: None,
+        },
+        ProfileSummary {
+            name: "prod".into(),
+            address: Some("prod.example:7233".into()),
+            namespace: None,
+        },
+    ])));
+    app.run("nav.up", None);
+    assert_eq!(app.view.screen, Screen::Profiles);
+    assert_eq!(
+        app.view.cursor, 1,
+        "the cursor starts on the connected profile"
+    );
+}
+
+#[test]
+fn going_up_from_the_profiles_says_so() {
     let mut app = app();
     app.run("nav.up", None);
-    assert_eq!(app.view.screen, Screen::Namespaces);
+    app.run("nav.up", None);
+    assert_eq!(app.view.screen, Screen::Profiles);
     assert!(matches!(app.note, Some((_, Note::Warn))));
 }

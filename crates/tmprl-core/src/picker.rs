@@ -34,6 +34,8 @@ pub enum Target {
     Query(String),
     /// Point this pane at a namespace and show its workflows.
     Namespace(String),
+    /// Connect to this profile from `temporal.toml`, in place of the current one.
+    Profile(String),
 }
 
 /// One candidate.
@@ -117,6 +119,7 @@ pub enum Kind {
     Commands,
     Filters,
     Namespaces,
+    Profiles,
 }
 
 impl Kind {
@@ -128,6 +131,7 @@ impl Kind {
             Kind::Commands => "commands",
             Kind::Filters => "filters",
             Kind::Namespaces => "namespaces",
+            Kind::Profiles => "profiles",
         }
     }
 }

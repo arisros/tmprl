@@ -18,6 +18,7 @@ impl App {
             picker::Kind::Commands => self.command_items(),
             picker::Kind::Filters => self.filter_items(),
             picker::Kind::Namespaces => self.namespace_items(),
+            picker::Kind::Profiles => self.profile_items(),
         };
         if items.is_empty() {
             // Saying why beats opening an empty box: the answer is nearly always "you are
@@ -30,6 +31,7 @@ impl App {
                     picker::Kind::Commands => "no commands",
                     picker::Kind::Filters => "nothing to filter on yet",
                     picker::Kind::Namespaces => "no namespaces loaded yet",
+                    picker::Kind::Profiles => "no profiles in temporal.toml",
                 }
                 .into(),
                 Note::Warn,
@@ -356,6 +358,7 @@ impl App {
             Target::Pane(id) => self.focus_pane(ViewId(id)),
             Target::Query(clause) => self.add_clause(&clause),
             Target::Namespace(name) => self.switch_namespace(&name),
+            Target::Profile(name) => self.switch_profile(&name),
         }
     }
 
@@ -604,6 +607,7 @@ fn workflow_item(w: &WorkflowRow) -> picker::Item {
 /// which of four open histories it is. This mirrors how vim's `:ls` names buffers by file.
 pub(super) fn describe_pane(v: &View) -> String {
     match v.screen {
+        Screen::Profiles => "profiles".to_string(),
         Screen::Namespaces => "namespaces".to_string(),
         Screen::Workflows => {
             let scope = v.scope.join(", ");

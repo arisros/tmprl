@@ -1,7 +1,7 @@
 # Interface design
 
 > **Status: partly implemented.** The modal core, the namespace and workflow lists, the
-> workflow history outline, follow mode, payload rendering and piping, the visibility query
+> workflow history outline, profile switching, follow mode, payload rendering and piping, the visibility query
 > bar, saved views, search, the pickers, the jumplist, counts, which-key, the `:` command
 > line, the help overlay and yank all work today. Bindings for features that do not exist
 > yet (marks, macros, `.`, and the quickfix list) are **specified here but deliberately
@@ -129,13 +129,21 @@ Leader is `Space`. A which-key-style popup appears as soon as a prefix is incomp
 | `h` `l` `<Left>` `<Right>` | move sideways on the dashboard, between panels and along a strip of statuses or a chart; nothing on a list | **live** |
 | `Enter` | open the focused item, namespace → workflows → history | **live** |
 | `Enter` (in Visual) | open every selected namespace as one merged list | **live** |
-| `-` | **go up a level**, run → workflow → namespace → cluster | **live** |
+| `-` | **go up a level**, run → workflow → namespace → profile | **live** |
 | `<leader>-` | floating object browser | planned |
 | `<C-o>` / `<C-i>` (or `<Tab>`) | jumplist back / forward | **live** |
 | `<leader>N` | switch namespace | **live** |
 | `gd` | the dashboard, over this pane's namespaces | **live** |
 | `]p` / `[p` | next / previous dashboard panel | **live** |
-| `<leader>P` | switch connection profile | planned |
+| `<leader>P` | switch connection profile | **live** |
+
+A profile is the level above the namespaces. `-` on the namespace list shows every profile in
+`temporal.toml`, with its address and namespace, and `<CR>` connects to the one under the
+cursor; `<leader>P` is the same list as a picker. A switch is the whole session: the old
+connection is kept until the new one answers, then every pane, tab and jump is dropped and the
+new profile opens on its namespace list. `readonly`, `accent` and the codec are taken from the
+new profile's `[profile.<name>]`, and `--readonly` keeps holding. `--address` and `-n` apply
+only to the profile tmprl started on.
 
 Multi-namespace is a visual selection rather than a picker: `V j <CR>` on the namespace list
 opens those namespaces as one table, merge-sorted by start time, with each row tagged by the
@@ -242,7 +250,7 @@ its room:
 |---|---|
 | failures in the last day | "Recent failures", and "Failing types" once two or more types are failing |
 | no failures, but running workflows | "Running", in the room the failures would have had |
-| running workflows | "Task queues" |
+| running workflows | "Retrying", a row of its own under the failures: workflows with an activity on its 3rd try or later, among the 10 running longest. "Task queues" |
 | paused schedules | "Paused schedules" |
 | schedules with a next run | "Upcoming schedules", soonest first |
 | schedules that are neither | "Schedules" |
@@ -451,6 +459,13 @@ off, and the last failure; `K` adds the state, the next attempt time and the las
 is fetched when the history opens and on `R`, and every 5 seconds under `F`, because a retry
 writes no event for the follow long poll to wake on.
 
+`]f` / `[f` stop on such an activity too, one that has failed at least once and is still being
+retried, since its row is the failure even though no event says so yet. They also find a failed
+workflow task, a non-determinism error or a panic in workflow code, while workflow tasks are
+folded away: the jump shows them, as `zp` would, and says so. A workflow task that timed out is
+not stopped on until `zp` shows them, because a sticky queue timing out when a worker restarts
+is routine.
+
 `F` tails a running workflow, the way `tail -f` does. The statusline carries a **FOLLOW**
 badge while it is on, because a view that rewrites itself under you needs to say so, a
 screen that changes on its own otherwise reads as a glitch. Following stops on `F`, on leaving
@@ -468,7 +483,7 @@ closed is refused with a message instead of polling for events that can never ar
 | `zp` | show or hide the workflow-task plumbing | **live** |
 | `<leader>G` | the history as a timeline, like the web UI's | **live** |
 | `zg` | fold or unfold the timeline's idle stretches | **live** |
-| `]f` / `[f` | jump to the next / previous failure | **live** |
+| `]f` / `[f` | jump to the next / previous failure: a failed or timed-out group, an activity between retries, a failed workflow task | **live** |
 | `F` | follow, tail a running workflow | **live** |
 | `<leader>cs` | call stack (`__stack_trace` query) | planned |
 | `<leader>cq` | send a query to the workflow | planned |
