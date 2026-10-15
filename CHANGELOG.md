@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.1 — 2026-10-15
 
 - **The payload pane opens on the right** by default, beside the list. A terminal narrower
   than 100 columns still stacks it, and `[layout] payload = "bottom"` brings back the old
