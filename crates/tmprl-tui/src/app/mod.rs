@@ -541,6 +541,16 @@ pub struct App {
     audit_sink: AuditSink,
     /// Where `K` opens, from `config.toml`'s `[layout]`.
     payload_pane: tmprl_core::config::PayloadPane,
+    /// The payload pane's share of the history in percent, `[layout] payload_size` until
+    /// it is resized. One for the session, so every window opens it at the same size.
+    payload_size: u16,
+    /// A press on the payload pane's top rule, held: the moves that follow resize it.
+    dragging: bool,
+    /// A press inside the payload pane, held: the moves that follow select its text, and
+    /// letting go copies it.
+    text_selection: Option<crate::view::TextSelection>,
+    /// Where and when the last click landed, so a second one on the same row opens it.
+    last_click: Option<(std::time::Instant, u16, u16)>,
     mouse: bool,
     yank_max: usize,
     namespace: String,
@@ -644,6 +654,10 @@ impl App {
             readonly_flag: false,
             audit_sink: AuditSink::File,
             payload_pane: Default::default(),
+            payload_size: tmprl_core::config::PAYLOAD_SIZE,
+            dragging: false,
+            text_selection: None,
+            last_click: None,
             mouse: false,
             yank_max: tmprl_core::config::DEFAULT_YANK_MAX,
             namespace,
@@ -664,6 +678,7 @@ impl App {
             match tmprl_core::config::parse_config(src) {
                 Ok(cfg) => {
                     self.payload_pane = cfg.payload_pane;
+                    self.payload_size = cfg.payload_size;
                     self.mouse = cfg.mouse;
                     self.dashboard_refresh = cfg.dashboard_refresh;
                     self.yank_max = cfg.yank_max;
@@ -1403,6 +1418,14 @@ impl App {
 
     pub fn payload_pane(&self) -> tmprl_core::config::PayloadPane {
         self.payload_pane
+    }
+
+    pub fn text_selection(&self) -> Option<crate::view::TextSelection> {
+        self.text_selection
+    }
+
+    pub fn payload_size(&self) -> u16 {
+        self.payload_size
     }
 
     pub fn mouse(&self) -> bool {

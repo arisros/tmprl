@@ -26,6 +26,8 @@ pub fn to_mouse(ev: MouseEvent) -> Option<Mouse> {
             row,
         }),
         MouseEventKind::Down(MouseButton::Left) => Some(Mouse::Click { column, row }),
+        MouseEventKind::Drag(MouseButton::Left) => Some(Mouse::Drag { column, row }),
+        MouseEventKind::Up(MouseButton::Left) => Some(Mouse::Release),
         _ => None,
     }
 }
@@ -122,5 +124,24 @@ mod tests {
             to_chord(e).is_none(),
             "release events would double every command"
         );
+    }
+
+    #[test]
+    fn a_held_left_button_drags_and_letting_go_releases() {
+        let at = |kind| MouseEvent {
+            kind,
+            column: 4,
+            row: 2,
+            modifiers: KeyModifiers::NONE,
+        };
+        assert_eq!(
+            to_mouse(at(MouseEventKind::Drag(MouseButton::Left))),
+            Some(Mouse::Drag { column: 4, row: 2 })
+        );
+        assert_eq!(
+            to_mouse(at(MouseEventKind::Up(MouseButton::Left))),
+            Some(Mouse::Release)
+        );
+        assert_eq!(to_mouse(at(MouseEventKind::Drag(MouseButton::Right))), None);
     }
 }

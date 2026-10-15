@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- **The payload pane opens on the right** by default, beside the list. A terminal narrower
+  than 100 columns still stacks it, and `[layout] payload = "bottom"` brings back the old
+  place.
+- **The payload pane can be resized**: `<leader>r{hjkl}` grows whichever of the list and
+  the pane has the focus, 5% at a time, and with the mouse on, the pane's top rule can be
+  dragged. `[layout] payload_size` sets where it starts, 20 to 80 percent, 50 by default.
+- **Clicking a row selects it**, in every list, and a second click on the same row opens
+  it, as `Enter` does.
+- **Drag to copy in the payload pane**: with the mouse on, a drag below the pane's top rule
+  highlights the payload's text, and letting go copies it, the way `y` does. Only the
+  pane's text, never the list beside it, which a terminal's own selection cannot avoid.
+
 ## 0.4.0 — 2026-10-15
 
 - **Switch connection profile without restarting**: `<Space>P` picks a profile from

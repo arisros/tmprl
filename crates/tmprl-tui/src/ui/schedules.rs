@@ -113,5 +113,9 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
         .map(|l| highlight(l, &app.search, match_style()))
         .collect();
 
+    view.rows_drawn.set(Some(crate::view::RowsDrawn {
+        area: tmprl_ui::Rect::new(area.x, area.y, area.width, lines.len() as u16),
+        first,
+    }));
     frame.render_widget(Paragraph::new(lines), area);
 }

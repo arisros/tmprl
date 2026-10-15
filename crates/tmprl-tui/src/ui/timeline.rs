@@ -138,6 +138,15 @@ pub fn render(frame: &mut Frame, area: Rect, outline: &Outline, view: &View, app
             .map(|l| highlight(l, &app.search, match_style())),
     );
 
+    view.rows_drawn.set(Some(crate::view::RowsDrawn {
+        area: tmprl_ui::Rect::new(
+            area.x,
+            area.y + 1,
+            area.width,
+            lines.len().saturating_sub(1) as u16,
+        ),
+        first,
+    }));
     frame.render_widget(Paragraph::new(lines), area);
 }
 

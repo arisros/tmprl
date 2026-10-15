@@ -2,6 +2,9 @@
 
 use super::*;
 
+/// The pane stacked under the list, for tests about scrolling it rather than placing it.
+const BOTTOM: &str = "[layout]\npayload = \"bottom\"";
+
 #[test]
 fn the_payload_pane_is_closed_until_asked_for() {
     let mut app = app_with_payloads();
@@ -47,8 +50,9 @@ fn an_encrypted_payload_says_it_needs_a_codec_rather_than_showing_bytes() {
 }
 
 #[test]
-fn the_payload_pane_opens_below_the_list_by_default() {
+fn layout_payload_bottom_opens_the_pane_below_the_list() {
     let mut app = app_with_payloads();
+    app.apply_config(None, None, Some(BOTTOM));
     app.run("history.detail", None);
     let out = draw(&mut app, 120, 20);
     let (row, _) = position(&out, "payloads");
@@ -56,9 +60,8 @@ fn the_payload_pane_opens_below_the_list_by_default() {
 }
 
 #[test]
-fn layout_payload_right_opens_the_pane_beside_the_list() {
+fn the_payload_pane_opens_beside_the_list_by_default() {
     let mut app = app_with_payloads();
-    app.apply_config(None, None, Some("[layout]\npayload = \"right\""));
     app.run("history.detail", None);
     let out = draw(&mut app, 120, 20);
     let (row, col) = position(&out, "payloads");
@@ -161,6 +164,7 @@ fn moving_the_cursor_restarts_the_payload_pane_at_the_top() {
 fn an_encrypted_payload_points_at_the_config_when_no_codec_is_set() {
     // "needs a codec server" is not actionable; naming the file and key is.
     let mut app = app_with_payloads();
+    app.apply_config(None, None, Some(BOTTOM));
     app.run("motion.bottom", None);
     app.run("history.detail", None);
     let out = draw(&mut app, 110, 20);
@@ -250,6 +254,7 @@ fn the_pipe_prompt_is_drawn_with_its_own_sigil() {
 #[test]
 fn k_on_a_retrying_activity_shows_where_it_is() {
     let mut app = app_with_retrying_activity();
+    app.apply_config(None, None, Some(BOTTOM));
     app.run("motion.bottom", None);
     app.run("history.detail", None);
     let out = draw(&mut app, 120, 20);
@@ -294,6 +299,7 @@ fn a_path_search_lights_up_the_value_the_pane_shows() {
 #[test]
 fn a_search_that_lands_scrolls_the_pane_to_the_match_once() {
     let mut app = app_with_payloads();
+    app.apply_config(None, None, Some(BOTTOM));
     app.run("motion.down", None);
     app.run("history.detail", None);
     app.search = tmprl_core::search::Search::new("charged");
@@ -339,7 +345,7 @@ fn app_on_a_tall_payload(config: Option<&str>, width: u16) -> App {
 
 #[test]
 fn the_focused_payload_pane_takes_the_motions() {
-    let mut app = app_on_a_tall_payload(None, 110);
+    let mut app = app_on_a_tall_payload(Some(BOTTOM), 110);
     let row = app.view.cursor;
     let max = app.view.detail_max_scroll;
 
@@ -382,7 +388,7 @@ fn the_focused_payload_pane_takes_the_motions() {
 #[test]
 fn leaving_the_payload_pane_gives_the_motions_back_to_the_list() {
     for leave in ["window.focus-up", "app.cancel", "history.detail"] {
-        let mut app = app_on_a_tall_payload(None, 110);
+        let mut app = app_on_a_tall_payload(Some(BOTTOM), 110);
         let row = app.view.cursor;
         app.run("window.focus-down", None);
         app.run(leave, None);
@@ -415,6 +421,7 @@ fn a_pane_beside_the_list_is_entered_sideways() {
 #[test]
 fn a_payload_that_fits_is_not_given_the_focus() {
     let mut app = app_with_payloads();
+    app.apply_config(None, None, Some(BOTTOM));
     app.run("history.detail", None);
     let _ = draw(&mut app, 110, 40);
     assert_eq!(app.view.detail_max_scroll, 0);
@@ -429,7 +436,7 @@ fn a_payload_that_fits_is_not_given_the_focus() {
 
 #[test]
 fn moving_to_another_window_leaves_the_payload_pane() {
-    let mut app = app_on_a_tall_payload(None, 110);
+    let mut app = app_on_a_tall_payload(Some(BOTTOM), 110);
     app.run("window.split-right", None);
     app.run("window.focus-left", None);
     let _ = draw(&mut app, 110, 20);
@@ -443,7 +450,7 @@ fn moving_to_another_window_leaves_the_payload_pane() {
 
 #[test]
 fn a_full_page_moves_the_list_by_what_it_shows() {
-    let mut app = app_on_a_tall_payload(None, 110);
+    let mut app = app_on_a_tall_payload(Some(BOTTOM), 110);
     app.run("motion.top", None);
     let rows = app.view.page;
 
@@ -465,7 +472,7 @@ fn click(app: &mut App, column: u16, row: u16) {
 
 #[test]
 fn the_wheel_scrolls_whichever_of_the_list_and_the_pane_it_is_over() {
-    let mut app = app_on_a_tall_payload(None, 110);
+    let mut app = app_on_a_tall_payload(Some(BOTTOM), 110);
     let row = app.view.cursor;
     let pane = app.view.detail_area;
 
@@ -482,7 +489,7 @@ fn the_wheel_scrolls_whichever_of_the_list_and_the_pane_it_is_over() {
 
 #[test]
 fn a_click_focuses_what_it_lands_on() {
-    let mut app = app_on_a_tall_payload(None, 110);
+    let mut app = app_on_a_tall_payload(Some(BOTTOM), 110);
     let pane = app.view.detail_area;
 
     click(&mut app, pane.x + 2, pane.y + 2);
@@ -499,7 +506,7 @@ fn a_click_focuses_what_it_lands_on() {
 
 #[test]
 fn the_mouse_is_ignored_while_a_prompt_owns_the_keyboard() {
-    let mut app = app_on_a_tall_payload(None, 110);
+    let mut app = app_on_a_tall_payload(Some(BOTTOM), 110);
     let pane = app.view.detail_area;
     app.run("search.open", None);
 
@@ -507,4 +514,186 @@ fn the_mouse_is_ignored_while_a_prompt_owns_the_keyboard() {
     click(&mut app, pane.x + 2, pane.y + 2);
     assert_eq!(app.view.detail_scroll, 0);
     assert!(!app.view.detail_focus);
+}
+
+#[test]
+fn a_click_puts_the_cursor_on_the_row_under_it() {
+    let mut app = app_with_rows();
+    let out = draw(&mut app, 110, 20);
+    let (row, _) = position(&out, "temporal-system");
+
+    click(&mut app, 5, row as u16);
+    assert_eq!(app.view.cursor, 2);
+    assert_eq!(
+        app.view.screen,
+        Screen::Namespaces,
+        "one click only selects"
+    );
+
+    click(&mut app, 5, 18);
+    assert_eq!(
+        app.view.cursor, 2,
+        "below the last row there is nothing to select"
+    );
+}
+
+#[test]
+fn a_second_click_on_the_same_row_opens_it() {
+    let mut app = app_with_rows();
+    let out = draw(&mut app, 110, 20);
+    let (payments, _) = position(&out, "payments");
+    let (system, _) = position(&out, "temporal-system");
+
+    click(&mut app, 5, payments as u16);
+    click(&mut app, 5, system as u16);
+    assert_eq!(
+        app.view.screen,
+        Screen::Namespaces,
+        "two rows are two selections"
+    );
+
+    click(&mut app, 5, system as u16);
+    assert_eq!(app.view.screen, Screen::Workflows);
+    assert_eq!(app.view.scope, vec!["temporal-system".to_string()]);
+}
+
+#[test]
+fn layout_payload_size_sets_the_panes_share() {
+    let app = app_on_a_tall_payload(Some("[layout]\npayload_size = 30"), 120);
+    let body = app.view.body_area;
+    let pane = app.view.detail_area;
+    assert!(app.view.detail_beside);
+    assert_eq!(pane.width, body.width * 30 / 100);
+}
+
+#[test]
+fn the_payload_pane_resizes_like_a_window() {
+    let mut app = app_on_a_tall_payload(None, 120);
+    assert_eq!(app.payload_size(), 50);
+
+    app.run("window.grow-right", None);
+    assert_eq!(app.payload_size(), 45, "from the list, the list grows");
+    app.run("window.grow-up", None);
+    assert_eq!(
+        app.payload_size(),
+        45,
+        "a pane beside the list has no height to give"
+    );
+
+    app.run("window.focus-right", None);
+    assert!(app.view.detail_focus);
+    for _ in 0..10 {
+        app.run("window.grow-right", None);
+    }
+    assert_eq!(
+        app.payload_size(),
+        tmprl_core::config::PAYLOAD_SIZE_MAX,
+        "the list keeps a share"
+    );
+    let _ = draw(&mut app, 120, 20);
+    assert!(app.view.detail_area.width > app.view.body_area.width / 2);
+}
+
+#[test]
+fn dragging_the_panes_top_rule_resizes_it() {
+    let mut app = app_on_a_tall_payload(None, 120);
+    let body = app.view.body_area;
+    let pane = app.view.detail_area;
+
+    app.handle(Msg::Mouse(Mouse::Drag {
+        column: body.x + 10,
+        row: pane.y,
+    }));
+    assert_eq!(
+        app.payload_size(),
+        50,
+        "a drag that did not start on the rule"
+    );
+
+    click(&mut app, pane.x + 3, pane.y);
+    app.handle(Msg::Mouse(Mouse::Drag {
+        column: body.right() - body.width * 30 / 100,
+        row: pane.y,
+    }));
+    assert_eq!(app.payload_size(), 30);
+
+    app.handle(Msg::Mouse(Mouse::Release));
+    app.handle(Msg::Mouse(Mouse::Drag {
+        column: body.x + 10,
+        row: pane.y,
+    }));
+    assert_eq!(
+        app.payload_size(),
+        30,
+        "released, the pointer is free again"
+    );
+}
+
+#[test]
+fn a_selection_reads_like_a_terminals_whichever_way_it_was_dragged() {
+    use crate::view::{DrawnText, TextSelection};
+    let drawn = DrawnText {
+        area: tmprl_ui::Rect::new(10, 5, 6, 3),
+        cells: ["  {   ", "  \"a\":", "  1 } "]
+            .iter()
+            .map(|l| l.chars().map(String::from).collect())
+            .collect(),
+    };
+    let down = TextSelection {
+        from: (12, 5),
+        to: (13, 7),
+    };
+    let up = TextSelection {
+        from: down.to,
+        to: down.from,
+    };
+    assert_eq!(drawn.text(&down), "{\n  \"a\":\n  1");
+    assert_eq!(drawn.text(&up), drawn.text(&down));
+}
+
+#[test]
+fn dragging_over_the_payload_copies_what_it_covered() {
+    let mut app = app_on_a_tall_payload(None, 120);
+    let area = app.view.detail_text.borrow().area;
+
+    click(&mut app, area.x, area.y);
+    app.handle(Msg::Mouse(Mouse::Drag {
+        column: area.right() + 20,
+        row: area.y + 1,
+    }));
+    let selection = app.text_selection().expect("a press in the pane selects");
+    assert_eq!(
+        selection.to,
+        (area.right() - 1, area.y + 1),
+        "kept inside the pane"
+    );
+    let text = app.view.detail_text.borrow().text(&selection);
+    assert_eq!(text.lines().count(), 2, "{text}");
+    assert!(!text.contains('│'), "nothing of the list beside it: {text}");
+
+    let mut term = Terminal::new(TestBackend::new(120, 20)).unwrap();
+    term.draw(|f| render(f, &mut app)).unwrap();
+    let cell = &term.backend().buffer()[(area.x + 2, area.y)];
+    assert!(cell.modifier.contains(ratatui::style::Modifier::REVERSED));
+
+    app.handle(Msg::Mouse(Mouse::Release));
+    assert!(app.text_selection().is_none());
+    let note = app.note.clone().unwrap().0;
+    assert!(note.starts_with("yanked"), "{note}");
+}
+
+#[test]
+fn a_click_in_the_payload_copies_nothing() {
+    let mut app = app_on_a_tall_payload(None, 120);
+    let area = app.view.detail_text.borrow().area;
+    click(&mut app, area.x + 2, area.y + 1);
+    app.handle(Msg::Mouse(Mouse::Release));
+    assert!(app.text_selection().is_none());
+    assert!(
+        app.note
+            .as_ref()
+            .is_none_or(|(n, _)| !n.starts_with("yanked")),
+        "{:?}",
+        app.note
+    );
 }
