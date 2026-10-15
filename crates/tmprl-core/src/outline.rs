@@ -176,26 +176,54 @@ impl Outline {
         Some(self.offsets[slot])
     }
 
-    /// The next group at or after `from` whose outcome is a failure, `]f`, and what the
-    /// minimap points at. On a long history "where did it go wrong" is the whole question,
-    /// and scrolling to find out does not scale.
-    pub fn next_failure(&self, from: usize) -> Option<usize> {
-        self.visible
-            .iter()
-            .copied()
-            .filter(|g| self.groups[*g].outcome.is_failure())
-            .find(|g| self.row_of_group(*g).is_some_and(|r| r > from))
-            .and_then(|g| self.row_of_group(g))
+    /// The next failing group after row `from`, `]f`. On a long history "where did it go
+    /// wrong" is the whole question, and scrolling to find out does not scale.
+    ///
+    /// Returns a group, not a row, because the group may be hidden: a failed workflow task
+    /// is found while workflow tasks are folded away, since a non-determinism error is
+    /// exactly what `]f` is for, and the caller shows them to land on it. `retrying` names
+    /// the open groups that are failing without a closing event, an activity between tries.
+    pub fn next_failing(&self, from: usize, retrying: impl Fn(&Group) -> bool) -> Option<usize> {
+        let (current, _) = self.position(from)?;
+        (current + 1..self.groups.len()).find(|g| self.is_failing(*g, &retrying))
     }
 
-    /// The previous failing group before `from`.
-    pub fn prev_failure(&self, from: usize) -> Option<usize> {
-        self.visible
-            .iter()
-            .copied()
-            .filter(|g| self.groups[*g].outcome.is_failure())
-            .filter_map(|g| self.row_of_group(g))
-            .rfind(|r| *r < from)
+    /// The previous failing group before row `from`, `[f`. From inside a failing group's
+    /// events that is the group itself.
+    pub fn prev_failing(&self, from: usize, retrying: impl Fn(&Group) -> bool) -> Option<usize> {
+        let end = match self.position(from) {
+            Some((group, true)) => group,
+            Some((group, false)) => group + 1,
+            None => self.groups.len(),
+        };
+        (0..end).rev().find(|g| self.is_failing(*g, &retrying))
+    }
+
+    /// Whether the group is drawn, as opposed to folded away with the workflow tasks.
+    pub fn is_shown(&self, group: usize) -> bool {
+        self.show_plumbing
+            || self
+                .groups
+                .get(group)
+                .is_some_and(|g| !g.category.is_plumbing())
+    }
+
+    /// The group row `row` belongs to, and whether it is that group's own line.
+    fn position(&self, row: usize) -> Option<(usize, bool)> {
+        match self.row_at(row)? {
+            Row::Group { group, .. } => Some((group, true)),
+            Row::Event { group, .. } => Some((group, false)),
+        }
+    }
+
+    fn is_failing(&self, group: usize, retrying: &impl Fn(&Group) -> bool) -> bool {
+        let g = &self.groups[group];
+        if !self.is_shown(group) {
+            // A timed-out workflow task is routine, a sticky queue timing out when a worker
+            // restarts; only a failed one is worth unfolding the workflow tasks for.
+            return g.outcome == Outcome::Failed;
+        }
+        g.outcome.is_failure() || (g.is_open() && retrying(g))
     }
 
     /// Rebuild the visibility and offset tables. O(groups), and only on a shape change,
@@ -394,15 +422,100 @@ mod tests {
         assert_eq!(o.len(), collapsed);
     }
 
+    fn never(_: &Group) -> bool {
+        false
+    }
+
     #[test]
     fn failures_are_reachable_without_scrolling_to_them() {
         let o = outline();
         // "Ship" failed and is the last row.
-        let at = o.next_failure(0).expect("there is a failure below row 0");
-        assert!(matches!(o.row_at(at), Some(Row::Group { group: 3, .. })));
-        assert_eq!(o.next_failure(at), None, "nothing after the last failure");
-        assert_eq!(o.prev_failure(at), None, "nothing before the first");
-        assert_eq!(o.prev_failure(o.len()), Some(at));
+        assert_eq!(o.next_failing(0, never), Some(3));
+        let at = o.row_of_group(3).unwrap();
+        assert_eq!(
+            o.next_failing(at, never),
+            None,
+            "nothing after the last failure"
+        );
+        assert_eq!(o.prev_failing(at, never), None, "nothing before the first");
+        assert_eq!(o.prev_failing(o.len(), never), Some(3));
+    }
+
+    #[test]
+    fn from_inside_a_failed_group_back_is_its_own_line() {
+        let mut o = outline();
+        o.toggle(3);
+        let event_row = o.row_of_group(3).unwrap() + 1;
+        assert!(matches!(
+            o.row_at(event_row),
+            Some(Row::Event { group: 3, .. })
+        ));
+        assert_eq!(o.prev_failing(event_row, never), Some(3));
+        assert_eq!(o.next_failing(event_row, never), None);
+    }
+
+    /// Three activities: one between tries, one completed, one still on its first try.
+    fn retrying_outline() -> Outline {
+        let events = vec![
+            ev(1, GroupRef::Workflow, Role::Opens, Category::Workflow).with_subject("Order"),
+            ev(2, GroupRef::Opened(2), Role::Opens, Category::Activity).with_subject("Charge"),
+            ev(3, GroupRef::Opened(3), Role::Opens, Category::Activity).with_subject("Reserve"),
+            ev(4, GroupRef::Opened(3), Role::Closes, Category::Activity)
+                .with_outcome(Outcome::Completed),
+            ev(5, GroupRef::Opened(5), Role::Opens, Category::Activity).with_subject("Ship"),
+        ];
+        let groups = group_events(&events);
+        Outline::new(events, groups)
+    }
+
+    #[test]
+    fn an_activity_between_tries_is_a_failure_to_land_on() {
+        let o = retrying_outline();
+        let charge = |g: &Group| g.subject == "Charge";
+        assert_eq!(o.next_failing(0, never), None, "no event says it failed");
+        assert_eq!(o.next_failing(0, charge), Some(1));
+        assert_eq!(o.prev_failing(o.len(), charge), Some(1));
+    }
+
+    #[test]
+    fn only_an_open_group_can_be_retrying() {
+        let o = retrying_outline();
+        let reserve = |g: &Group| g.subject == "Reserve";
+        assert_eq!(o.next_failing(0, reserve), None, "it completed");
+    }
+
+    fn with_workflow_task(outcome: Outcome) -> Outline {
+        let events = vec![
+            ev(1, GroupRef::Workflow, Role::Opens, Category::Workflow).with_subject("Order"),
+            ev(2, GroupRef::Opened(2), Role::Opens, Category::Activity).with_subject("Charge"),
+            ev(3, GroupRef::Opened(2), Role::Closes, Category::Activity)
+                .with_outcome(Outcome::Completed),
+            ev(4, GroupRef::Opened(4), Role::Opens, Category::WorkflowTask),
+            ev(5, GroupRef::Opened(4), Role::Closes, Category::WorkflowTask).with_outcome(outcome),
+        ];
+        let groups = group_events(&events);
+        Outline::new(events, groups)
+    }
+
+    #[test]
+    fn a_failed_workflow_task_is_found_while_workflow_tasks_are_hidden() {
+        let o = with_workflow_task(Outcome::Failed);
+        assert!(!o.is_shown(2));
+        assert_eq!(o.next_failing(0, never), Some(2));
+        assert_eq!(o.prev_failing(o.len(), never), Some(2));
+    }
+
+    #[test]
+    fn a_timed_out_workflow_task_is_only_found_once_shown() {
+        let mut o = with_workflow_task(Outcome::TimedOut);
+        assert_eq!(
+            o.next_failing(0, never),
+            None,
+            "a sticky timeout is routine"
+        );
+        o.set_show_plumbing(true);
+        assert!(o.is_shown(2));
+        assert_eq!(o.next_failing(0, never), Some(2));
     }
 
     #[test]
@@ -460,7 +573,8 @@ mod tests {
         assert!(o.is_empty());
         assert_eq!(o.row_at(0), None);
         assert_eq!(o.slice(0, 10), Vec::new());
-        assert_eq!(o.next_failure(0), None);
+        assert_eq!(o.next_failing(0, never), None);
+        assert_eq!(o.prev_failing(0, never), None);
     }
 
     #[test]

@@ -297,3 +297,104 @@ fn a_failed_describe_warns_and_keeps_what_was_known() {
     assert_eq!(level, Note::Warn);
     assert!(note.contains("permission denied"), "{note}");
 }
+
+fn viewing(events: Vec<NormalizedEvent>) -> App {
+    let mut app = app();
+    loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
+    app.run("nav.open", None);
+    app.handle(Msg::History {
+        generation: app.view.generation,
+        result: Ok((events, vec![9])),
+    });
+    app
+}
+
+fn subject_under_cursor(app: &App) -> String {
+    let group = app.group_under_cursor().expect("on a group");
+    let outline = app.view.history.value().unwrap();
+    outline.group(group).unwrap().subject.clone()
+}
+
+/// Two activities still open, `Charge` with id "1" and `Ship` with id "2".
+fn two_open_activities() -> Vec<NormalizedEvent> {
+    use tmprl_core::history::{Category as C, GroupRef as G, Role as R};
+    let activity = |id: i64, subject: &str, activity_id: &str| {
+        let mut e = hev(id, G::Opened(id), R::Opens, C::Activity).with_subject(subject);
+        e.fields.push(("activityId", activity_id.to_string()));
+        e
+    };
+    vec![
+        hev(1, G::Workflow, R::Opens, C::Workflow).with_subject("Order"),
+        activity(5, "Charge", "1"),
+        activity(6, "Ship", "2"),
+    ]
+}
+
+#[test]
+fn a_failure_jump_stops_on_an_activity_between_tries() {
+    let mut app = viewing(two_open_activities());
+    app.view.pending = vec![
+        PendingActivity {
+            activity_id: "1".into(),
+            attempt: 1,
+            ..Default::default()
+        },
+        PendingActivity {
+            activity_id: "2".into(),
+            attempt: 4,
+            ..Default::default()
+        },
+    ];
+    app.run("motion.top", None);
+    app.run("history.next-failure", None);
+    assert_eq!(
+        subject_under_cursor(&app),
+        "Ship",
+        "Charge is on its first try"
+    );
+
+    app.run("history.prev-failure", None);
+    assert_eq!(
+        app.note.as_ref().unwrap().0,
+        "no failure above",
+        "Charge, above, is not failing"
+    );
+    assert_eq!(subject_under_cursor(&app), "Ship");
+
+    app.view.pending[0].attempt = 2;
+    app.run("history.prev-failure", None);
+    assert_eq!(subject_under_cursor(&app), "Charge");
+}
+
+#[test]
+fn without_a_describe_an_open_activity_is_not_a_failure() {
+    let mut app = viewing(two_open_activities());
+    app.run("motion.top", None);
+    app.run("history.next-failure", None);
+    let (note, level) = app.note.clone().unwrap();
+    assert_eq!((note.as_str(), level), ("no failure below", Note::Warn));
+}
+
+#[test]
+fn a_failure_jump_shows_the_workflow_tasks_to_reach_a_failed_one() {
+    use tmprl_core::history::{Category as C, GroupRef as G, Outcome as O, Role as R};
+    let mut app = viewing(vec![
+        hev(1, G::Workflow, R::Opens, C::Workflow).with_subject("Order"),
+        hev(2, G::Opened(2), R::Opens, C::WorkflowTask),
+        hev(3, G::Opened(2), R::Closes, C::WorkflowTask).with_outcome(O::Failed),
+    ]);
+    assert_eq!(app.row_count(), 1, "workflow tasks start hidden");
+    app.run("motion.top", None);
+    app.run("history.next-failure", None);
+
+    assert_eq!(app.row_count(), 2, "the workflow tasks were shown");
+    let group = app.group_under_cursor().expect("on a group");
+    let outline = app.view.history.value().unwrap();
+    assert_eq!(outline.group(group).unwrap().category, C::WorkflowTask);
+    let (note, level) = app.note.clone().unwrap();
+    assert_eq!(level, Note::Warn);
+    assert!(note.contains("zp"), "{note}");
+
+    app.run("history.plumbing", None);
+    assert_eq!(app.row_count(), 1, "zp still hides them");
+}
