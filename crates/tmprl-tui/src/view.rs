@@ -16,7 +16,7 @@ use tmprl_client::{NamespaceInfo, ProfileSummary};
 use tmprl_core::dashboard::{Board, Item, Pacer};
 use tmprl_core::history::NormalizedEvent;
 use tmprl_core::outline::{Outline, Row};
-use tmprl_core::payload::FlatCache;
+use tmprl_core::payload::{FlatCache, Payload};
 use tmprl_core::pending::PendingActivity;
 use tmprl_core::search::Search;
 use tmprl_core::{Loadable, ScheduleRow, StatusCounts, WorkflowList, WorkflowRow};
@@ -126,6 +126,11 @@ pub struct View {
     /// the command's own stderr, which is the only useful thing to show when jq rejects a
     /// filter.
     pub piped: Option<Result<String, String>>,
+    /// A query's answer, shown in the pane in place of the payloads under the cursor, and
+    /// what `!`, the payload yanks and `$EDITOR` take while it is up.
+    pub queried: Option<Vec<(String, Payload)>>,
+    /// The query handlers the open workflow listed, for the picker.
+    pub handlers: Option<tmprl_core::interaction::Handlers>,
     /// First visible line of the payload pane, and how far it can usefully go. A payload can
     /// be far taller than the pane, clipping a stack trace silently hides its end, which is
     /// the part worth reading.
@@ -220,6 +225,8 @@ impl View {
             timeline_gaps_open: false,
             show_detail: false,
             piped: None,
+            queried: None,
+            handlers: None,
             detail_scroll: 0,
             detail_max_scroll: 0,
             detail_focus: false,

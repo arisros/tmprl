@@ -89,6 +89,11 @@ impl App {
         if self.decoded.is_empty() {
             return;
         }
+        for (_, p) in self.view.queried.iter_mut().flatten() {
+            if let Some(plain) = self.decoded.get(&Self::payload_key(p)) {
+                *p = plain.clone();
+            }
+        }
         let mut changed = false;
         for event in &mut self.view.history_events {
             for (_, p) in &mut event.payloads {
@@ -117,6 +122,9 @@ impl App {
     /// For a group that is its input *and* its result, which live on two different events,
     /// the same pair the payload pane shows.
     pub(super) fn payloads_under_cursor(&self) -> Vec<(String, tmprl_core::payload::Payload)> {
+        if let Some(queried) = &self.view.queried {
+            return queried.clone();
+        }
         let Some(outline) = self.view.history.value() else {
             return Vec::new();
         };

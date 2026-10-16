@@ -24,10 +24,12 @@
 //! | `messages` | the note line's history, `:messages` |
 //! | `mouse` | the wheel and the click, when `[input] mouse` asks for them |
 //! | `profile` | listing the connection profiles and switching to one |
+//! | `interaction` | workflow queries: the handler picker and the answer |
 
 mod dashboard;
 mod find;
 mod history;
+mod interaction;
 mod load;
 mod messages;
 mod mouse;
@@ -215,6 +217,8 @@ pub enum PromptKind {
     Update,
     /// The window a schedule backfill covers, and optionally its overlap policy.
     Backfill,
+    /// The name of a query handler, when the workflow could not list its own.
+    Query,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -233,6 +237,7 @@ impl Prompt {
             PromptKind::Signal => "signal:",
             PromptKind::Update => "update:",
             PromptKind::Backfill => "backfill:",
+            PromptKind::Query => "query:",
         }
     }
 }
@@ -354,6 +359,17 @@ pub enum Msg {
     Pending {
         generation: u64,
         result: Result<Vec<PendingActivity>, Fault>,
+    },
+    /// What `__temporal_workflow_metadata` answered, already through the codec.
+    QueryHandlers {
+        generation: u64,
+        result: Result<Vec<Payload>, Fault>,
+    },
+    /// A query's answer, already through the codec.
+    Queried {
+        generation: u64,
+        name: String,
+        result: Result<Vec<Payload>, Fault>,
     },
 }
 
@@ -1012,6 +1028,14 @@ impl App {
                 id,
                 result,
             } => self.startup_workflow_found(generation, id, result),
+            Msg::QueryHandlers { generation, result } => {
+                self.query_handlers_reply(generation, result)
+            }
+            Msg::Queried {
+                generation,
+                name,
+                result,
+            } => self.queried_reply(generation, name, result),
             Msg::Pending { generation, result } => {
                 if generation != self.view.generation {
                     return;
@@ -1368,6 +1392,8 @@ impl App {
             Action::DeleteWorkflow => self.confirm_mutation(MutationKind::Delete),
             Action::ResetWorkflow => self.confirm_mutation(MutationKind::Reset),
             Action::UpdateWorkflow => self.confirm_mutation(MutationKind::Update),
+            Action::QueryWorkflow => self.open_query(),
+            Action::StackTrace => self.stack_trace(),
 
             Action::SplitRight => self.split(Axis::Columns),
             Action::SplitDown => self.split(Axis::Rows),
@@ -1391,6 +1417,7 @@ impl App {
                     self.view.detail_scroll = 0;
                     self.view.detail_focus = false;
                     self.view.piped = None;
+                    self.view.queried = None;
                     self.maybe_decode();
                 } else {
                     self.note = Some((

@@ -794,3 +794,55 @@ fn a_long_payload_value_wraps_rather_than_running_off_the_pane() {
         "the end of the value should be on screen:\n{out}"
     );
 }
+
+#[test]
+fn a_query_answer_takes_the_pane_under_its_own_title() {
+    use tmprl_core::payload::Payload;
+    let mut app = app_with_payloads();
+    app.run("history.detail", None);
+    app.view.queried = Some(tmprl_core::interaction::labelled(
+        "getState",
+        vec![Payload::new(
+            "json/plain",
+            br#"{"stage":"approved"}"#.to_vec(),
+        )],
+    ));
+
+    let out = draw(&mut app, 110, 20);
+    assert!(
+        out.contains(" query "),
+        "the pane should say what it shows:\n{out}"
+    );
+    assert!(
+        out.contains("getState"),
+        "the handler labels the answer:\n{out}"
+    );
+    assert!(
+        out.contains("\"stage\": \"approved\""),
+        "answer missing:\n{out}"
+    );
+}
+
+#[test]
+fn a_stack_trace_is_drawn_as_lines() {
+    use tmprl_core::payload::Payload;
+    let mut app = app_with_payloads();
+    app.run("history.detail", None);
+    app.view.queried = Some(tmprl_core::interaction::labelled(
+        "__stack_trace",
+        vec![Payload::new(
+            "json/plain",
+            br#""coroutine root [blocked on chan-1.Receive]:\nmain.LoanWorkflow()""#.to_vec(),
+        )],
+    ));
+
+    let out = draw(&mut app, 110, 20);
+    assert!(
+        !out.contains("\\n"),
+        "escapes should not reach the screen:\n{out}"
+    );
+    assert!(
+        out.contains("main.LoanWorkflow()"),
+        "second line missing:\n{out}"
+    );
+}

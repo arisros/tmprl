@@ -63,9 +63,9 @@ project testable:
 
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
-| `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 88 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 448 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 498 |
+| `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 89 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 457 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 508 |
 | `tmprl-ui` | built | Plain unit tests over the layout tree | 47 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -118,6 +118,7 @@ Every file opens with a `//!` line saying what it is; this is those lines, gathe
 | `filter.rs`, `complete.rs` | the clauses a filter is built from, and completing the one being typed |
 | `schedule.rs`, `timerange.rs` | schedules, and the time window a backfill runs over |
 | `mutation.rs` | the actions that change a cluster, and their confirmations |
+| `interaction.rs` | workflow queries: the handlers a workflow lists, and the fallback when it cannot |
 | `payload.rs` | payloads: bytes plus the metadata saying how to read them |
 | `command.rs` | **the command registry: every action tmprl can take, by id** |
 | `key.rs`, `keymap.rs`, `mode.rs` | keys, the default bindings, modes |
@@ -131,7 +132,7 @@ Every file opens with a `//!` line saying what it is; this is those lines, gathe
 
 **`tmprl-client`**, all network IO: `conn.rs` connects; `ops/` has one file per area of the
 API (`workflow`, `history`, `schedule`, `namespace`, `mutate`, `codec`, `describe`,
-`attributes`, `taskqueue`).
+`attributes`, `taskqueue`, `query`).
 `ops/history.rs` is where protobuf events become `tmprl-core` events, `ops/describe.rs`
 reads the mutable state they cannot carry, the activities still being retried, and
 `ops/attributes.rs` asks the cluster what can be filtered on at all.

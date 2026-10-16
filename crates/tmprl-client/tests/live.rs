@@ -642,3 +642,37 @@ async fn the_close_event_is_the_one_event_a_closed_workflow_ended_on() {
         None => eprintln!("SKIP: no running workflow to check for the absence of one"),
     }
 }
+
+/// A query is answered by a worker, and CI runs none. What has to hold is that asking does
+/// not hang the task past tmprl's own deadline, and fails with a code the picker can tell
+/// apart from "this workflow has no such handler".
+#[tokio::test]
+async fn a_query_nothing_answers_fails_within_the_deadline() {
+    use tmprl_core::fault::Code;
+    let Some(c) = conn().await else { return };
+    let ns = c.namespace().to_string();
+    let page = c
+        .list_workflows(&ns, "ExecutionStatus = 'Running'", 1, Vec::new())
+        .await
+        .expect("ListWorkflowExecutions");
+    let Some(row) = page.rows.first() else {
+        eprintln!("SKIP: no running workflow to query. Seed one with `temporal workflow start`.");
+        return;
+    };
+
+    let started = std::time::Instant::now();
+    let err = c
+        .query_workflow(&ns, &row.workflow_id, &row.run_id, "__stack_trace")
+        .await
+        .expect_err("no worker polls the CI task queue");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(20),
+        "took {:?}",
+        started.elapsed()
+    );
+    assert_eq!(
+        err.code,
+        Code::DeadlineExceeded,
+        "a missing worker must not read as a missing handler, or as a cancel: {err}"
+    );
+}

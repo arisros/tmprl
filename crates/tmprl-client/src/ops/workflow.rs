@@ -223,7 +223,7 @@ fn row_from(namespace: &str, e: WorkflowExecutionInfo) -> WorkflowRow {
 /// Exhaustive on purpose. When Temporal adds an execution status this stops compiling,
 /// which is the moment we want to hear about it, a `_` arm would render the new status as
 /// `Unspecified` and nobody would notice for a release or two.
-fn status_from_proto(s: ProtoStatus) -> WorkflowStatus {
+pub(crate) fn status_from_proto(s: ProtoStatus) -> WorkflowStatus {
     match s {
         ProtoStatus::Unspecified => WorkflowStatus::Unspecified,
         ProtoStatus::Running => WorkflowStatus::Running,

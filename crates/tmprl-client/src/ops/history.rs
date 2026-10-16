@@ -337,7 +337,7 @@ impl Mapped {
 
 /// Protobuf payload to domain payload. The metadata values are bytes on the wire; the two
 /// keys tmprl reads are ASCII.
-fn convert(p: ProtoPayload) -> Payload {
+pub(crate) fn convert(p: ProtoPayload) -> Payload {
     let meta = |k: &str| {
         p.metadata
             .get(k)

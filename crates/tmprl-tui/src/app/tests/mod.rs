@@ -10,6 +10,7 @@ mod config;
 mod dashboard;
 mod find;
 mod history;
+mod interaction;
 mod messages;
 mod mutate;
 mod nav;

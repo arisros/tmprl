@@ -23,6 +23,7 @@ impl App {
                     PromptKind::Search => self.run_search(entered),
                     PromptKind::Signal | PromptKind::Update => self.confirm_named(kind, entered),
                     PromptKind::Backfill => self.confirm_backfill(entered),
+                    PromptKind::Query => self.run_query(entered),
                 }
             }
             // Backspace on an empty line closes the prompt, as it does in vim.
