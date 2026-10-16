@@ -15,7 +15,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use tmprl_core::history::{Failure, NormalizedEvent};
 use tmprl_core::outline::{Outline, Row};
-use tmprl_core::payload::Rendered;
+use tmprl_core::payload::{Payload, Rendered};
 use tmprl_core::pending::{self, PendingActivity};
 
 use crate::app::{App, DecodeState};
@@ -46,13 +46,9 @@ pub fn render(
     let Some(outline) = view.history.value() else {
         return (0, 0);
     };
-    let lines = match outline.row_at(view.cursor) {
-        Some(Row::Event { event, .. }) => outline
-            .event(event)
-            .map(|e| event_lines(e, app, t))
-            .unwrap_or_default(),
-        Some(Row::Group { group, .. }) => group_lines(outline, group, view, app, t),
-        None => Vec::new(),
+    let (label, lines) = match &view.queried {
+        Some(answer) => ("query", payload_lines(answer, app, t)),
+        None => ("payloads", cursor_lines(outline, view, app, t)),
     };
 
     let lines = if lines.is_empty() {
@@ -82,7 +78,7 @@ pub fn render(
     }
     .min(max_scroll);
 
-    let title = title("payloads", view, focused, scroll, max_scroll);
+    let title = title(label, view, focused, scroll, max_scroll);
     let block = Block::default()
         .borders(Borders::TOP)
         .border_style(t.border(focused))
@@ -95,6 +91,17 @@ pub fn render(
     frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, 0)), inner);
     record_text(frame, inner, view);
     (max_scroll, scroll)
+}
+
+fn cursor_lines<'a>(outline: &'a Outline, view: &'a View, app: &App, t: &Theme) -> Vec<Line<'a>> {
+    match outline.row_at(view.cursor) {
+        Some(Row::Event { event, .. }) => outline
+            .event(event)
+            .map(|e| event_lines(e, app, t))
+            .unwrap_or_default(),
+        Some(Row::Group { group, .. }) => group_lines(outline, group, view, app, t),
+        None => Vec::new(),
+    }
 }
 
 fn record_text(frame: &mut Frame, area: Rect, view: &View) {
@@ -183,7 +190,7 @@ fn group_lines<'a>(
         if e.payloads.is_empty() {
             continue;
         }
-        lines.extend(payload_lines(e, app, t));
+        lines.extend(payload_lines(&e.payloads, app, t));
     }
     if lines.len() == before {
         // A pane showing nothing but a title reads as broken. Plenty of events genuinely
@@ -292,16 +299,16 @@ fn event_lines<'a>(e: &'a NormalizedEvent, app: &App, t: &Theme) -> Vec<Line<'a>
     if let Some(f) = &e.failure {
         lines.extend(failure_lines(f, "    ", t));
     }
-    lines.extend(payload_lines(e, app, t));
+    lines.extend(payload_lines(&e.payloads, app, t));
     if let Some(f) = &e.failure {
         lines.extend(stack_lines(f, "    ", t));
     }
     lines
 }
 
-fn payload_lines<'a>(e: &'a NormalizedEvent, app: &App, t: &Theme) -> Vec<Line<'a>> {
+fn payload_lines<'a>(payloads: &[(String, Payload)], app: &App, t: &Theme) -> Vec<Line<'a>> {
     let mut lines = Vec::new();
-    for (label, p) in &e.payloads {
+    for (label, p) in payloads {
         lines.push(Line::from(Span::styled(
             format!("  {label}"),
             t.accent.add_modifier(Modifier::BOLD),

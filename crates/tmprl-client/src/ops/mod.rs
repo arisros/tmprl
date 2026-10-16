@@ -9,6 +9,7 @@ pub mod describe;
 pub mod history;
 pub mod mutate;
 pub mod namespace;
+pub mod query;
 pub mod schedule;
 pub mod taskqueue;
 pub mod workflow;

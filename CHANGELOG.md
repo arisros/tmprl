@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Query a workflow**, `<Space>cq` in a history: a picker over the queries the workflow
+  lists, with their descriptions, and the answer in the payload pane, where `!`, the yanks
+  and `$EDITOR` work on it. An older SDK that cannot list its queries still gives a picker
+  from its own refusal, or a prompt for the name. `<Space>cs` shows where the workflow is
+  blocked, its stack trace, as lines.
+
 ## 0.4.2 — 2026-10-16
 
 - **Long lines wrap in the payload pane** instead of being cut off at its edge, so a long
