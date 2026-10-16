@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.2 — 2026-10-16
 
 - **Long lines wrap in the payload pane** instead of being cut off at its edge, so a long
   failure message, a JSON path in a validation error or a long payload value can be read
