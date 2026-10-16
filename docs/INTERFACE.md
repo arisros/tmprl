@@ -485,8 +485,8 @@ closed is refused with a message instead of polling for events that can never ar
 | `zg` | fold or unfold the timeline's idle stretches | **live** |
 | `]f` / `[f` | jump to the next / previous failure: a failed or timed-out group, an activity between retries, a failed workflow task | **live** |
 | `F` | follow, tail a running workflow | **live** |
-| `<leader>cs` | call stack (`__stack_trace` query) | planned |
-| `<leader>cq` | send a query to the workflow | planned |
+| `<leader>cs` | call stack (`__stack_trace` query) | **live** |
+| `<leader>cq` | send a query to the workflow, picked from the handlers it lists | **live** |
 | `!` | pipe the focused payloads through a command | **live** |
 | `K` | show the payloads and the full failure under the cursor | **live** |
 | `<C-e>` / `<C-y>` | scroll the payload pane | **live** |
@@ -527,8 +527,17 @@ rather than an invisible selection, because *"which four thousand workflows am I
 terminate?"* should be a question with an answer on screen. Until then a batch is a `V`
 selection.
 
-Signal and update ask for a name and send no input; a payload for either is planned, along
-with the query on `<leader>cq`.
+Signal and update ask for a name and send no input; a payload for either is planned, and so
+is input for a query.
+
+`<leader>cq` asks the open workflow's `__temporal_workflow_metadata` which queries it has and
+opens a picker over them, with each handler's description beside it and what the workflow
+says it is doing on the note line. An SDK too old to answer that usually lists its handlers in
+the refusal, and the picker is built from that list; when it lists none, a `query:` prompt
+takes the name. The answer replaces the payloads in the pane until the cursor moves, and `!`,
+the payload yanks and `<leader>e` take it while it is up. A query is read-only: no
+confirmation, nothing in the audit log, and it works on a `readonly` profile. A worker has to
+answer it, so with none polling the task queue it fails after 15 seconds and says so.
 
 A note on the status line is gone at the next key, which suits "yanked 3 rows" and does not
 suit a failure. `:messages` keeps the session's notes, newest last. A failed request reads as

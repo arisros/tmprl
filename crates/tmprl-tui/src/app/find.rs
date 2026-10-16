@@ -19,6 +19,7 @@ impl App {
             picker::Kind::Filters => self.filter_items(),
             picker::Kind::Namespaces => self.namespace_items(),
             picker::Kind::Profiles => self.profile_items(),
+            picker::Kind::Queries => self.query_items(),
         };
         if items.is_empty() {
             // Saying why beats opening an empty box: the answer is nearly always "you are
@@ -32,6 +33,7 @@ impl App {
                     picker::Kind::Filters => "nothing to filter on yet",
                     picker::Kind::Namespaces => "no namespaces loaded yet",
                     picker::Kind::Profiles => "no profiles in temporal.toml",
+                    picker::Kind::Queries => "this workflow lists no queries",
                 }
                 .into(),
                 Note::Warn,
@@ -359,6 +361,7 @@ impl App {
             Target::Query(clause) => self.add_clause(&clause),
             Target::Namespace(name) => self.switch_namespace(&name),
             Target::Profile(name) => self.switch_profile(&name),
+            Target::Handler(name) => self.run_query(name),
         }
     }
 

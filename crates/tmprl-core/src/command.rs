@@ -131,6 +131,10 @@ pub enum Action {
     BackfillSchedule,
     CreateSchedule,
 
+    // Queries. Read-only, so no confirmation and allowed on a read-only profile.
+    QueryWorkflow,
+    StackTrace,
+
     NewTab,
     CloseTab,
     NextTab,
@@ -261,6 +265,9 @@ impl Registry {
             "schedule.delete",    "Mutate",      "Delete this schedule"      => DeleteSchedule;
             "schedule.backfill",  "Mutate",      "Backfill a time range"     => BackfillSchedule;
             "schedule.create",    "Mutate",      "Create a schedule"         => CreateSchedule;
+
+            "workflow.query",     "Query",       "Ask the workflow a query"  => QueryWorkflow;
+            "workflow.stack",     "Query",       "Where the workflow is blocked" => StackTrace;
 
             "tab.new",            "Tabs",        "Open a tab"                => NewTab;
             "tab.close",          "Tabs",        "Close this tab"            => CloseTab;

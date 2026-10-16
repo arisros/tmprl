@@ -182,6 +182,8 @@ impl App {
         self.view.history_events.clear();
         self.view.history_token.clear();
         self.view.history_resume.clear();
+        self.view.handlers = None;
+        self.view.queried = None;
     }
 
     /// Where this pane is now, for the jumplist.
@@ -312,6 +314,7 @@ impl App {
             // from the previous one no longer apply.
             self.view.detail_scroll = 0;
             self.view.piped = None;
+            self.view.queried = None;
         }
         self.view.cursor = at;
         self.maybe_decode();
