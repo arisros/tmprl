@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **Long lines wrap in the payload pane** instead of being cut off at its edge, so a long
+  failure message, a JSON path in a validation error or a long payload value can be read
+  in full. A failure message with line breaks of its own keeps them.
+
 ## 0.4.1 — 2026-10-15
 
 - **The payload pane opens on the right** by default, beside the list. A terminal narrower
