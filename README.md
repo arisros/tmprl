@@ -204,7 +204,7 @@ flowchart LR
 |---|---|---|
 | `tmprl-client` | 88 | all network IO |
 | `tmprl-core` | 448 | no terminal, no server |
-| `tmprl-tui` | 495 | ratatui |
+| `tmprl-tui` | 498 | ratatui |
 | `tmprl-ui` | 47 | window tree |
 
 ```sh

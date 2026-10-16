@@ -697,3 +697,100 @@ fn a_click_in_the_payload_copies_nothing() {
         app.note
     );
 }
+
+#[test]
+fn a_long_failure_message_wraps_rather_than_running_off_the_pane() {
+    let message = format!(
+        "validation failed: {} at $.applicant.identity.number tail-of-message",
+        "field must match the expected pattern ".repeat(6)
+    );
+    let mut app = app_with_failure(tmprl_core::history::Failure::new(&message));
+    app.run("motion.bottom", None);
+    app.run("history.detail", None);
+
+    let out = draw(&mut app, 120, 30);
+    assert!(
+        out.contains("tail-of-message"),
+        "the end of the message should be on screen:\n{out}"
+    );
+    assert!(
+        out.contains("$.applicant.identity.number"),
+        "a path should not be split mid-word:\n{out}"
+    );
+}
+
+#[test]
+fn a_failure_message_with_newlines_is_drawn_one_line_each() {
+    let mut app = app_with_failure(tmprl_core::history::Failure::new(
+        "first line of the failure\nsecond line of the failure",
+    ));
+    app.run("motion.bottom", None);
+    app.run("history.detail", None);
+
+    let out = draw(&mut app, 120, 30);
+    let (first, _) = position(&out, "first line of the failure");
+    let (second, _) = position(&out, "second line of the failure");
+    assert_eq!(second, first + 1, "each line on a row of its own:\n{out}");
+}
+
+#[test]
+fn a_long_payload_value_wraps_rather_than_running_off_the_pane() {
+    use tmprl_core::history::{
+        Category as C, GroupRef as G, NormalizedEvent, Outcome as O, Role as R,
+    };
+    use tmprl_core::payload::Payload;
+
+    let value = format!(
+        "{}end-of-value",
+        "a long note from the applicant ".repeat(8)
+    );
+    let mut scheduled = NormalizedEvent::new(
+        2,
+        "ACTIVITY_TASK_SCHEDULED",
+        C::Activity,
+        G::Opened(2),
+        R::Opens,
+    )
+    .with_time(Some(2_000))
+    .with_subject("StoreNote");
+    scheduled.payloads.push((
+        "input".into(),
+        Payload::new(
+            "json/plain",
+            format!(r#"{{"note":"{value}"}}"#).into_bytes(),
+        ),
+    ));
+    let completed = NormalizedEvent::new(
+        3,
+        "ACTIVITY_TASK_COMPLETED",
+        C::Activity,
+        G::Opened(2),
+        R::Closes,
+    )
+    .with_time(Some(3_000))
+    .with_outcome(O::Completed);
+    let events = vec![
+        NormalizedEvent::new(
+            1,
+            "WORKFLOW_EXECUTION_STARTED",
+            C::Workflow,
+            G::Workflow,
+            R::Opens,
+        )
+        .with_time(Some(1_000))
+        .with_subject("NoteWorkflow"),
+        scheduled,
+        completed,
+    ];
+    let groups = tmprl_core::history::group_events(&events);
+    let mut app = app_with_history();
+    app.view.history = Loadable::loaded(tmprl_core::outline::Outline::new(events, groups));
+    app.run("motion.bottom", None);
+    app.run("history.detail", None);
+
+    let out = draw(&mut app, 120, 30);
+    assert!(
+        out.contains("end-of-value"),
+        "the end of the value should be on screen:\n{out}"
+    );
+}

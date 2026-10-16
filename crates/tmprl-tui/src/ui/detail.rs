@@ -10,7 +10,7 @@
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::style::Modifier;
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use tmprl_core::history::{Failure, NormalizedEvent};
@@ -70,13 +70,14 @@ pub fn render(
         .map(|l| super::highlight(l, &search, super::match_style()))
         .collect();
 
+    let visible = area.height.saturating_sub(1) as usize;
+    let (lines, starts) = fit(lines, area.width as usize, visible);
     // A payload can be far taller than the pane. Clipping it silently would hide the end of
     // a stack trace, which is the part worth reading, so the pane scrolls and says so.
-    let visible = area.height.saturating_sub(1) as usize;
     let max_scroll = lines.len().saturating_sub(visible);
     // One line of context above the match, its label or the key it sits under.
     let scroll = match first_match {
-        Some(at) if view.detail_seek => at.saturating_sub(1),
+        Some(at) if view.detail_seek => starts[at].saturating_sub(1),
         _ => view.detail_scroll,
     }
     .min(max_scroll);
@@ -222,10 +223,15 @@ fn failure_lines<'a>(f: &'a Failure, indent: &str, t: &Theme) -> Vec<Line<'a>> {
     let mut lines = Vec::new();
     for (depth, link) in f.chain().enumerate() {
         let prefix = if depth == 0 { "" } else { "caused by " };
-        lines.push(Line::from(Span::styled(
-            format!("{indent}{prefix}{}", link.headline()),
-            t.err,
-        )));
+        // A message can carry its own newlines, and a span cannot draw one.
+        let headline = link.headline();
+        for (n, part) in headline.lines().enumerate() {
+            let lead = if n == 0 { prefix } else { "  " };
+            lines.push(Line::from(Span::styled(
+                format!("{indent}{lead}{part}"),
+                t.err,
+            )));
+        }
 
         let mut tags = Vec::new();
         if let Some(s) = &link.source {
@@ -368,6 +374,7 @@ fn render_piped(
     };
 
     let visible = area.height.saturating_sub(1) as usize;
+    let (lines, _) = fit(lines, area.width as usize, visible);
     let max_scroll = lines.len().saturating_sub(visible);
     let scroll = view.detail_scroll.min(max_scroll);
 
@@ -382,7 +389,75 @@ fn render_piped(
         .title(Span::styled(title, t.accent));
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    let inner = super::list_scrollbar(frame, inner, scroll, lines.len(), t);
     frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, 0)), inner);
     record_text(frame, inner, view);
     max_scroll
+}
+
+/// Wrap every line to the pane, and where each original line now starts.
+///
+/// Wrapped here rather than by `Paragraph`, so the scroll range, the `n/m` in the title
+/// and a search's jump all count the rows that are drawn. The scrollbar takes a column
+/// only once the rows outgrow the pane, so that is checked against the full width first.
+fn fit(lines: Vec<Line<'_>>, width: usize, height: usize) -> (Vec<Line<'_>>, Vec<usize>) {
+    let full = wrap(lines.clone(), width);
+    if full.0.len() <= height || width < 4 {
+        return full;
+    }
+    wrap(lines, width - 1)
+}
+
+fn wrap(lines: Vec<Line<'_>>, width: usize) -> (Vec<Line<'_>>, Vec<usize>) {
+    let mut out = Vec::with_capacity(lines.len());
+    let mut starts = Vec::with_capacity(lines.len());
+    for line in lines {
+        starts.push(out.len());
+        let cells: Vec<(char, Style)> = line
+            .spans
+            .iter()
+            .flat_map(|s| s.content.chars().map(move |c| (c, s.style)))
+            .collect();
+        if width == 0 || cells.len() <= width {
+            out.push(line);
+            continue;
+        }
+        // Continuations sit under the text they continue, so a wrapped message still reads
+        // as one block beside the key or label it belongs to.
+        let lead = cells.iter().take_while(|(c, _)| *c == ' ').count();
+        let indent = (lead + 2).min(width / 2);
+        let mut at = 0;
+        let mut first = true;
+        while at < cells.len() {
+            let pad = if first { 0 } else { indent };
+            let room = width - pad;
+            let mut end = (at + room).min(cells.len());
+            if end < cells.len()
+                && let Some(space) = cells[at..end].iter().rposition(|(c, _)| *c == ' ')
+                && space > 0
+            {
+                end = at + space + 1;
+            }
+            let mut spans = vec![Span::raw(" ".repeat(pad))];
+            spans.extend(runs(&cells[at..end]));
+            out.push(Line::from(spans).style(line.style));
+            at = end;
+            while at < cells.len() && cells[at].0 == ' ' {
+                at += 1;
+            }
+            first = false;
+        }
+    }
+    (out, starts)
+}
+
+fn runs(cells: &[(char, Style)]) -> Vec<Span<'static>> {
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    for &(c, style) in cells {
+        match spans.last_mut() {
+            Some(last) if last.style == style => last.content.to_mut().push(c),
+            _ => spans.push(Span::styled(c.to_string(), style)),
+        }
+    }
+    spans
 }
