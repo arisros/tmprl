@@ -46,9 +46,9 @@ broken.
 |---|---|---|
 | Workflow info pane | `DescribeWorkflowExecution` is already called and everything but the pending activities is discarded. Wanted on the history screen: status, type, run id, task queue, times, timeouts, memo, search attributes, parent and root, pending children, the pending workflow task | M |
 | Filter by an attribute's value | A workflow's own search attributes are never shown. With the pane above, a row becomes a filter clause. `/` on the workflow list also matches memo and search attribute values, which the list already carries | S |
-| Signal and update payloads | Both send a name and no input. An update's result is discarded | M |
-| Query | No `QueryWorkflow`. Wanted: `<leader>cq` picks a handler from the workflow's own `__temporal_workflow_metadata`, or takes a typed name when the SDK does not answer it; `<leader>cQ` runs every handler and shows one object keyed by name; `<leader>cq` on a `V` selection runs one handler on each workflow, of one type, capped. Also unlocks the call stack through `__stack_trace`. Input waits for signal and update payloads and codec encode | M |
-| Codec encode | The codec client only decodes, so anything sent to an encrypted namespace would go out as plaintext. Outgoing payloads need `/encode` first | S |
+| Signal and update payloads | Both send a name and no input. An update's result is discarded. Query input waits on this | M |
+| Query | Built: `<leader>cq` picks a handler from the workflow's own `__temporal_workflow_metadata`, falls back to the names an older SDK's refusal lists, then to a typed name, and shows the answer in the payload pane. `<leader>cs` shows the call stack through `__stack_trace`. Still wanted: `<leader>cQ` runs every handler and shows one object keyed by name; `<leader>cq` on a `V` selection runs one handler on each workflow, of one type, capped. Input waits for signal and update payloads and codec encode | M |
+| Codec encode | The codec client only decodes, so anything sent to an encrypted namespace would go out as plaintext. Outgoing payloads need `/encode` first. Query input waits on this | S |
 | Run chain | `newRunId` and `firstRunId` are shown as text. Wanted: next and previous run, and every run of an id as a list | S |
 | Child and parent navigation | A child's ids are shown as text. Wanted: `Enter` on a child group opens its history, and a key goes to the parent | S |
 | Reset options | No choice of what to reapply, and no statement of which events are discarded | S |
@@ -75,7 +75,7 @@ broken.
 | Quickfix | A visible, editable list of workflows to step through with `]q` and `[q`, and to batch over | M |
 | Marks | The jumplist exists, marks do not | S |
 | Diff | Two histories aligned by group with linked scrolling, in two splits | L |
-| A cursor inside a payload | Folding, yanking a path or a sub-value. Today the pane scrolls and nothing more | L |
+| A cursor inside a payload | Folding, yanking a path or a sub-value. Today the pane scrolls and wraps, and nothing more | L |
 | Pipe polish | Yank the output of `!`, and a history for its prompt | S |
 | Macros and `.` | Recorded as command ids | M |
 
