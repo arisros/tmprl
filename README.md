@@ -226,7 +226,7 @@ TMPRL_REQUIRE_SERVER=1 cargo test  # what CI runs
 | Next | |
 |---|---|
 | 0.5 | timeouts and reconnect, large histories, paste, line editing in prompts and the query bar |
-| 0.6 | a workflow info pane, signal and update payloads, query input and every handler at once, run chains, batch over a query |
+| 0.6 | a workflow info pane, signal and update payloads, query input, every handler at once and one query over a selection, run chains, batch over a query |
 | 0.7 | task queues and pollers, a history opened from a file, export, headless `--exec` with JSON output |
 | 0.8 | quickfix, marks, diff, macros |
 
