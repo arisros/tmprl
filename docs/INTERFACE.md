@@ -567,7 +567,7 @@ that is silently dropped is a key that does nothing, with no way to find out why
 
 **Live for one workflow at a time**: cancel, terminate, signal, delete, reset and update,
 under `<leader>m`, clear of bare `m`, which marks reserve. A batch over a *query*, which is
-Temporal's own server-side batch API, is planned for 0.3; the batch over a selection of rows
+Temporal's own server-side batch API, is planned for 0.6; the batch over a selection of rows
 described above is live.
 
 `<leader>mr` resets to the event under the cursor. Temporal only resets to a *completed

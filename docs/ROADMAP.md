@@ -4,20 +4,22 @@ Where `tmprl` goes next, and what it has decided not to become. The order is set
 question: what stops someone who is not the author from relying on this? Depth for a power
 user comes after that, not before.
 
-Nothing here is a date. A release ships when its theme is true.
+Nothing here is a date. A release ships when its theme is true; until then, work ships as
+patches and candidates. The 0.2 to 0.4 releases went out before this rule held, so the themes
+start again at 0.5.
 
 | Release | Theme | The test it has to pass |
 |---|---|---|
-| 0.2 | Trustworthy for strangers | A slow cluster, a dropped VPN, a light terminal and a pasted id all behave |
-| 0.3 | Workflow complete | Anything the web UI does to one workflow, tmprl does too |
-| 0.4 | Infrastructure and sharing | "Is anything polling this queue?" and "send me what you are looking at" have answers |
-| 0.5 | Editor depth | The vim model is finished rather than suggested |
+| 0.5 | Trustworthy for strangers | A slow cluster, a dropped VPN, a light terminal and a pasted id all behave |
+| 0.6 | Workflow complete | Anything the web UI does to one workflow, tmprl does too |
+| 0.7 | Infrastructure and sharing | "Is anything polling this queue?" and "send me what you are looking at" have answers |
+| 0.8 | Editor depth | The vim model is finished rather than suggested |
 
 Effort is S (days), M (a week or two) or L (several weeks).
 
 ---
 
-## 0.2 · Trustworthy for strangers
+## 0.5 · Trustworthy for strangers
 
 Every item is something that fails today in a way a new user would read as the tool being
 broken.
@@ -38,14 +40,14 @@ broken.
 | ✓ Read-only gaps | Done. The create-schedule form refuses before it opens | S |
 | ✓ Project hygiene | Done. `CONTRIBUTING.md`, `SECURITY.md`, issue forms, and CI against two server versions | S |
 
-## 0.3 · Workflow complete
+## 0.6 · Workflow complete
 
 | Item | Today | Effort |
 |---|---|---|
 | Workflow info pane | `DescribeWorkflowExecution` is already called and everything but the pending activities is discarded. Wanted on the history screen: status, type, run id, task queue, times, timeouts, memo, search attributes, parent and root, pending children, the pending workflow task | M |
-| Filter by an attribute's value | A workflow's own search attributes are never shown. With the pane above, a row becomes a filter clause | S |
+| Filter by an attribute's value | A workflow's own search attributes are never shown. With the pane above, a row becomes a filter clause. `/` on the workflow list also matches memo and search attribute values, which the list already carries | S |
 | Signal and update payloads | Both send a name and no input. An update's result is discarded | M |
-| Query | No `QueryWorkflow`. Also unlocks the call stack through `__stack_trace` | M |
+| Query | Built: `<leader>cq` picks a handler from the workflow's own `__temporal_workflow_metadata`, falls back to the names an older SDK's refusal lists, then to a typed name, and shows the answer in the payload pane. `<leader>cs` shows the call stack through `__stack_trace`. Still wanted: `<leader>cQ` runs every handler and shows one object keyed by name; `<leader>cq` on a `V` selection runs one handler on each workflow, of one type, capped. Input waits for signal and update payloads and codec encode | M |
 | Codec encode | The codec client only decodes, so anything sent to an encrypted namespace would go out as plaintext. Outgoing payloads need `/encode` first | S |
 | Run chain | `newRunId` and `firstRunId` are shown as text. Wanted: next and previous run, and every run of an id as a list | S |
 | Child and parent navigation | A child's ids are shown as text. Wanted: `Enter` on a child group opens its history, and a key goes to the parent | S |
@@ -53,7 +55,7 @@ broken.
 | Retry policy | Attempts, backoff and the last failure are shown. The policy itself is not, and heartbeat and last-started times are fetched but never drawn | S |
 | Batch over a query | Temporal's server-side batch, with a `CountWorkflowExecutions` dry run and the count typed to confirm | M |
 
-## 0.4 · Infrastructure and sharing
+## 0.7 · Infrastructure and sharing
 
 | Item | Today | Effort |
 |---|---|---|
@@ -64,16 +66,16 @@ broken.
 | Export | `Y` yanks JSON, and past the yank limit writes it to a file in the temp directory. Wanted: a Markdown summary of a workflow and JSON to a file | M |
 | ✓ Switch profile in the app | Done: `<leader>P`, or `-` from the namespace list, and the cluster address is in the header. Still one profile per process; a pane on its own profile is the table across clusters below | M |
 | Stricter confirmation per profile | Three tiers exist. Wanted: an opt-in that asks for more on a named profile | S |
-| Headless `--exec` | No non-interactive mode. Every action already runs through one dispatch point | M |
+| Headless `--exec` | No non-interactive mode. Every action already runs through one dispatch point. Wanted: JSON output of what only tmprl computes, the grouped history and the dashboard, which is also the interface for agents | M |
 
-## 0.5 · Editor depth
+## 0.8 · Editor depth
 
 | Item | Today | Effort |
 |---|---|---|
 | Quickfix | A visible, editable list of workflows to step through with `]q` and `[q`, and to batch over | M |
 | Marks | The jumplist exists, marks do not | S |
 | Diff | Two histories aligned by group with linked scrolling, in two splits | L |
-| A cursor inside a payload | Folding, yanking a path or a sub-value. Today the pane scrolls and nothing more | L |
+| A cursor inside a payload | Folding, yanking a path or a sub-value. Today the pane scrolls and wraps, and nothing more | L |
 | Pipe polish | Yank the output of `!`, and a history for its prompt | S |
 | Macros and `.` | Recorded as command ids | M |
 
@@ -93,6 +95,8 @@ broken.
 | Restoring a session's layout | Opening straight onto a query or a workflow covers most of the need. This is the windows of a session; the dashboard's own layout is a config file |
 | Plugins | Not while command ids, config keys and the client boundary are still moving |
 | Built-in AI | `!` already pipes a payload to any tool the user chooses |
+| An MCP server | It serves an agent, not a terminal. Community MCP servers already wrap the RPCs, `--exec` gives agents the grouped output, and a mutation must stay behind the human confirmation |
+| Searching the input of every workflow | One history fetch and one codec call per workflow, against the namespace's rate limit. A search attribute set by the worker is the fix, and then the query bar finds it |
 
 ## How an item gets on this list
 
