@@ -208,6 +208,8 @@ fn the_readonly_flag_refuses_and_names_the_flag() {
     assert!(app.readonly());
 
     app.run("workflow.terminate", None);
+
+    give_reason(&mut app);
     assert!(app.confirm.is_none(), "no confirmation may open");
     let (text, level) = app.note.clone().expect("a refusal should be reported");
     assert!(text.contains("--readonly"), "names the cause: {text}");
@@ -249,6 +251,8 @@ fn a_readonly_profile_is_named_even_when_the_flag_is_also_given() {
     });
 
     app.run("workflow.terminate", None);
+
+    give_reason(&mut app);
     let (text, _) = app.note.clone().unwrap();
     assert!(text.contains("profile prod"), "{text}");
 }

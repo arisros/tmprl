@@ -221,6 +221,8 @@ pub enum PromptKind {
     Backfill,
     /// The name of a query handler, when the workflow could not list its own.
     Query,
+    /// Why a terminate or reset is being done, recorded in the workflow's history.
+    Reason,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -240,6 +242,7 @@ impl Prompt {
             PromptKind::Update => "update:",
             PromptKind::Backfill => "backfill:",
             PromptKind::Query => "query:",
+            PromptKind::Reason => "reason:",
         }
     }
 }
@@ -531,6 +534,8 @@ pub struct App {
     pub insert_buf: LineEdit,
     /// What was entered at each prompt and at the query bar this session.
     histories: HashMap<History, LineHistory>,
+    /// A terminate or reset waiting for its reason to be typed.
+    awaiting_reason: Vec<Mutation>,
     /// While `<Tab>` cycles the `:` completions: what was typed, and which one is in.
     cmdline_cycle: Option<(String, usize)>,
     pub insert_target: InsertTarget,
@@ -686,6 +691,7 @@ impl App {
             insert_buf: LineEdit::default(),
             histories: HashMap::new(),
             cmdline_cycle: None,
+            awaiting_reason: Vec::new(),
             insert_target: InsertTarget::Scratch,
             picker: None,
             picker_found: Vec::new(),
