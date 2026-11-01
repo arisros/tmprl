@@ -37,6 +37,13 @@ impl App {
         let Some((text, level)) = self.note.clone() else {
             return;
         };
+        match (level, &fault) {
+            (Note::Error, Some(f)) => tracing::error!(fault = %f, "{text}"),
+            (Note::Error, None) => tracing::error!("{text}"),
+            (Note::Warn, Some(f)) => tracing::warn!(fault = %f, "{text}"),
+            (Note::Warn, None) => tracing::warn!("{text}"),
+            (Note::Info, _) => tracing::info!("{text}"),
+        }
         if self.messages.len() == KEPT {
             self.messages.pop_front();
         }
