@@ -11,6 +11,10 @@
   already open decodes what is under the cursor, a refresh or a followed page no longer
   turns a decoded payload back into ciphertext, and a pane in a split gets its decoded
   values even when the reply lands after the focus moved.
+- **A multi-megabyte payload scrolls without hanging.** The pane formats a payload once
+  rather than on every key press, and shows its first 5,000 lines with lines cut at 4,000
+  characters; a note at the end says how much more there is, and `<Space>e`, `!` and the
+  yanks still get all of it. Scrolling past 65,535 rows no longer jumps back to the top.
 
 ## 0.4.2 — 2026-10-16
 
