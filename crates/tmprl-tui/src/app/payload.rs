@@ -83,37 +83,29 @@ impl App {
     ///
     /// Replacing the payload rather than keeping a cache the views consult means everything
     /// downstream (the pane, `!` piping, yanking) reads the plaintext without knowing a
-    /// codec exists. It is also why this runs after each history page: a later page can
-    /// carry the same encrypted value.
+    /// codec exists.
+    ///
+    /// Every pane, not only the focused one: a reply can land after the focus moved, and a
+    /// pane parked in a split is still drawn.
     pub(super) fn apply_decoded(&mut self) {
         if self.decoded.is_empty() {
             return;
         }
-        for (_, p) in self.view.queried.iter_mut().flatten() {
-            if let Some(plain) = self.decoded.get(&Self::payload_key(p)) {
-                *p = plain.clone();
-            }
+        apply_decoded_to(&self.decoded, &mut self.view);
+        for view in self.parked.values_mut() {
+            apply_decoded_to(&self.decoded, view);
         }
-        let mut changed = false;
-        for event in &mut self.view.history_events {
-            for (_, p) in &mut event.payloads {
-                if !p.needs_codec() {
-                    continue;
-                }
-                if let Some(plain) = self.decoded.get(&Self::payload_key(p)) {
-                    *p = plain.clone();
-                    changed = true;
-                }
-            }
-        }
-        if !changed {
+    }
+
+    /// Swap already-decoded payloads into events fresh from the server, before they are
+    /// grouped. A refresh or a follow page brings the ciphertext back, and the cache is
+    /// also what stops `maybe_decode` from asking again.
+    pub(super) fn decode_from_cache(&self, events: &mut [tmprl_core::history::NormalizedEvent]) {
+        if self.decoded.is_empty() {
             return;
         }
-        let groups = group_events(&self.view.history_events);
-        let events = self.view.history_events.clone();
-        match self.view.history.value_mut() {
-            Some(outline) => outline.replace(events, groups),
-            None => self.view.history = Loadable::loaded(Outline::new(events, groups)),
+        for event in events {
+            swap_decoded(&self.decoded, &mut event.payloads);
         }
     }
 
@@ -399,6 +391,39 @@ impl App {
             ),
         });
     }
+}
+
+fn apply_decoded_to(decoded: &HashMap<u64, Payload>, view: &mut View) {
+    for queried in view.queried.iter_mut() {
+        swap_decoded(decoded, queried);
+    }
+    let mut changed = false;
+    for event in &mut view.history_events {
+        changed |= swap_decoded(decoded, &mut event.payloads);
+    }
+    if !changed {
+        return;
+    }
+    let groups = group_events(&view.history_events);
+    let events = view.history_events.clone();
+    match view.history.value_mut() {
+        Some(outline) => outline.replace(events, groups),
+        None => view.history = Loadable::loaded(Outline::new(events, groups)),
+    }
+}
+
+fn swap_decoded(decoded: &HashMap<u64, Payload>, payloads: &mut [(String, Payload)]) -> bool {
+    let mut changed = false;
+    for (_, p) in payloads {
+        if !p.needs_codec() {
+            continue;
+        }
+        if let Some(plain) = decoded.get(&App::payload_key(p)) {
+            *p = plain.clone();
+            changed = true;
+        }
+    }
+    changed
 }
 
 /// Create a directory only this user can enter.

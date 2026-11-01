@@ -49,6 +49,7 @@ impl App {
             .unwrap_or_else(|| View::new(&namespace));
         let outgoing = std::mem::replace(&mut self.view, incoming);
         self.parked.insert(previous, outgoing);
+        self.maybe_decode();
     }
 
     pub(super) fn fresh_view_id(&mut self) -> ViewId {
@@ -220,6 +221,7 @@ impl App {
             .parked
             .remove(&now)
             .unwrap_or_else(|| View::new(&namespace));
+        self.maybe_decode();
     }
 
     pub(super) fn switch_tab(&mut self, forward: bool) {
@@ -242,6 +244,7 @@ impl App {
             .parked
             .remove(&now)
             .unwrap_or_else(|| View::new(&namespace));
+        self.maybe_decode();
     }
 
     /// Record the area the panes were laid out in, so focus movement is geometric against

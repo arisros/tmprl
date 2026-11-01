@@ -440,3 +440,77 @@ async fn the_resolver_is_told_what_is_under_the_cursor_on_stdin() {
     assert!(missing.unwrap_err().contains("could not run"));
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+fn the_secret_event() -> tmprl_core::history::NormalizedEvent {
+    use tmprl_core::history::{Category as C, GroupRef as G, Role as R};
+    let mut secret = hev(7, G::Opened(7), R::Opens, C::Activity).with_subject("Secret");
+    secret.payloads.push((
+        "input".into(),
+        Payload::new("binary/encrypted", vec![0u8; 16]),
+    ));
+    secret
+}
+
+fn the_secret_key() -> u64 {
+    App::payload_key(&Payload::new("binary/encrypted", vec![0u8; 16]))
+}
+
+fn history_arrives(app: &mut App, events: Vec<tmprl_core::history::NormalizedEvent>) {
+    app.view.history_events.clear();
+    app.handle(Msg::History {
+        generation: app.view.generation,
+        result: Ok((events, Vec::new())),
+    });
+}
+
+#[tokio::test]
+async fn a_history_arriving_under_an_open_pane_asks_for_its_ciphertext() {
+    // The pane was open before the events were there, so no cursor move is coming to ask.
+    let mut app = viewing_payloads();
+    app.codec = Some(Arc::new(Codec::new("http://127.0.0.1:1", None)));
+    app.run("motion.bottom", None);
+    app.view.show_detail = true;
+    app.decoding.clear();
+
+    history_arrives(&mut app, vec![the_secret_event()]);
+
+    assert!(app.decoding.contains(&the_secret_key()));
+}
+
+#[test]
+fn a_refresh_keeps_what_was_already_decoded() {
+    // The server sends the ciphertext again, and the cache stops it being asked for again,
+    // so without this it would stay locked.
+    let mut app = viewing_payloads();
+    app.run("motion.bottom", None);
+    app.handle(Msg::Decoded(Ok(vec![(
+        the_secret_key(),
+        Payload::new("json/plain", br#"{"secret":true}"#.to_vec()),
+    )])));
+
+    history_arrives(&mut app, vec![the_secret_event()]);
+
+    app.run("motion.bottom", None);
+    let (_, p) = app.payloads_under_cursor().into_iter().next().unwrap();
+    assert!(!p.needs_codec(), "it went back to ciphertext");
+}
+
+#[test]
+fn a_decode_reply_reaches_a_pane_that_lost_the_focus() {
+    let mut app = viewing_payloads();
+    app.run("motion.bottom", None);
+    app.run("window.split-right", None);
+
+    app.handle(Msg::Decoded(Ok(vec![(
+        the_secret_key(),
+        Payload::new("json/plain", br#"{"secret":true}"#.to_vec()),
+    )])));
+
+    let parked = app
+        .parked
+        .values()
+        .find(|v| v.history_events.iter().any(|e| e.id == 7))
+        .expect("the pane with the history");
+    let secret = parked.history_events.iter().find(|e| e.id == 7).unwrap();
+    assert!(!secret.payloads[0].1.needs_codec());
+}
