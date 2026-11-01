@@ -19,6 +19,9 @@
   network or server reason, waiting 1s, then 2s and up to 30s, and says so, instead of
   stopping for good. The retrying-activity check keeps polling through the same failures
   and warns once, not every few seconds.
+- **Every schedule is listed**, from every namespace in scope, rather than the first 50 of
+  the first one. With more than one namespace the list and the dashboard's schedules
+  panel show which namespace each schedule belongs to.
 
 ## 0.4.2 — 2026-10-16
 

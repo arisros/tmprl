@@ -63,9 +63,9 @@ project testable:
 
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
-| `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 89 |
+| `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 90 |
 | `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 459 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 516 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 518 |
 | `tmprl-ui` | built | Plain unit tests over the layout tree | 47 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the

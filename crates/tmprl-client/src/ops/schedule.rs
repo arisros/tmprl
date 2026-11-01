@@ -56,6 +56,37 @@ impl Conn {
     }
 }
 
+/// Past this a schedule list is not something to scroll through, and the next page is
+/// another round trip each.
+const SCHEDULE_CAP: usize = 10_000;
+
+impl Conn {
+    /// Every schedule in each namespace, page after page, ordered by namespace then id.
+    pub async fn list_all_schedules(
+        &self,
+        namespaces: &[String],
+        page_size: i32,
+    ) -> Result<Vec<ScheduleRow>, OpError> {
+        let mut rows = Vec::new();
+        'namespaces: for namespace in namespaces {
+            let mut token = Vec::new();
+            loop {
+                let page = self.list_schedules(namespace, page_size, token).await?;
+                rows.extend(page.rows);
+                if rows.len() >= SCHEDULE_CAP {
+                    break 'namespaces;
+                }
+                if page.next_page_token.is_empty() {
+                    break;
+                }
+                token = page.next_page_token;
+            }
+        }
+        rows.sort_by(|a, b| a.key().cmp(&b.key()));
+        Ok(rows)
+    }
+}
+
 fn ranges(rs: &[temporalio_common::protos::temporal::api::schedule::v1::Range]) -> Vec<Range> {
     rs.iter()
         .map(|r| Range {

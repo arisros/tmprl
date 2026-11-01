@@ -19,6 +19,7 @@ const STATE: usize = 10;
 const TYPE: usize = 20;
 const SPEC: usize = 26;
 const NEXT: usize = 7;
+const NAMESPACE: usize = 16;
 
 pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) {
     if area.height == 0 {
@@ -31,6 +32,8 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
             "loading schedules…".to_string()
         } else if let Some(e) = view.schedules.error() {
             super::failed(e)
+        } else if view.is_fanned_out() {
+            "no schedules in these namespaces (gw for workflows)".to_string()
         } else {
             "no schedules in this namespace (gw for workflows)".to_string()
         };
@@ -52,7 +55,8 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
     } else {
         NEXT
     };
-    let fixed = GUTTER + STATE + TYPE + SPEC + next_width;
+    let show_ns = view.is_fanned_out();
+    let fixed = GUTTER + STATE + TYPE + SPEC + next_width + if show_ns { NAMESPACE } else { 0 };
     let id_width = (area.width as usize).saturating_sub(fixed).max(8);
 
     let lines: Vec<Line> = rows
@@ -69,7 +73,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
             } else {
                 t.fg
             };
-            Line::from(vec![
+            let mut spans = vec![
                 Span::styled(
                     super::gutter(i, view.cursor),
                     if focused { t.warn } else { t.faint },
@@ -91,6 +95,14 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
                     format!("{:<TYPE$}", truncate(&s.workflow_type, TYPE - 1)),
                     t.dim,
                 ),
+            ];
+            if show_ns {
+                spans.push(Span::styled(
+                    format!("{:<NAMESPACE$}", truncate(&s.namespace, NAMESPACE - 1)),
+                    t.accent,
+                ));
+            }
+            spans.extend([
                 Span::styled(format!("{:<SPEC$}", truncate(&s.spec, SPEC - 1)), t.ok),
                 Span::styled(
                     // A paused schedule still has future times: the server computes them
@@ -106,7 +118,8 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
                     },
                     t.faint,
                 ),
-            ])
+            ]);
+            Line::from(spans)
         })
         // Repaint the search pattern last, over the finished row, so it survives
         // whatever colouring and truncation the columns above applied.

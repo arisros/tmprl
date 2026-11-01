@@ -60,3 +60,47 @@ fn an_empty_schedule_list_points_at_the_other_list() {
     app.view.schedules = Loadable::loaded(Vec::new());
     assert!(draw(&mut app, 110, 12).contains("no schedules in this namespace"));
 }
+
+#[test]
+fn schedules_from_several_namespaces_say_which_is_which() {
+    use tmprl_core::ScheduleRow;
+    let mut app = app_with_rows();
+    app.view.screen = crate::app::Screen::Schedules;
+    app.view.scope = vec!["payments".into(), "shipping".into()];
+    let row = |namespace: &str, id: &str| ScheduleRow {
+        namespace: namespace.into(),
+        schedule_id: id.into(),
+        workflow_type: "Reconcile".into(),
+        paused: false,
+        notes: String::new(),
+        spec: "every 1h".into(),
+        next_run: None,
+        recent_runs: 0,
+    };
+    app.view.schedules = Loadable::loaded(vec![row("payments", "a"), row("shipping", "b")]);
+
+    let out = draw(&mut app, 110, 12);
+    assert!(out.contains("payments"), "{out}");
+    assert!(out.contains("shipping"), "{out}");
+}
+
+#[test]
+fn a_single_namespace_has_no_namespace_column() {
+    let mut app = app_with_rows();
+    app.view.screen = crate::app::Screen::Schedules;
+    app.view.scope = vec!["payments".into()];
+    app.view.schedules = Loadable::loaded(vec![tmprl_core::ScheduleRow {
+        namespace: "payments".into(),
+        schedule_id: "a".into(),
+        workflow_type: "Reconcile".into(),
+        paused: false,
+        notes: String::new(),
+        spec: "every 1h".into(),
+        next_run: None,
+        recent_runs: 0,
+    }]);
+
+    let out = draw(&mut app, 110, 12);
+    let row = out.lines().find(|l| l.contains("Reconcile")).unwrap();
+    assert!(!row.contains("payments"), "{row}");
+}
