@@ -494,6 +494,7 @@ closed is refused with a message instead of polling for events that can never ar
 | `<C-w>j` (`<C-w>l` when the pane is beside the list) | focus the payload pane: `j` `k` `<C-d>` `<C-u>` `<C-f>` `<C-b>` `gg` `G` scroll it, `<C-w>k` (`<C-w>h`) or `<Esc>` goes back | **live** |
 | `<leader>e` | open the payloads in `$EDITOR`, read-only | **live** |
 | `gf` | go to the source of the focused event, through the resolver `[source] command` names | **live** |
+| `gc` / `gp` | open the child workflow under the cursor / the parent of this one; `<C-o>` comes back | **live** |
 
 ### Acting
 

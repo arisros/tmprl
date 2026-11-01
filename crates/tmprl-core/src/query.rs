@@ -40,6 +40,18 @@ pub fn by_id(text: &str) -> Option<String> {
     Some(format!("WorkflowId = '{text}' OR RunId = '{text}'"))
 }
 
+/// One run when the run id is known, else every run of the workflow id.
+pub fn by_execution(workflow_id: &str, run_id: Option<&str>) -> Option<String> {
+    let workflow_id = quotable(workflow_id)?;
+    Some(match run_id {
+        Some(run) => format!(
+            "WorkflowId = '{workflow_id}' AND RunId = '{}'",
+            quotable(run)?
+        ),
+        None => format!("WorkflowId = '{workflow_id}'"),
+    })
+}
+
 /// The same, for a prefix of a workflow id.
 ///
 /// Separate from [`by_id`] rather than an `OR` with it: `STARTS_WITH` needs advanced
@@ -180,6 +192,20 @@ mod tests {
         let q = by_id("20e3bca5-b066").expect("plain text is quotable");
         assert!(q.contains("WorkflowId = '20e3bca5-b066'"), "{q}");
         assert!(q.contains("RunId = '20e3bca5-b066'"), "{q}");
+    }
+
+    #[test]
+    fn an_execution_is_one_run_when_its_run_id_is_known() {
+        assert_eq!(
+            by_execution("child-1", Some("r-9")).as_deref(),
+            Some("WorkflowId = 'child-1' AND RunId = 'r-9'")
+        );
+        assert_eq!(
+            by_execution("child-1", None).as_deref(),
+            Some("WorkflowId = 'child-1'")
+        );
+        assert_eq!(by_execution("o'brien", None), None);
+        assert_eq!(by_execution("child-1", Some("r'9")), None);
     }
 
     #[test]

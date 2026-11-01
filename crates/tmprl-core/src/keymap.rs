@@ -353,6 +353,8 @@ pub fn default_keymap() -> Keymap {
     bind(Mode::Normal, "<leader>xm", "app.messages");
     bind(Mode::Normal, "<leader>e", "payload.edit");
     bind(Mode::Normal, "gf", "history.source");
+    bind(Mode::Normal, "gc", "history.child");
+    bind(Mode::Normal, "gp", "history.parent");
 
     bind(Mode::Normal, "i", "mode.insert");
     bind(Mode::Normal, "v", "mode.visual");

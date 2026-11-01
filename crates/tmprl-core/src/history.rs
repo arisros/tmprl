@@ -337,6 +337,17 @@ impl Group {
         out
     }
 
+    /// A field's value from the first of this group's events that carries it.
+    pub fn field<'a>(&self, events: &'a [NormalizedEvent], name: &str) -> Option<&'a str> {
+        self.events.iter().find_map(|id| {
+            let e = events.iter().find(|e| e.id == *id)?;
+            e.fields
+                .iter()
+                .find(|(n, v)| *n == name && !v.is_empty())
+                .map(|(_, v)| v.as_str())
+        })
+    }
+
     /// The one id that names this group, for `y`.
     pub fn id<'a>(&self, events: &'a [NormalizedEvent]) -> Option<&'a str> {
         self.ids(events)

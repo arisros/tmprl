@@ -106,6 +106,8 @@ pub enum Action {
     /// Open what is under the cursor in `$EDITOR`, `<leader>e`.
     OpenEditor,
     OpenSource,
+    OpenChild,
+    OpenParent,
 
     // Windows and tabs
     SplitRight,
@@ -244,6 +246,8 @@ impl Registry {
             "payload.pipe",       "History",     "Pipe payloads through a command" => OpenPipe;
             "payload.edit",       "History",     "Open the payloads in $EDITOR" => OpenEditor;
             "history.source",     "History",     "Go to the source of this event" => OpenSource;
+            "history.child",      "History",     "Open the child workflow"   => OpenChild;
+            "history.parent",     "History",     "Open the parent workflow"  => OpenParent;
 
             "window.split-right", "Windows",     "Split side by side"        => SplitRight;
             "window.split-down",  "Windows",     "Split above and below"     => SplitDown;
