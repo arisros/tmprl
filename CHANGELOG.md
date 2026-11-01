@@ -42,6 +42,11 @@
 - **Terminate and reset ask why.** The reason prompt opens pre-filled with the old
   default, so Enter changes nothing, and what you type is recorded in the workflow's
   history on every row of a batch.
+- **`--log <FILE>`** appends every message tmprl shows, with the gRPC status behind an
+  error, and the client library's warnings, to a file you can attach to a bug report.
+  `RUST_LOG` widens it.
+- **`[display] colors`** in `config.toml` forces `"truecolor"`, `"16"` or `"none"` where
+  the environment does not say, such as over `ssh` without `COLORTERM`.
 
 ## 0.4.2 — 2026-10-16
 

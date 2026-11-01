@@ -578,6 +578,8 @@ pub struct App {
     /// The palette every frame is drawn with. Built once, by [`App::apply_theme`]: what the
     /// terminal can show does not change while tmprl runs.
     pub theme: Theme,
+    /// `theme.toml`, kept so `[display] colors` can rebuild the theme at another depth.
+    theme_overrides: ThemeOverrides,
 
     pub note: Option<(String, Note)>,
     /// Every note this session, newest last, because the note line forgets on the next key.
@@ -705,6 +707,7 @@ impl App {
             times: TimeFormat::default(),
             clock: Clock::system(),
             theme: Theme::default(),
+            theme_overrides: ThemeOverrides::default(),
             note: None,
             messages: VecDeque::new(),
             note_fault: None,
@@ -747,6 +750,9 @@ impl App {
                     self.dashboard_refresh = cfg.dashboard_refresh;
                     self.yank_max = cfg.yank_max;
                     self.source_command = cfg.source.clone();
+                    if let Some(depth) = cfg.colors {
+                        self.theme = Theme::new(depth, &self.theme_overrides);
+                    }
                     // Already validated by `parse_config`, so this cannot be the zone
                     // failing; unwrapping to the system zone here would be unreachable.
                     if let Ok(clock) = Clock::from_config(cfg.timezone.as_deref()) {
@@ -792,6 +798,7 @@ impl App {
             }
         };
         self.theme = Theme::new(depth, &overrides);
+        self.theme_overrides = overrides;
     }
 
     /// Install the user's `dashboard.toml`. A file that does not parse is reported and set

@@ -144,6 +144,9 @@ max_bytes = 1048576       # default 65536; a longer yank is written to a file, n
 [input]
 mouse = true              # the wheel scrolls, a click selects, a second click opens; off by default
 
+[display]
+colors = "truecolor"      # or "16" or "none"; "auto", the default, reads NO_COLOR and COLORTERM
+
 [profile.sit]
 accent  = "green"
 api_key = "…"             # over temporal.toml; or api_key_cmd below, not both
@@ -206,8 +209,8 @@ flowchart LR
 | Crate | Tests | |
 |---|---|---|
 | `tmprl-client` | 92 | all network IO |
-| `tmprl-core` | 474 | no terminal, no server |
-| `tmprl-tui` | 540 | ratatui |
+| `tmprl-core` | 475 | no terminal, no server |
+| `tmprl-tui` | 543 | ratatui |
 | `tmprl-ui` | 47 | window tree |
 
 ```sh
