@@ -83,6 +83,8 @@ pub enum Action {
     YankPayloadAll,
     YankPayloadInput,
     YankPayloadResult,
+    YankWorkflowId,
+    YankRunId,
     /// Fetch the next page of the workflow list. Driven by scrolling rather than by a key,
     /// but it is a command so that `:` reaches it like anything else.
     LoadMore,
@@ -222,6 +224,8 @@ impl Registry {
             "yank.payload",       "Yank",        "Yank every payload here"   => YankPayloadAll;
             "yank.payload-input", "Yank",        "Yank the input payloads"   => YankPayloadInput;
             "yank.payload-result","Yank",        "Yank the result payload"   => YankPayloadResult;
+            "yank.workflow-id",   "Yank",        "Yank the workflow id"      => YankWorkflowId;
+            "yank.run-id",        "Yank",        "Yank the run id"           => YankRunId;
 
             "list.more",          "List",        "Load the next page"        => LoadMore;
 

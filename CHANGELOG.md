@@ -25,6 +25,10 @@
 - **An unreachable cluster or codec server fails instead of hanging.** Connecting gives up
   after 10 seconds when nothing answers, and a codec server that stops responding is
   reported after 30 seconds instead of leaving the payload "decoding…" for good.
+- **Ids where you need them.** An activity's group shows its activity id and task queue
+  in the payload pane, a child's its workflow and run id, and `y` on such a group copies
+  the id rather than the type. `<Space>yw` and `<Space>yR` copy the workflow id and run
+  id, of the row on a list or of the history open.
 
 ## 0.4.2 — 2026-10-16
 

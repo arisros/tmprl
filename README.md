@@ -71,7 +71,8 @@ tmprl --config-path                         # every file tmprl reads, and whethe
 | `]f` `[f` | next / previous failure | `F` | follow, like `tail -f` |
 | `K` | payloads and the full failure | `!` | pipe them through `jq` |
 | `<C-w>j` | into the payload pane, `j` `k` `<C-d>` `<C-f>` `gg` `G` scroll it | `<Esc>` | back to the list |
-| `y` `Y` | yank value / row | `<Space>y{a,i,r}` | yank payloads |
+| `y` `Y` | yank value or id / row | `<Space>y{a,i,r}` | yank payloads |
+| `<Space>yw` | yank the workflow id | `<Space>yR` | yank the run id |
 | `<Space>m…` | cancel, terminate, signal, delete, reset, update | `gs` `gw` `gd` | schedules / workflows / dashboard |
 | `<Space>cq` | query the workflow, from the handlers it lists | `<Space>cs` | its stack trace |
 | `<Space>s…` `<C-w>hjkl` | splits | `<Space>t…` | tabs |
@@ -204,8 +205,8 @@ flowchart LR
 | Crate | Tests | |
 |---|---|---|
 | `tmprl-client` | 92 | all network IO |
-| `tmprl-core` | 459 | no terminal, no server |
-| `tmprl-tui` | 518 | ratatui |
+| `tmprl-core` | 462 | no terminal, no server |
+| `tmprl-tui` | 523 | ratatui |
 | `tmprl-ui` | 47 | window tree |
 
 ```sh

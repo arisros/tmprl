@@ -316,11 +316,43 @@ impl Group {
         ends
     }
 
+    /// The fields that name this group, from any of its events, first value per name:
+    /// what a CLI command or a search wants pasted, rather than the type on the row.
+    pub fn ids<'a>(&self, events: &'a [NormalizedEvent]) -> Vec<(&'static str, &'a str)> {
+        let mut out: Vec<(&'static str, &'a str)> = Vec::new();
+        for id in &self.events {
+            let Some(e) = events.iter().find(|e| e.id == *id) else {
+                continue;
+            };
+            for (name, value) in &e.fields {
+                if ID_FIELDS.contains(name)
+                    && !value.is_empty()
+                    && !out.iter().any(|(n, _)| n == name)
+                {
+                    out.push((name, value.as_str()));
+                }
+            }
+        }
+        out.sort_by_key(|(name, _)| ID_FIELDS.iter().position(|f| f == name));
+        out
+    }
+
+    /// The one id that names this group, for `y`.
+    pub fn id<'a>(&self, events: &'a [NormalizedEvent]) -> Option<&'a str> {
+        self.ids(events)
+            .into_iter()
+            .find(|(name, _)| PRIMARY_IDS.contains(name))
+            .map(|(_, value)| value)
+    }
+
     /// The id of the event that opened this group, for jumping to it.
     pub fn first_event(&self) -> Option<i64> {
         self.events.first().copied()
     }
 }
+
+const ID_FIELDS: [&str; 5] = ["activityId", "workflowId", "runId", "updateId", "taskQueue"];
+const PRIMARY_IDS: [&str; 3] = ["activityId", "workflowId", "updateId"];
 
 /// Fold normalised events into groups, in the order the groups were opened.
 ///
@@ -1006,5 +1038,50 @@ mod tests {
         let f = Failure::new("plain");
         assert_eq!(f.depth(), 1);
         assert_eq!(f.root().message, "plain");
+    }
+
+    #[test]
+    fn an_activity_group_is_named_by_its_activity_id() {
+        let events = retried_activity();
+        let groups = group_events(&events);
+        let g = &groups[0];
+        assert_eq!(g.id(&events), Some("charge"));
+        assert_eq!(g.ids(&events)[0], ("activityId", "charge"));
+    }
+
+    #[test]
+    fn a_child_group_gathers_its_workflow_and_run_id_from_two_events() {
+        let mut initiated = NormalizedEvent::new(
+            5,
+            "StartChildWorkflowExecutionInitiated",
+            Category::ChildWorkflow,
+            GroupRef::Opened(5),
+            Role::Opens,
+        );
+        initiated.fields.push(("workflowId", "child-1".into()));
+        initiated.fields.push(("namespace", "default".into()));
+        let mut started = NormalizedEvent::new(
+            6,
+            "ChildWorkflowExecutionStarted",
+            Category::ChildWorkflow,
+            GroupRef::Opened(5),
+            Role::Continues,
+        );
+        started.fields.push(("runId", "r-9".into()));
+        let events = vec![initiated, started];
+        let groups = group_events(&events);
+
+        assert_eq!(
+            groups[0].ids(&events),
+            vec![("workflowId", "child-1"), ("runId", "r-9")]
+        );
+        assert_eq!(groups[0].id(&events), Some("child-1"));
+    }
+
+    #[test]
+    fn a_group_with_no_id_has_none() {
+        let events = vec![ev(5, "TimerStarted", GroupRef::Opened(5), Role::Opens, 1)];
+        let groups = group_events(&events);
+        assert_eq!(groups[0].id(&events), None);
     }
 }
