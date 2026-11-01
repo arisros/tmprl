@@ -32,16 +32,23 @@ pub fn render(frame: &mut Frame, app: &App, t: &Theme) {
         height,
     };
 
+    let pick = app.cmdline_pick();
     let lines: Vec<Line> = matches
         .iter()
-        .map(|c| {
-            Line::from(vec![
+        .enumerate()
+        .map(|(i, c)| {
+            let line = Line::from(vec![
                 Span::styled(
                     format!(" {:<20}", c.id),
                     t.accent.add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(c.title.to_string(), t.dim),
-            ])
+            ]);
+            if pick == Some(i) {
+                line.style(t.sel)
+            } else {
+                line
+            }
         })
         .collect();
 
@@ -49,7 +56,7 @@ pub fn render(frame: &mut Frame, app: &App, t: &Theme) {
     frame.render_widget(
         Paragraph::new(lines).block(
             Block::bordered()
-                .title(Span::styled(" commands ", t.faint))
+                .title(Span::styled(" commands  Tab to fill in ", t.faint))
                 .border_style(t.faint),
         ),
         popup,

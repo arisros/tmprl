@@ -32,6 +32,13 @@
 - **Go to a child or the parent**: `gc` on a child workflow's row opens its history, `gp`
   opens the workflow that started this one, and `<C-o>` comes back. No second tmprl and
   no copying ids between them.
+- **Every prompt edits like a shell line.** The `/` `:` `!` prompts and the query bar
+  have a cursor that moves (`<Left>`, `<M-b>`, `<C-a>`, …), delete by word and to either
+  end (`<C-w>`, `<C-u>`, `<C-k>`), and recall what was entered before with `<Up>`. `<Tab>`
+  fills in the commands `:` offers, and `:q` quits.
+- **A paste is text, not keys.** Pasted into a prompt it lands at the cursor on one line;
+  pasted with nothing open it goes to the workflow finder, instead of each character
+  running as a command.
 
 ## 0.4.2 — 2026-10-16
 

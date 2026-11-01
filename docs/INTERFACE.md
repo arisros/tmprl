@@ -366,6 +366,26 @@ Where a pane is boxed, the help overlay, the bar rides the border and costs noth
 lists are not boxed, and their rightmost column holds the age, so there the bar takes a
 column of its own rather than painting over a value.
 
+### Editing a line
+
+Every line typed into, the `/` `:` `!` prompts, the query bar and the name prompts, edits the
+same way, with the shell's keys rather than vim's: each is typed once and sent. **live**
+
+| Key | |
+|---|---|
+| `<Left>` `<Right>`, `<C-b>` `<C-f>` | a character |
+| `<M-b>` `<M-f>`, `<C-Left>` `<C-Right>` | a word |
+| `<Home>` `<End>`, `<C-a>` `<C-e>` | start / end |
+| `<C-w>`, `<M-BS>` | delete the word before the cursor |
+| `<C-u>` / `<C-k>` | delete to the start / to the end |
+| `<Del>`, `<C-d>` | delete the character under the cursor |
+| `<Up>` / `<Down>` | what was entered at this prompt before, this session; each prompt keeps its own |
+| `<Tab>` / `<S-Tab>` | at `:`, fill in the next / previous command offered |
+
+`:q`, `:q!`, `:qa` and `:quit` quit. A paste arrives as text, not keys: into the line that is
+open, or, with none open, into the workflow finder, since what gets pasted is almost always
+an id from a log or an alert.
+
 ### Windows
 
 | Key | Action | |
