@@ -22,6 +22,9 @@
 - **Every schedule is listed**, from every namespace in scope, rather than the first 50 of
   the first one, on the schedules screen and in the dashboard's schedules panel. With
   more than one namespace the schedules screen shows which one each belongs to.
+- **An unreachable cluster or codec server fails instead of hanging.** Connecting gives up
+  after 10 seconds when nothing answers, and a codec server that stops responding is
+  reported after 30 seconds instead of leaving the payload "decoding…" for good.
 
 ## 0.4.2 — 2026-10-16
 
