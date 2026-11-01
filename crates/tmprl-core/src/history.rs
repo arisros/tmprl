@@ -377,12 +377,13 @@ const PRIMARY_IDS: [&str; 3] = ["activityId", "workflowId", "updateId"];
 /// nothing at all.
 pub fn group_events(events: &[NormalizedEvent]) -> Vec<Group> {
     let mut groups: Vec<Group> = Vec::new();
-    // Parallel to `groups`, so a lookup is by key without hashing a small collection.
-    let mut index: Vec<GroupRef> = Vec::new();
+    // A history has a group per activity, so tens of thousands of them: a linear lookup
+    // here made a 100k-event history take most of a minute to load.
+    let mut index: std::collections::HashMap<GroupRef, usize> = std::collections::HashMap::new();
 
     for ev in events {
-        let at = match index.iter().position(|k| *k == ev.group) {
-            Some(at) => at,
+        let at = match index.get(&ev.group) {
+            Some(&at) => at,
             None => {
                 groups.push(Group {
                     key: ev.group,
@@ -395,7 +396,7 @@ pub fn group_events(events: &[NormalizedEvent]) -> Vec<Group> {
                     attempts: 1,
                     failure: None,
                 });
-                index.push(ev.group);
+                index.insert(ev.group, groups.len() - 1);
                 groups.len() - 1
             }
         };
