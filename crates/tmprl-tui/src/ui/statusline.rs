@@ -235,11 +235,15 @@ fn schedule_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
 pub fn render_status(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
     // The command line takes over the status row while it is open.
     if let Some(prompt) = &app.prompt {
-        let line = Line::from(vec![
-            Span::styled(prompt.sigil(), t.accent),
-            Span::styled(prompt.buf.clone(), t.fg),
-            Span::styled("█", t.accent),
-        ]);
+        let sigil = prompt.sigil();
+        let mut spans = vec![Span::styled(sigil, t.accent)];
+        spans.extend(super::edit_spans(
+            &prompt.buf,
+            (area.width as usize).saturating_sub(sigil.chars().count()),
+            t.fg,
+            t.accent.add_modifier(Modifier::REVERSED),
+        ));
+        let line = Line::from(spans);
         frame.render_widget(Paragraph::new(line), area);
         return;
     }

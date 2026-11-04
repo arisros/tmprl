@@ -96,6 +96,7 @@ async fn main() -> std::process::ExitCode {
 
     let mouse = app.mouse();
     let terminal = ratatui::init();
+    let _ = event::bracketed_paste(true);
     if mouse {
         // After `ratatui::init`, so this runs before the hook it installed: a panic must
         // not leave the shell with a terminal that still reports the mouse.

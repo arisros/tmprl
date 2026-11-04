@@ -69,7 +69,7 @@ impl App {
                 // prompt comes back.
                 self.prompt = Some(Prompt {
                     kind: PromptKind::Backfill,
-                    buf: String::new(),
+                    buf: LineEdit::default(),
                 });
                 self.mode = Mode::Command;
                 return;
@@ -116,7 +116,7 @@ impl App {
                 } else {
                     PromptKind::Update
                 },
-                buf: String::new(),
+                buf: LineEdit::default(),
             });
             self.mode = Mode::Command;
             return;
