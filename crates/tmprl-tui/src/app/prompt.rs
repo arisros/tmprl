@@ -10,11 +10,15 @@ impl App {
         };
         let kind = prompt.kind;
         match chord.key {
-            Key::Esc => self.close_prompt(),
+            Key::Esc => {
+                self.awaiting_reason.clear();
+                self.close_prompt();
+            }
             Key::Enter => {
                 let entered = prompt.buf.as_str().trim().to_string();
                 self.close_prompt();
                 if entered.is_empty() {
+                    self.awaiting_reason.clear();
                     return;
                 }
                 self.histories
@@ -28,6 +32,7 @@ impl App {
                     PromptKind::Signal | PromptKind::Update => self.confirm_named(kind, entered),
                     PromptKind::Backfill => self.confirm_backfill(entered),
                     PromptKind::Query => self.run_query(entered),
+                    PromptKind::Reason => self.confirm_with_reason(entered),
                 }
             }
             Key::Up | Key::Down => {
@@ -46,7 +51,10 @@ impl App {
             }
             _ => match prompt.buf.key(chord) {
                 // Backspace on an empty line closes the prompt, as it does in vim.
-                Edit::Emptied => self.close_prompt(),
+                Edit::Emptied => {
+                    self.awaiting_reason.clear();
+                    self.close_prompt();
+                }
                 Edit::Changed => self.cmdline_cycle = None,
                 Edit::Moved | Edit::Unhandled => {}
             },

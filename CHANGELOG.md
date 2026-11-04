@@ -39,6 +39,9 @@
 - **A paste is text, not keys.** Pasted into a prompt it lands at the cursor on one line;
   pasted with nothing open it goes to the workflow finder, instead of each character
   running as a command.
+- **Terminate and reset ask why.** The reason prompt opens pre-filled with the old
+  default, so Enter changes nothing, and what you type is recorded in the workflow's
+  history on every row of a batch.
 
 ## 0.4.2 — 2026-10-16
 

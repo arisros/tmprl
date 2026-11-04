@@ -529,10 +529,10 @@ closed is refused with a message instead of polling for events that can never ar
 | `<leader>q` / `<C-c>` | quit | **live** |
 | `<C-q>` | send selection to the quickfix list | planned |
 | `<leader>mc` | cancel this workflow, or the selection | **live** |
-| `<leader>mt` | terminate this workflow, or the selection | **live** |
+| `<leader>mt` | terminate this workflow, or the selection, asking for the reason first | **live** |
 | `<leader>ms` | signal this workflow, or the selection | **live** |
 | `<leader>md` | delete this workflow, or the selection | **live** |
-| `<leader>mr` | reset to the event under the cursor | **live** |
+| `<leader>mr` | reset to the event under the cursor, asking for the reason first | **live** |
 | `<leader>mp` | pause or resume a schedule | **live** |
 | `<leader>mg` | run a schedule now | **live** |
 | `<leader>mD` | delete a schedule | **live** |

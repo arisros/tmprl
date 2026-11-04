@@ -313,6 +313,7 @@ fn nothing_on_the_dashboard_is_a_mutation_target() {
     let mut app = filled();
     app.run("motion.down", Some(2));
     app.run("workflow.terminate", None);
+    give_reason(&mut app);
     assert!(app.confirm.is_none());
     assert!(app.note.as_ref().unwrap().0.contains("no workflow"));
 

@@ -264,3 +264,14 @@ fn on_schedules() -> App {
     }]);
     app
 }
+
+/// Accept the reason a terminate or reset asks for, if it asked.
+fn give_reason(app: &mut App) {
+    if app
+        .prompt
+        .as_ref()
+        .is_some_and(|p| p.kind == PromptKind::Reason)
+    {
+        app.handle(Msg::Key(Chord::plain(tmprl_core::Key::Enter)));
+    }
+}
