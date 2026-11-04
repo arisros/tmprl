@@ -76,6 +76,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::theme::Theme;
 use crate::view::View;
 pub use messages::Logged;
+pub(crate) use payload::cut_for_pane;
 use tmprl_ui::{Axis, Direction, Rect as UiRect, Tabs, ViewId};
 
 /// Rows fetched per namespace per page. Large enough that scrolling rarely waits, small
@@ -240,6 +241,14 @@ impl Prompt {
             PromptKind::Query => "query:",
         }
     }
+}
+
+/// A readable payload as the pane draws it, cut to what a terminal can show.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct ShownText {
+    pub lines: Vec<String>,
+    /// Lines past the cut, which `$EDITOR`, `!` and the yanks still get.
+    pub hidden: usize,
 }
 
 /// Where an encrypted payload has got to.
@@ -461,6 +470,9 @@ pub struct App {
     decoding: HashSet<u64>,
     /// Why a decode failed, by payload. Cleared by `R`, which is the retry.
     decode_failed: HashMap<u64, String>,
+    /// Pretty-printed payload text, by payload. The pane is drawn on every key press, and
+    /// formatting a multi-megabyte payload each time is what made scrolling it hang.
+    shown: std::cell::RefCell<HashMap<u64, Arc<ShownText>>>,
     codec: Option<Arc<Codec>>,
     pub views: Vec<SavedView>,
     /// The layout `dashboard.toml` asks for. `None` leaves the dashboard to the builtin one.
@@ -628,6 +640,7 @@ impl App {
             decoded: HashMap::new(),
             decoding: HashSet::new(),
             decode_failed: HashMap::new(),
+            shown: Default::default(),
             codec: None,
             views: Vec::new(),
             dashboard_layout: None,
