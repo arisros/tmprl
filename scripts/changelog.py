@@ -30,11 +30,11 @@ class Section:
     @property
     def version(self) -> str | None:
         """The release this section belongs to: `0.1.2-rc.3` and `0.1.2` both give `0.1.2`."""
-        return self.title.split("-rc.")[0] if self.title != "Unreleased" else None
+        return self.title.split("-")[0] if self.title != "Unreleased" else None
 
     @property
     def is_candidate(self) -> bool:
-        return "-rc." in self.title
+        return "-" in self.title
 
     def render(self) -> str:
         dated = f"## {self.title} — {self.date}" if self.date else f"## {self.title}"

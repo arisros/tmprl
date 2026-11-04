@@ -9,14 +9,14 @@ Two buttons in the **Actions** tab, no local git needed.
 | Input | |
 |---|---|
 | `bump` | `patch`, `minor` or `major` |
-| `channel` | `release`, or `rc` for a candidate (`0.2.0-rc.1`) |
+| `channel` | `release`, or a prerelease: `alpha`, `beta` or `rc` (`1.0.0-alpha.1`, `0.2.0-rc.1`) |
 
 It bumps `workspace.package.version` and the three `tmprl-*` versions beside it, refreshes
 `Cargo.lock`, updates the changelog, and opens a PR.
 
 Review the PR, edit the changelog if the wording is thin, and merge it.
 
-Locally, the same thing: `scripts/prepare-release.sh patch`, `… minor rc`, `… 0.4.0`.
+Locally, the same thing: `scripts/prepare-release.sh patch`, `… minor rc`, `… major alpha`, `… 0.4.0`.
 
 ### The changelog, and candidates
 
@@ -35,6 +35,20 @@ sections back; both it and `promote` only move bullets, never reword them.
 `patch` on top of `0.1.2-rc.4` gives **`0.1.2`**, the release the candidates were for, not
 `0.1.3`. So: Prepare release with `patch` + `release`, merge, then Release with `v0.1.2`.
 Pick `minor` or `major` only when the change deserves it — the candidates do not decide.
+
+### The road to 1.0
+
+| Step | Prepare release with | Gives |
+|---|---|---|
+| first alpha | `major` + `alpha` | `1.0.0-alpha.1` |
+| another alpha | `patch` + `alpha` | `1.0.0-alpha.2` |
+| the beta, API frozen | `patch` + `beta` | `1.0.0-beta.1` |
+| a candidate | `patch` + `rc` | `1.0.0-rc.1` |
+| 1.0 | `patch` + `release` | `1.0.0` |
+
+An alpha may still change a key, a command or a flag, and says so in the changelog. From the
+first beta, `docs/public-api.txt` does not change until 2.0. Every prerelease is a GitHub
+prerelease only, as below.
 
 ## 2. Release
 

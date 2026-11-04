@@ -6,14 +6,20 @@
 #
 #   scripts/prepare-release.sh patch          # 0.1.0 -> 0.1.1
 #   scripts/prepare-release.sh minor rc       # 0.1.0 -> 0.2.0-rc.1
+#   scripts/prepare-release.sh major alpha    # 0.4.2 -> 1.0.0-alpha.1
+#   scripts/prepare-release.sh patch beta     # 1.0.0-alpha.3 -> 1.0.0-beta.1
 #   scripts/prepare-release.sh 0.4.0          # an exact version
 #
 # Prints the new version on stdout. Everything else goes to stderr, so the workflow can
 # read the version straight out of it.
 set -euo pipefail
 
-bump="${1:?usage: prepare-release.sh <patch|minor|major|X.Y.Z> [rc]}"
+bump="${1:?usage: prepare-release.sh <patch|minor|major|X.Y.Z> [release|alpha|beta|rc]}"
 channel="${2:-release}"
+case "$channel" in
+  release | alpha | beta | rc) ;;
+  *) echo "unknown channel: $channel" >&2; exit 2 ;;
+esac
 
 cd "$(dirname "$0")/.."
 
@@ -24,22 +30,23 @@ IFS=. read -r major minor patch <<<"$base"
 case "$bump" in
   major) next="$((major + 1)).0.0" ;;
   minor) next="$major.$((minor + 1)).0" ;;
-  # A patch on top of 0.1.1-rc.2 is 0.1.1: the release the candidates were for.
+  # A patch on top of 0.1.1-rc.2 is 0.1.1: the release the candidates were for. With a
+  # channel it is the next prerelease of that same version, alpha.2 or beta.1.
   patch) if [ "$current" = "$base" ]; then next="$major.$minor.$((patch + 1))"; else next="$base"; fi ;;
   [0-9]*) next="$bump" ;;
   *) echo "unknown bump: $bump" >&2; exit 2 ;;
 esac
 
-if [ "$channel" = "rc" ]; then
+if [ "$channel" != "release" ]; then
   # One past the highest candidate that exists as a tag *or* as a prepared branch: a
   # candidate whose PR has not been merged yet has no tag, and reusing its number collides
   # with it. The highest, not a count: numbers are skipped when a candidate is abandoned
   # (there is a v0.1.1-rc.2 and no rc.1), and counting then hands out a number in use.
-  n=$( { git tag -l "v$next-rc.*"
-         git ls-remote --tags origin "v$next-rc.*" 2>/dev/null | sed 's|.*/||; s/\^{}$//'
-         git ls-remote --heads origin "release/v$next-rc.*" 2>/dev/null | sed 's|.*/||'
-       } | sed -n 's/.*-rc\.\([0-9]*\)$/\1/p' | sort -n | tail -1)
-  next="$next-rc.$((${n:-0} + 1))"
+  n=$( { git tag -l "v$next-$channel.*"
+         git ls-remote --tags origin "v$next-$channel.*" 2>/dev/null | sed 's|.*/||; s/\^{}$//'
+         git ls-remote --heads origin "release/v$next-$channel.*" 2>/dev/null | sed 's|.*/||'
+       } | sed -n "s/.*-$channel\.\([0-9]*\)\$/\1/p" | sort -n | tail -1)
+  next="$next-$channel.$((${n:-0} + 1))"
 fi
 
 # A version that is already tagged has already been released; preparing it again writes
@@ -61,8 +68,8 @@ cargo check --quiet >&2   # rewrites Cargo.lock
 # The changelog. A candidate leaves it alone: `## Unreleased` keeps saying what is coming,
 # and the entry lands under the real version when that ships. Promoting instead per candidate
 # gave every release a section its candidates had already emptied.
-if [ "$channel" = "rc" ]; then
-  echo "changelog: untouched, this is a candidate for $base" >&2
+if [ "$channel" != "release" ]; then
+  echo "changelog: untouched, this is a $channel for ${next%%-*}" >&2
 else
   # Whatever is under Unreleased, plus any section a candidate for this version did claim.
   scripts/changelog.py promote "$next" >&2
@@ -70,7 +77,7 @@ else
   # An empty entry means nobody wrote one, so fall back to the user-visible commits since
   # the last release. docs, chore, ci and test commits change nothing a user runs.
   if grep -qF -- "- No user-visible changes." CHANGELOG.md; then
-    last_release=$(git tag -l 'v*' --sort=-v:refname | grep -v -- '-rc\.' | head -1)
+    last_release=$(git tag -l 'v*' --sort=-v:refname | grep -v -- '-' | head -1)
     range=${last_release:+$last_release..HEAD}
     commits=$(git log "${range:-HEAD}" --no-merges --format='- %s' \
       --grep='^feat' --grep='^fix' --grep='^perf' -E | sed 's/([^)]*)//' || true)
