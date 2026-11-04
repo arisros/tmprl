@@ -7,6 +7,7 @@ mod config;
 mod event;
 mod keys;
 mod log;
+mod public_api;
 mod theme;
 mod ui;
 mod view;

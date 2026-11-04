@@ -1,0 +1,357 @@
+# Commands: id, group, title
+app.quit	Application	Quit
+app.help	Application	Toggle help
+app.messages	Application	Everything the note line has said
+app.command-line	Application	Open the command line
+app.cancel	Application	Cancel pending input
+app.refresh	Application	Reload from the server
+app.times	Application	Clock times or ages
+motion.down	Motion	Move down
+motion.up	Motion	Move up
+motion.left	Motion	Move left
+motion.right	Motion	Move right
+motion.top	Motion	Go to first item
+motion.bottom	Motion	Go to last item
+motion.half-down	Motion	Half page down
+motion.half-up	Motion	Half page up
+motion.page-down	Motion	Page down
+motion.page-up	Motion	Page up
+mode.insert	Mode	Enter Insert mode
+mode.normal	Mode	Leave Insert mode
+mode.visual	Mode	Enter Visual mode
+mode.visual-line	Mode	Enter Visual Line mode
+nav.open	Navigation	Open the focused item
+nav.up	Navigation	Go up a level
+nav.schedules	Navigation	Go to schedules
+nav.workflows	Navigation	Go to workflows
+nav.dashboard	Navigation	Go to the dashboard
+dashboard.next-panel	Navigation	Next dashboard panel
+dashboard.prev-panel	Navigation	Previous dashboard panel
+nav.jump-back	Navigation	Jump back
+nav.jump-forward	Navigation	Jump forward
+search.open	Find	Search within this view
+search.next	Find	Next match
+search.previous	Find	Previous match
+find.workflow	Find	Find a workflow
+find.event	Find	Find an event here
+find.pane	Find	Find an open pane
+find.command	Find	Find a command
+find.filter	Find	Build a query filter
+find.namespace	Find	Switch namespace
+find.profile	Find	Switch connection profile
+list.problems	Find	Failed and stuck workflows
+yank.field	Yank	Yank the focused value
+yank.record	Yank	Yank the row as JSON
+yank.payload	Yank	Yank every payload here
+yank.payload-input	Yank	Yank the input payloads
+yank.payload-result	Yank	Yank the result payload
+yank.workflow-id	Yank	Yank the workflow id
+yank.run-id	Yank	Yank the run id
+list.more	List	Load the next page
+history.fold	History	Fold a group open or shut
+history.expand-all	History	Expand every group
+history.collapse-all	History	Collapse every group
+history.plumbing	History	Show/hide workflow tasks
+history.timeline	History	Timeline, like the web UI
+history.gaps	History	Fold/unfold idle time
+history.next-failure	History	Jump to the next failure
+history.prev-failure	History	Jump to the previous failure
+history.follow	History	Follow, tail a running workflow
+history.detail	History	Show the payloads under the cursor
+history.detail-down	History	Scroll the payload pane down
+history.detail-up	History	Scroll the payload pane up
+payload.pipe	History	Pipe payloads through a command
+payload.edit	History	Open the payloads in $EDITOR
+history.source	History	Go to the source of this event
+history.child	History	Open the child workflow
+history.parent	History	Open the parent workflow
+window.split-right	Windows	Split side by side
+window.split-down	Windows	Split above and below
+window.close	Windows	Close this window
+window.equalize	Windows	Give windows equal space
+window.focus-left	Windows	Focus the window left
+window.focus-right	Windows	Focus the window right
+window.focus-up	Windows	Focus the window above
+window.focus-down	Windows	Focus the window below
+window.grow-left	Windows	Widen to the left
+window.grow-right	Windows	Widen to the right
+window.grow-up	Windows	Grow upwards
+window.grow-down	Windows	Grow downwards
+workflow.cancel	Mutate	Cancel this workflow
+workflow.terminate	Mutate	Terminate this workflow
+workflow.signal	Mutate	Signal this workflow
+workflow.delete	Mutate	Delete this workflow
+workflow.reset	Mutate	Reset to the event here
+workflow.update	Mutate	Send an update
+schedule.pause	Mutate	Pause or resume a schedule
+schedule.trigger	Mutate	Run a schedule now
+schedule.delete	Mutate	Delete this schedule
+schedule.backfill	Mutate	Backfill a time range
+schedule.create	Mutate	Create a schedule
+workflow.query	Query	Ask the workflow a query
+workflow.stack	Query	Where the workflow is blocked
+tab.new	Tabs	Open a tab
+tab.close	Tabs	Close this tab
+tab.next	Tabs	Next tab
+tab.previous	Tabs	Previous tab
+
+# Default bindings: mode, keys, command
+INSERT	<Esc>	mode.normal
+INSERT	jk	mode.normal
+NORMAL	!	payload.pipe
+NORMAL	-	nav.up
+NORMAL	/	search.open
+NORMAL	:	app.command-line
+NORMAL	<C-b>	motion.page-up
+NORMAL	<C-c>	app.quit
+NORMAL	<C-d>	motion.half-down
+NORMAL	<C-e>	history.detail-down
+NORMAL	<C-f>	motion.page-down
+NORMAL	<C-i>	nav.jump-forward
+NORMAL	<C-o>	nav.jump-back
+NORMAL	<C-u>	motion.half-up
+NORMAL	<C-w>h	window.focus-left
+NORMAL	<C-w>j	window.focus-down
+NORMAL	<C-w>k	window.focus-up
+NORMAL	<C-w>l	window.focus-right
+NORMAL	<C-y>	history.detail-up
+NORMAL	<CR>	nav.open
+NORMAL	<Down>	motion.down
+NORMAL	<Esc>	app.cancel
+NORMAL	<Left>	motion.left
+NORMAL	<PageDown>	motion.page-down
+NORMAL	<PageUp>	motion.page-up
+NORMAL	<Right>	motion.right
+NORMAL	<Space>G	history.timeline
+NORMAL	<Space>N	find.namespace
+NORMAL	<Space>P	find.profile
+NORMAL	<Space>T	app.times
+NORMAL	<Space>cq	workflow.query
+NORMAL	<Space>cs	workflow.stack
+NORMAL	<Space>e	payload.edit
+NORMAL	<Space>fb	find.pane
+NORMAL	<Space>ff	find.workflow
+NORMAL	<Space>fg	find.filter
+NORMAL	<Space>fh	find.command
+NORMAL	<Space>fl	find.event
+NORMAL	<Space>mD	schedule.delete
+NORMAL	<Space>mb	schedule.backfill
+NORMAL	<Space>mc	workflow.cancel
+NORMAL	<Space>md	workflow.delete
+NORMAL	<Space>mg	schedule.trigger
+NORMAL	<Space>mn	schedule.create
+NORMAL	<Space>mp	schedule.pause
+NORMAL	<Space>mr	workflow.reset
+NORMAL	<Space>ms	workflow.signal
+NORMAL	<Space>mt	workflow.terminate
+NORMAL	<Space>mu	workflow.update
+NORMAL	<Space>q	app.quit
+NORMAL	<Space>rh	window.grow-left
+NORMAL	<Space>rj	window.grow-down
+NORMAL	<Space>rk	window.grow-up
+NORMAL	<Space>rl	window.grow-right
+NORMAL	<Space>se	window.equalize
+NORMAL	<Space>sh	window.split-down
+NORMAL	<Space>sv	window.split-right
+NORMAL	<Space>sx	window.close
+NORMAL	<Space>tn	tab.next
+NORMAL	<Space>to	tab.new
+NORMAL	<Space>tp	tab.previous
+NORMAL	<Space>tx	tab.close
+NORMAL	<Space>xm	app.messages
+NORMAL	<Space>xx	list.problems
+NORMAL	<Space>yR	yank.run-id
+NORMAL	<Space>ya	yank.payload
+NORMAL	<Space>yi	yank.payload-input
+NORMAL	<Space>yr	yank.payload-result
+NORMAL	<Space>yw	yank.workflow-id
+NORMAL	<Tab>	nav.jump-forward
+NORMAL	<Up>	motion.up
+NORMAL	?	app.help
+NORMAL	F	history.follow
+NORMAL	G	motion.bottom
+NORMAL	K	history.detail
+NORMAL	N	search.previous
+NORMAL	R	app.refresh
+NORMAL	V	mode.visual-line
+NORMAL	Y	yank.record
+NORMAL	[f	history.prev-failure
+NORMAL	[p	dashboard.prev-panel
+NORMAL	]f	history.next-failure
+NORMAL	]p	dashboard.next-panel
+NORMAL	gc	history.child
+NORMAL	gd	nav.dashboard
+NORMAL	gf	history.source
+NORMAL	gg	motion.top
+NORMAL	gp	history.parent
+NORMAL	gs	nav.schedules
+NORMAL	gw	nav.workflows
+NORMAL	h	motion.left
+NORMAL	i	mode.insert
+NORMAL	j	motion.down
+NORMAL	k	motion.up
+NORMAL	l	motion.right
+NORMAL	n	search.next
+NORMAL	v	mode.visual
+NORMAL	y	yank.field
+NORMAL	zM	history.collapse-all
+NORMAL	zR	history.expand-all
+NORMAL	za	history.fold
+NORMAL	zg	history.gaps
+NORMAL	zp	history.plumbing
+V-LINE	!	payload.pipe
+V-LINE	:	app.command-line
+V-LINE	<C-b>	motion.page-up
+V-LINE	<C-c>	app.quit
+V-LINE	<C-d>	motion.half-down
+V-LINE	<C-e>	history.detail-down
+V-LINE	<C-f>	motion.page-down
+V-LINE	<C-u>	motion.half-up
+V-LINE	<C-w>h	window.focus-left
+V-LINE	<C-w>j	window.focus-down
+V-LINE	<C-w>k	window.focus-up
+V-LINE	<C-w>l	window.focus-right
+V-LINE	<C-y>	history.detail-up
+V-LINE	<CR>	nav.open
+V-LINE	<Down>	motion.down
+V-LINE	<Esc>	app.cancel
+V-LINE	<Left>	motion.left
+V-LINE	<PageDown>	motion.page-down
+V-LINE	<PageUp>	motion.page-up
+V-LINE	<Right>	motion.right
+V-LINE	<Space>cq	workflow.query
+V-LINE	<Space>cs	workflow.stack
+V-LINE	<Space>mD	schedule.delete
+V-LINE	<Space>mb	schedule.backfill
+V-LINE	<Space>mc	workflow.cancel
+V-LINE	<Space>md	workflow.delete
+V-LINE	<Space>mg	schedule.trigger
+V-LINE	<Space>mn	schedule.create
+V-LINE	<Space>mp	schedule.pause
+V-LINE	<Space>mr	workflow.reset
+V-LINE	<Space>ms	workflow.signal
+V-LINE	<Space>mt	workflow.terminate
+V-LINE	<Space>mu	workflow.update
+V-LINE	<Space>q	app.quit
+V-LINE	<Space>rh	window.grow-left
+V-LINE	<Space>rj	window.grow-down
+V-LINE	<Space>rk	window.grow-up
+V-LINE	<Space>rl	window.grow-right
+V-LINE	<Space>se	window.equalize
+V-LINE	<Space>sh	window.split-down
+V-LINE	<Space>sv	window.split-right
+V-LINE	<Space>sx	window.close
+V-LINE	<Space>tn	tab.next
+V-LINE	<Space>to	tab.new
+V-LINE	<Space>tp	tab.previous
+V-LINE	<Space>tx	tab.close
+V-LINE	<Space>yR	yank.run-id
+V-LINE	<Space>ya	yank.payload
+V-LINE	<Space>yi	yank.payload-input
+V-LINE	<Space>yr	yank.payload-result
+V-LINE	<Space>yw	yank.workflow-id
+V-LINE	<Up>	motion.up
+V-LINE	?	app.help
+V-LINE	F	history.follow
+V-LINE	G	motion.bottom
+V-LINE	K	history.detail
+V-LINE	R	app.refresh
+V-LINE	Y	yank.record
+V-LINE	[f	history.prev-failure
+V-LINE	]f	history.next-failure
+V-LINE	gg	motion.top
+V-LINE	h	motion.left
+V-LINE	j	motion.down
+V-LINE	k	motion.up
+V-LINE	l	motion.right
+V-LINE	y	yank.field
+V-LINE	zM	history.collapse-all
+V-LINE	zR	history.expand-all
+V-LINE	za	history.fold
+V-LINE	zg	history.gaps
+V-LINE	zp	history.plumbing
+VISUAL	!	payload.pipe
+VISUAL	:	app.command-line
+VISUAL	<C-b>	motion.page-up
+VISUAL	<C-c>	app.quit
+VISUAL	<C-d>	motion.half-down
+VISUAL	<C-e>	history.detail-down
+VISUAL	<C-f>	motion.page-down
+VISUAL	<C-u>	motion.half-up
+VISUAL	<C-w>h	window.focus-left
+VISUAL	<C-w>j	window.focus-down
+VISUAL	<C-w>k	window.focus-up
+VISUAL	<C-w>l	window.focus-right
+VISUAL	<C-y>	history.detail-up
+VISUAL	<CR>	nav.open
+VISUAL	<Down>	motion.down
+VISUAL	<Esc>	app.cancel
+VISUAL	<Left>	motion.left
+VISUAL	<PageDown>	motion.page-down
+VISUAL	<PageUp>	motion.page-up
+VISUAL	<Right>	motion.right
+VISUAL	<Space>cq	workflow.query
+VISUAL	<Space>cs	workflow.stack
+VISUAL	<Space>mD	schedule.delete
+VISUAL	<Space>mb	schedule.backfill
+VISUAL	<Space>mc	workflow.cancel
+VISUAL	<Space>md	workflow.delete
+VISUAL	<Space>mg	schedule.trigger
+VISUAL	<Space>mn	schedule.create
+VISUAL	<Space>mp	schedule.pause
+VISUAL	<Space>mr	workflow.reset
+VISUAL	<Space>ms	workflow.signal
+VISUAL	<Space>mt	workflow.terminate
+VISUAL	<Space>mu	workflow.update
+VISUAL	<Space>q	app.quit
+VISUAL	<Space>rh	window.grow-left
+VISUAL	<Space>rj	window.grow-down
+VISUAL	<Space>rk	window.grow-up
+VISUAL	<Space>rl	window.grow-right
+VISUAL	<Space>se	window.equalize
+VISUAL	<Space>sh	window.split-down
+VISUAL	<Space>sv	window.split-right
+VISUAL	<Space>sx	window.close
+VISUAL	<Space>tn	tab.next
+VISUAL	<Space>to	tab.new
+VISUAL	<Space>tp	tab.previous
+VISUAL	<Space>tx	tab.close
+VISUAL	<Space>yR	yank.run-id
+VISUAL	<Space>ya	yank.payload
+VISUAL	<Space>yi	yank.payload-input
+VISUAL	<Space>yr	yank.payload-result
+VISUAL	<Space>yw	yank.workflow-id
+VISUAL	<Up>	motion.up
+VISUAL	?	app.help
+VISUAL	F	history.follow
+VISUAL	G	motion.bottom
+VISUAL	K	history.detail
+VISUAL	R	app.refresh
+VISUAL	Y	yank.record
+VISUAL	[f	history.prev-failure
+VISUAL	]f	history.next-failure
+VISUAL	gg	motion.top
+VISUAL	h	motion.left
+VISUAL	j	motion.down
+VISUAL	k	motion.up
+VISUAL	l	motion.right
+VISUAL	y	yank.field
+VISUAL	zM	history.collapse-all
+VISUAL	zR	history.expand-all
+VISUAL	za	history.fold
+VISUAL	zg	history.gaps
+VISUAL	zp	history.plumbing
+
+# Flags
+-p, --profile <NAME>
+--temporal-config <P>
+--address <HOST:PORT>
+-n, --namespace <NAME>
+-q, --query <QUERY>
+-w, --workflow <ID>
+--dashboard
+--readonly
+--log <FILE>
+--config-path
+-h, --help
+-V, --version
