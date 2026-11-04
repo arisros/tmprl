@@ -6,6 +6,7 @@ mod clipboard;
 mod config;
 mod event;
 mod keys;
+mod log;
 mod theme;
 mod ui;
 mod view;
@@ -17,7 +18,7 @@ use tokio::sync::mpsc::unbounded_channel;
 #[tokio::main]
 async fn main() -> std::process::ExitCode {
     let (mut profile, startup) = match cli::parse(std::env::args().skip(1)) {
-        Ok(Cli::Run { profile, startup }) => (profile, startup),
+        Ok(Cli::Run { profile, startup }) => (profile, *startup),
         Ok(Cli::Help) => {
             print!("{}", cli::USAGE);
             return std::process::ExitCode::SUCCESS;
@@ -35,6 +36,13 @@ async fn main() -> std::process::ExitCode {
             return std::process::ExitCode::from(2);
         }
     };
+
+    if let Some(path) = &startup.log
+        && let Err(e) = log::start(path)
+    {
+        eprintln!("tmprl: --log {path}: {e}");
+        return std::process::ExitCode::FAILURE;
+    }
 
     // Named here rather than left to the loader, so `config.toml` is looked up under the
     // profile that is actually connected: `readonly` must hold for `TEMPORAL_PROFILE=prod`.

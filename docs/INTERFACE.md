@@ -637,6 +637,7 @@ on the namespace list.
 | `--dashboard` | open on the dashboard, of the profile's namespace or the one `-n` names |
 | `--address <HOST:PORT>` | connect to this server instead of the profile's address |
 | `--readonly` | refuse every mutation for this run |
+| `--log <FILE>` | append every message, with its gRPC status, and the client library's warnings to `FILE`; `RUST_LOG` widens it, for example `RUST_LOG=debug` |
 | `--temporal-config <PATH>` | read connection profiles from this file (alias: `--config`) |
 | `--config-path` | print every file `tmprl` reads and whether it exists, then exit |
 | `-h`, `--help` / `-V`, `--version` | print the usage, or the version, then exit |
@@ -674,11 +675,12 @@ colour at all.
 
 ### How much colour
 
-Decided once, at startup, from two environment variables. tmprl cannot see the terminal's
+Decided once, at startup, from `config.toml` and two environment variables. tmprl cannot see the terminal's
 background, so the fallback is the palette that does not need to.
 
 | Environment | Palette |
 |---|---|
+| `[display] colors` in `config.toml`, when not `"auto"` | what it says: `"truecolor"`, `"16"` or `"none"` |
 | `NO_COLOR` set to anything but the empty string | none: bold, dim, underline and reverse video only |
 | otherwise, `COLORTERM` is `truecolor` or `24bit` | 24-bit RGB, tuned for a dark background |
 | otherwise | the terminal's own 16 named colours |
@@ -688,7 +690,8 @@ and cyan for the mode indicator). Text is the terminal's own foreground, chrome 
 foreground dimmed, and the cursor row is reverse video, so it reads on a light background
 as well as a dark one and follows whatever theme the terminal has. `TERM` is not consulted:
 it says what a terminal emulates, not what it can paint. A truecolor terminal that does not
-export `COLORTERM`, which is common over `ssh`, therefore gets 16 colours until it does.
+export `COLORTERM`, which is common over `ssh`, therefore gets 16 colours until it does, or
+until `[display] colors = "truecolor"` says so.
 
 Without colour the things that were told apart by colour are told apart by weight: the cursor
 row and a selection are reverse video (the cursor row bold as well), the focused pane's border

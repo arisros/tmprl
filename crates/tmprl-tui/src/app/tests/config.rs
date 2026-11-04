@@ -108,3 +108,27 @@ fn a_theme_error_is_still_reported_under_no_color() {
     app.apply_theme(ColorDepth::Mono, Some("nope = \"red\"\n"));
     assert!(app.note.is_some());
 }
+
+#[test]
+fn display_colors_overrides_what_the_environment_said() {
+    use tmprl_core::theme::ColorDepth;
+    let mut app = app();
+    app.apply_theme(ColorDepth::Ansi16, None);
+    app.apply_config(None, None, Some("[display]\ncolors = \"truecolor\""));
+    assert_eq!(
+        app.theme,
+        crate::theme::Theme::new(ColorDepth::TrueColor, &Default::default())
+    );
+}
+
+#[test]
+fn display_colors_auto_leaves_the_environment_in_charge() {
+    use tmprl_core::theme::ColorDepth;
+    let mut app = app();
+    app.apply_theme(ColorDepth::Mono, None);
+    app.apply_config(None, None, Some("[display]\ncolors = \"auto\""));
+    assert_eq!(
+        app.theme,
+        crate::theme::Theme::new(ColorDepth::Mono, &Default::default())
+    );
+}

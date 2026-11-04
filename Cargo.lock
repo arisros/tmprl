@@ -3014,6 +3014,8 @@ dependencies = [
  "tmprl-core",
  "tmprl-ui",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
  "uuid",
 ]
 
