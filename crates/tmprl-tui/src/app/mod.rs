@@ -348,6 +348,12 @@ pub enum Msg {
         search: u64,
         result: Result<Vec<WorkflowRow>, Fault>,
     },
+    /// The runs a child or parent lookup found, for the history it was asked from.
+    Related {
+        from: (String, String),
+        id: String,
+        result: Result<Vec<WorkflowRow>, Fault>,
+    },
     /// What the server has for the id `-w` named at startup.
     StartupWorkflow {
         generation: u64,
@@ -1044,6 +1050,7 @@ impl App {
                     Err(e) => self.fail_as(format!("workflow search: {e}"), e, Note::Warn),
                 }
             }
+            Msg::Related { from, id, result } => self.related_found(from, id, result),
             Msg::StartupWorkflow {
                 generation,
                 id,
@@ -1422,6 +1429,8 @@ impl App {
             Action::OpenPipe => self.open_pipe(),
             Action::OpenEditor => self.open_editor(),
             Action::OpenSource => self.open_source(),
+            Action::OpenChild => self.open_child(),
+            Action::OpenParent => self.open_parent(),
 
             Action::CancelWorkflow => self.confirm_mutation(MutationKind::Cancel),
             Action::TerminateWorkflow => self.confirm_mutation(MutationKind::Terminate),

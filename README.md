@@ -75,6 +75,7 @@ tmprl --config-path                         # every file tmprl reads, and whethe
 | `<Space>yw` | yank the workflow id | `<Space>yR` | yank the run id |
 | `<Space>m…` | cancel, terminate, signal, delete, reset, update | `gs` `gw` `gd` | schedules / workflows / dashboard |
 | `<Space>cq` | query the workflow, from the handlers it lists | `<Space>cs` | its stack trace |
+| `gc` | open the child under the cursor | `gp` | open the parent |
 | `<Space>s…` `<C-w>hjkl` | splits | `<Space>t…` | tabs |
 | `<Space>N` | switch namespace | `<Space>P` | switch profile, or `-` from the namespaces |
 | `<Space>T` | times as a clock or an age | `R` | reload from the server |
@@ -205,8 +206,8 @@ flowchart LR
 | Crate | Tests | |
 |---|---|---|
 | `tmprl-client` | 92 | all network IO |
-| `tmprl-core` | 462 | no terminal, no server |
-| `tmprl-tui` | 523 | ratatui |
+| `tmprl-core` | 463 | no terminal, no server |
+| `tmprl-tui` | 528 | ratatui |
 | `tmprl-ui` | 47 | window tree |
 
 ```sh

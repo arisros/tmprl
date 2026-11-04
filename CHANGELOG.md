@@ -29,6 +29,9 @@
   in the payload pane, a child's its workflow and run id, and `y` on such a group copies
   the id rather than the type. `<Space>yw` and `<Space>yR` copy the workflow id and run
   id, of the row on a list or of the history open.
+- **Go to a child or the parent**: `gc` on a child workflow's row opens its history, `gp`
+  opens the workflow that started this one, and `<C-o>` comes back. No second tmprl and
+  no copying ids between them.
 
 ## 0.4.2 — 2026-10-16
 

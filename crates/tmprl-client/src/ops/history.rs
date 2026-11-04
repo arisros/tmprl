@@ -374,6 +374,20 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
                 )
                 .field("attempt", a.attempt.to_string())
                 .field("firstRunId", a.first_execution_run_id)
+                .field("parentNamespace", a.parent_workflow_namespace)
+                .field(
+                    "parentWorkflowId",
+                    a.parent_workflow_execution
+                        .as_ref()
+                        .map(|w| w.workflow_id.clone())
+                        .unwrap_or_default(),
+                )
+                .field(
+                    "parentRunId",
+                    a.parent_workflow_execution
+                        .map(|w| w.run_id)
+                        .unwrap_or_default(),
+                )
                 .args("input", a.input)
                 .args("lastCompletionResult", a.last_completion_result)
         }

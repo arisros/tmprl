@@ -423,3 +423,116 @@ impl App {
         self.load_for_screen();
     }
 }
+
+impl App {
+    /// `gc`: the child workflow of the group under the cursor.
+    pub(super) fn open_child(&mut self) {
+        if self.view.screen != Screen::History {
+            self.note = Some(("a child is opened from a history".into(), Note::Warn));
+            return;
+        }
+        let Some(outline) = self.view.history.value() else {
+            return;
+        };
+        let group = match outline.row_at(self.view.cursor) {
+            Some(Row::Group { group, .. } | Row::Event { group, .. }) => outline.group(group),
+            None => None,
+        };
+        let Some(g) = group.filter(|g| g.category == tmprl_core::history::Category::ChildWorkflow)
+        else {
+            self.note = Some(("not a child workflow".into(), Note::Warn));
+            return;
+        };
+        let events = outline.events();
+        let Some(workflow_id) = g.field(events, "workflowId").map(str::to_string) else {
+            self.note = Some(("this child has no workflow id yet".into(), Note::Warn));
+            return;
+        };
+        let run_id = g.field(events, "runId").map(str::to_string);
+        let namespace = g.field(events, "namespace").map(str::to_string);
+        self.find_related(namespace, workflow_id, run_id);
+    }
+
+    /// `gp`: the workflow that started this one.
+    pub(super) fn open_parent(&mut self) {
+        if self.view.screen != Screen::History {
+            self.note = Some(("a parent is opened from a history".into(), Note::Warn));
+            return;
+        }
+        let field = |name: &str| {
+            self.view.history_events.iter().find_map(|e| {
+                e.fields
+                    .iter()
+                    .find(|(n, _)| *n == name)
+                    .map(|(_, v)| v.clone())
+            })
+        };
+        let Some(workflow_id) = field("parentWorkflowId") else {
+            self.note = Some(("this workflow has no parent".into(), Note::Warn));
+            return;
+        };
+        let (run_id, namespace) = (field("parentRunId"), field("parentNamespace"));
+        self.find_related(namespace, workflow_id, run_id);
+    }
+
+    /// Look the workflow up rather than open it from the ids alone, so the header has its
+    /// type and status like any other.
+    fn find_related(
+        &mut self,
+        namespace: Option<String>,
+        workflow_id: String,
+        run_id: Option<String>,
+    ) {
+        let Some(viewing) = self.view.viewing.clone() else {
+            return;
+        };
+        let Some(query) = tmprl_core::query::by_execution(&workflow_id, run_id.as_deref()) else {
+            self.note = Some((format!("cannot look up {workflow_id}"), Note::Warn));
+            return;
+        };
+        let Some(conn) = self.conn.clone() else {
+            return;
+        };
+        let namespace = namespace.unwrap_or_else(|| viewing.namespace.clone());
+        self.note = Some((format!("opening {workflow_id}…"), Note::Info));
+        let from = (viewing.namespace, viewing.run_id);
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            let result = conn
+                .list_workflows_across(&[namespace], &query, PICKER_SEARCH_LIMIT)
+                .await
+                .map(|(rows, _)| rows);
+            let _ = tx.send(Msg::Related {
+                from,
+                id: workflow_id,
+                result,
+            });
+        });
+    }
+
+    pub(super) fn related_found(
+        &mut self,
+        from: (String, String),
+        id: String,
+        result: Result<Vec<WorkflowRow>, Fault>,
+    ) {
+        let still_here = self.view.screen == Screen::History
+            && self.view.viewing.as_ref().is_some_and(|w| {
+                (w.namespace.as_str(), w.run_id.as_str()) == (from.0.as_str(), from.1.as_str())
+            });
+        if !still_here {
+            return;
+        }
+        match result {
+            Ok(rows) => match rows.into_iter().max_by_key(|row| row.start_time) {
+                Some(row) => self.open_row(row),
+                // Visibility trails the history by a moment, so a child that has only just
+                // started may not be listed yet.
+                None => {
+                    self.note = Some((format!("{id} is not listed yet, try again"), Note::Warn))
+                }
+            },
+            Err(e) => self.fail_as(format!("{id}: {e}"), e, Note::Error),
+        }
+    }
+}

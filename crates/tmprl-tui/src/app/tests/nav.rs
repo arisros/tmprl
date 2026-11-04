@@ -721,3 +721,84 @@ fn going_up_from_the_profiles_says_so() {
     assert_eq!(app.view.screen, Screen::Profiles);
     assert!(matches!(app.note, Some((_, Note::Warn))));
 }
+
+fn viewing_a_parent_of(child: &str) -> App {
+    use tmprl_core::history::{Category as C, GroupRef as G, Role as R};
+    let mut app = app();
+    loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
+    app.run("nav.open", None);
+    let mut initiated = hev(5, G::Opened(5), R::Opens, C::ChildWorkflow).with_subject("Ship");
+    initiated.fields.push(("workflowId", child.into()));
+    let mut started = hev(6, G::Opened(5), R::Continues, C::ChildWorkflow);
+    started.fields.push(("runId", "c1".into()));
+    app.handle(Msg::History {
+        generation: app.view.generation,
+        result: Ok((
+            vec![
+                hev(1, G::Workflow, R::Opens, C::Workflow).with_subject("Order"),
+                initiated,
+                started,
+            ],
+            Vec::new(),
+        )),
+    });
+    app
+}
+
+#[test]
+fn a_found_child_opens_and_jump_back_returns_to_the_parent() {
+    let mut app = viewing_a_parent_of("ship-1");
+    let mut child = wf("default", "c1", 200);
+    child.workflow_id = "ship-1".into();
+
+    app.handle(Msg::Related {
+        from: ("default".into(), "r1".into()),
+        id: "ship-1".into(),
+        result: Ok(vec![child]),
+    });
+    assert_eq!(app.view.viewing.as_ref().unwrap().run_id, "c1");
+
+    app.run("nav.jump-back", None);
+    assert_eq!(app.view.viewing.as_ref().unwrap().run_id, "r1");
+}
+
+#[test]
+fn a_lookup_answering_after_the_reader_moved_on_is_dropped() {
+    let mut app = viewing_a_parent_of("ship-1");
+    app.handle(Msg::Related {
+        from: ("default".into(), "elsewhere".into()),
+        id: "ship-1".into(),
+        result: Ok(vec![wf("default", "c1", 200)]),
+    });
+    assert_eq!(app.view.viewing.as_ref().unwrap().run_id, "r1");
+}
+
+#[test]
+fn a_child_not_listed_yet_says_so() {
+    let mut app = viewing_a_parent_of("ship-1");
+    app.handle(Msg::Related {
+        from: ("default".into(), "r1".into()),
+        id: "ship-1".into(),
+        result: Ok(Vec::new()),
+    });
+    let (msg, kind) = app.note.clone().unwrap();
+    assert_eq!(kind, Note::Warn);
+    assert!(msg.contains("not listed yet"), "{msg}");
+}
+
+#[test]
+fn go_to_child_refuses_on_a_row_that_is_not_a_child() {
+    let mut app = viewing_a_parent_of("ship-1");
+    app.run("motion.top", None);
+    app.run("history.child", None);
+    let (msg, _) = app.note.clone().unwrap();
+    assert!(msg.contains("not a child"), "{msg}");
+}
+
+#[test]
+fn go_to_parent_refuses_on_a_workflow_with_none() {
+    let mut app = viewing_a_parent_of("ship-1");
+    app.run("history.parent", None);
+    let (msg, _) = app.note.clone().unwrap();
+    assert!(msg.contains("no parent"), "{msg}");
+}
