@@ -1344,6 +1344,8 @@ impl App {
             Action::YankPayloadAll => self.yank_payload(PayloadPart::All),
             Action::YankPayloadInput => self.yank_payload(PayloadPart::Input),
             Action::YankPayloadResult => self.yank_payload(PayloadPart::Result),
+            Action::YankWorkflowId => self.yank_execution(|w| &w.workflow_id),
+            Action::YankRunId => self.yank_execution(|w| &w.run_id),
 
             Action::LoadMore => self.load_more(),
             Action::SelectView(key) => self.select_view(key),

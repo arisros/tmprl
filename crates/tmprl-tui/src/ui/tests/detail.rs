@@ -905,3 +905,21 @@ fn one_enormous_line_is_cut_rather_than_wrapped_for_ever() {
         shown.lines[0]
     );
 }
+
+#[test]
+fn an_activity_shows_its_activity_id_and_task_queue_on_the_group() {
+    let mut app = app_with_payloads();
+    if let Some(o) = app.view.history.value_mut() {
+        let mut events = o.events().to_vec();
+        events[1].fields.push(("activityId", "charge-1".into()));
+        events[1].fields.push(("taskQueue", "payments".into()));
+        let groups = tmprl_core::history::group_events(&events);
+        o.replace(events, groups);
+    }
+    app.run("motion.down", None);
+    app.run("history.detail", None);
+
+    let out = draw(&mut app, 110, 20);
+    assert!(out.contains("activityId = charge-1"), "{out}");
+    assert!(out.contains("taskQueue = payments"), "{out}");
+}

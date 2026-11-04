@@ -174,6 +174,15 @@ fn group_lines<'a>(
         ));
     }
     let mut lines = vec![Line::from(title)];
+    let ids = g.ids(outline.events());
+    if !ids.is_empty() {
+        let mut spans = Vec::new();
+        for (name, value) in ids {
+            spans.push(Span::styled(format!("  {name} = "), t.faint));
+            spans.push(Span::styled(value.to_string(), t.fg));
+        }
+        lines.push(Line::from(spans));
+    }
     if let Some(p) = live {
         lines.push(pending_line(p, app, t));
     }

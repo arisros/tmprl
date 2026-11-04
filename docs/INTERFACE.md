@@ -477,7 +477,8 @@ closed is refused with a message instead of polling for events that can never ar
 
 | Key | Action | |
 |---|---|---|
-| `y` / `Y` | yank field / whole record as JSON | **live** |
+| `y` / `Y` | yank field / whole record as JSON. On a group the field is its id: an activity's activity id, a child's workflow id | **live** |
+| `<leader>yw` / `<leader>yR` | yank the workflow id / run id, of the row or of the history open | **live** |
 | `za` | fold a history group open or shut | **live** |
 | `zR` / `zM` | expand / collapse every group | **live** |
 | `zp` | show or hide the workflow-task plumbing | **live** |
