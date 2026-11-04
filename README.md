@@ -230,10 +230,10 @@ TMPRL_REQUIRE_SERVER=1 cargo test  # what CI runs
 
 | Next | |
 |---|---|
-| 0.5 | timeouts and reconnect, large histories, paste, line editing in prompts and the query bar |
-| 0.6 | a workflow info pane, signal and update payloads, query input, every handler at once and one query over a selection, run chains, batch over a query |
-| 0.7 | task queues and pollers, a history opened from a file, export, headless `--exec` with JSON output |
-| 0.8 | quickfix, marks, diff, macros |
+| 1.0 | the keys, commands, config keys and flags frozen, through alpha, beta and rc |
+| 1.x | a workflow info pane, signal and update payloads, query input, run chains, batch over a query |
+| 1.x | task queues and pollers, a history opened from a file, export, headless `--exec` with JSON output |
+| 1.x | help per screen, quickfix, marks, diff, macros, folding inside a payload |
 
 [docs/ROADMAP.md](docs/ROADMAP.md) has each item, and what is not planned and why. Nexus
 operations already appear inside a history, and the palette is set in `theme.toml`.

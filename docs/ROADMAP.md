@@ -5,15 +5,21 @@ question: what stops someone who is not the author from relying on this? Depth f
 user comes after that, not before.
 
 Nothing here is a date. A release ships when its theme is true; until then, work ships as
-patches and candidates. The 0.2 to 0.4 releases went out before this rule held, so the themes
+patches and prereleases. The 0.2 to 0.4 releases went out before this rule held, so the themes
 start again at 0.5.
 
 | Release | Theme | The test it has to pass |
 |---|---|---|
 | 0.5 | Trustworthy for strangers | A slow cluster, a dropped VPN, a light terminal and a pasted id all behave |
-| 0.6 | Workflow complete | Anything the web UI does to one workflow, tmprl does too |
-| 0.7 | Infrastructure and sharing | "Is anything polling this queue?" and "send me what you are looking at" have answers |
-| 0.8 | Editor depth | The vim model is finished rather than suggested |
+| 1.0 | Stable | The keys, commands, config keys and flags in `docs/public-api.txt` and `docs/INTERFACE.md` stop changing |
+| 1.x | Workflow complete | Anything the web UI does to one workflow, tmprl does too |
+| 1.x | Infrastructure and sharing | "Is anything polling this queue?" and "send me what you are looking at" have answers |
+| 1.x | Editor depth | The vim model is finished rather than suggested |
+
+1.0 comes straight after 0.5, through `1.0.0-alpha`, `-beta` and `-rc` (see
+[RELEASING](RELEASING.md#the-road-to-10)). Everything after it adds keys and commands rather
+than changing them, so it ships as 1.x minors; an item that would rename or remove one waits
+for 2.0.
 
 Effort is S (days), M (a week or two) or L (several weeks).
 
@@ -26,21 +32,21 @@ broken.
 
 | Item | Today | Effort |
 |---|---|---|
-| Request deadlines and reconnect | No timeout on any RPC or on the codec HTTP client. One connection, made at startup, never re-made. The pending-activity poll stops at its first error | M |
+| ✓ Request deadlines and reconnect | Done. The SDK already gave each RPC a 30s deadline, keepalive and a channel that reconnects; the connect and the codec client now time out too, and follow and the pending-activity poll retry with backoff instead of stopping | M |
 | ✓ Errors that say what happened | Done. A failure keeps its gRPC code to the UI, names what to try, and `:messages` keeps every note of the session | M |
-| Large histories | Each arriving page re-merges, regroups and clones every event loaded so far. No benchmark exists. Wanted: incremental paging, and benchmarks at 100k events and with multi-megabyte payloads | M |
-| Paste and line editing | Prompts append and backspace only. Bracketed paste is not handled, so text pasted in Normal mode runs as keys | S |
-| ✓ Colours | Done: `theme.toml`, `NO_COLOR`, and a 16-colour palette that follows the terminal's own theme. Still wanted: a key to force the depth where `COLORTERM` is not exported | M |
-| ✓ CLI flags | Done: `--namespace`, `--query`, `--workflow`, `--address`, `--readonly`. Still wanted: `--log` | S |
-| `:` command line | The completion list cannot be navigated and `<Tab>` does nothing. No history, no `:q` | S |
-| Help that knows the screen | `?` and which-key list every command everywhere; a command that does not apply refuses when run. Wanted: commands declare where they apply | M |
-| Query bar | No cursor movement inside the line, no history, no way to save the current query as a view | S |
-| Schedules | Only the first 50 are fetched, and only from the first namespace in scope | S |
-| Reasons | Terminate and reset send a fixed reason | S |
+| ✓ Large histories | Done. Grouping was a linear lookup per event, 52s for 100k events; now 1.5s, with opt-in benchmarks at 100k events and at the 50 MB history limit. Each page still regroups everything loaded, which the benchmarks show is cheap enough | M |
+| ✓ Paste and line editing | Done: one line editor with a cursor, the shell's keys and `<Up>` history, and bracketed paste. A paste with nothing open goes to the workflow finder | S |
+| ✓ Colours | Done: `theme.toml`, `NO_COLOR`, a 16-colour palette that follows the terminal's own theme, and `[display] colors` to force the depth | M |
+| ✓ CLI flags | Done: `--namespace`, `--query`, `--workflow`, `--address`, `--readonly`, `--log` | S |
+| ✓ `:` command line | Done: `<Tab>` and `<S-Tab>` fill in the offers, `<Up>` recalls, `:q` quits | S |
+| Help that knows the screen | `?` and which-key list every command everywhere; a command that does not apply refuses when run. Wanted: commands declare where they apply. Moved after 1.0: it changes what help shows, not a key or an id | M |
+| Query bar | Cursor movement and history are done, with the line editor. Still wanted: saving the current query as a view | S |
+| ✓ Schedules | Done: every page, from every namespace in scope | S |
+| ✓ Reasons | Done: a reason prompt, pre-filled with the old default | S |
 | ✓ Read-only gaps | Done. The create-schedule form refuses before it opens | S |
 | ✓ Project hygiene | Done. `CONTRIBUTING.md`, `SECURITY.md`, issue forms, and CI against two server versions | S |
 
-## 0.6 · Workflow complete
+## 1.x · Workflow complete
 
 | Item | Today | Effort |
 |---|---|---|
@@ -50,12 +56,12 @@ broken.
 | Query | Built: `<leader>cq` picks a handler from the workflow's own `__temporal_workflow_metadata`, falls back to the names an older SDK's refusal lists, then to a typed name, and shows the answer in the payload pane. `<leader>cs` shows the call stack through `__stack_trace`. Still wanted: `<leader>cQ` runs every handler and shows one object keyed by name; `<leader>cq` on a `V` selection runs one handler on each workflow, of one type, capped. Input waits for signal and update payloads and codec encode | M |
 | Codec encode | The codec client only decodes, so anything sent to an encrypted namespace would go out as plaintext. Outgoing payloads need `/encode` first | S |
 | Run chain | `newRunId` and `firstRunId` are shown as text. Wanted: next and previous run, and every run of an id as a list | S |
-| Child and parent navigation | A child's ids are shown as text. Wanted: `Enter` on a child group opens its history, and a key goes to the parent | S |
+| ✓ Child and parent navigation | Done: `gc` opens the child under the cursor, `gp` the parent, `<C-o>` comes back. A group's ids show in the payload pane and `y` copies them | S |
 | Reset options | No choice of what to reapply, and no statement of which events are discarded | S |
 | Retry policy | Attempts, backoff and the last failure are shown. The policy itself is not, and heartbeat and last-started times are fetched but never drawn | S |
 | Batch over a query | Temporal's server-side batch, with a `CountWorkflowExecutions` dry run and the count typed to confirm | M |
 
-## 0.7 · Infrastructure and sharing
+## 1.x · Infrastructure and sharing
 
 | Item | Today | Effort |
 |---|---|---|
@@ -68,14 +74,14 @@ broken.
 | Stricter confirmation per profile | Three tiers exist. Wanted: an opt-in that asks for more on a named profile | S |
 | Headless `--exec` | No non-interactive mode. Every action already runs through one dispatch point. Wanted: JSON output of what only tmprl computes, the grouped history and the dashboard, which is also the interface for agents | M |
 
-## 0.8 · Editor depth
+## 1.x · Editor depth
 
 | Item | Today | Effort |
 |---|---|---|
 | Quickfix | A visible, editable list of workflows to step through with `]q` and `[q`, and to batch over | M |
 | Marks | The jumplist exists, marks do not | S |
 | Diff | Two histories aligned by group with linked scrolling, in two splits | L |
-| A cursor inside a payload | Folding, yanking a path or a sub-value. Today the pane scrolls and wraps, and nothing more | L |
+| A cursor inside a payload | Folding, yanking a path or a sub-value. Today the pane scrolls and wraps, cut at 5,000 lines, and formats a payload once rather than per key press | L |
 | Pipe polish | Yank the output of `!`, and a history for its prompt | S |
 | Macros and `.` | Recorded as command ids | M |
 
