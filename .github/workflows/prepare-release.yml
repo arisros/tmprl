@@ -13,11 +13,11 @@ on:
         type: choice
         options: [patch, minor, major]
       channel:
-        description: A release candidate, or the real thing
+        description: A prerelease (alpha, beta, release candidate), or the real thing
         required: true
         default: release
         type: choice
-        options: [release, rc]
+        options: [release, alpha, beta, rc]
 
 permissions:
   contents: write
