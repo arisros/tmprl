@@ -47,6 +47,9 @@
   `RUST_LOG` widens it.
 - **`[display] colors`** in `config.toml` forces `"truecolor"`, `"16"` or `"none"` where
   the environment does not say, such as over `ssh` without `COLORTERM`.
+- **Long histories load in seconds, not a minute.** Grouping looked each event's group up
+  one by one, so a 100k-event history took 52 seconds to arrive and stalled the screen as
+  it did; it now takes about 1.5.
 
 ## 0.4.2 — 2026-10-16
 
