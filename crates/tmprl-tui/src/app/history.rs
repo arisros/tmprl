@@ -101,12 +101,14 @@ impl App {
         let mut token = self.view.history_resume.clone();
 
         self.view.follow_task = Some(tokio::spawn(async move {
+            let mut attempt = 0;
             loop {
                 let result = conn
                     .follow_history(&row.namespace, &row.workflow_id, &row.run_id, token.clone())
                     .await;
                 match result {
                     Ok(page) => {
+                        attempt = 0;
                         let done = page.next_page_token.is_empty();
                         token = page.next_page_token.clone();
                         if tx
@@ -121,6 +123,21 @@ impl App {
                         if done {
                             return; // the workflow closed
                         }
+                    }
+                    Err(e) if e.is_transient() => {
+                        attempt += 1;
+                        let wait = tmprl_core::fault::retry_after(attempt);
+                        if tx
+                            .send(Msg::FollowRetrying {
+                                generation,
+                                error: e,
+                                wait,
+                            })
+                            .is_err()
+                        {
+                            return;
+                        }
+                        tokio::time::sleep(wait).await;
                     }
                     Err(e) => {
                         let _ = tx.send(Msg::History {

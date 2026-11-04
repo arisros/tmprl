@@ -369,6 +369,12 @@ pub enum Msg {
         generation: u64,
         result: Result<Vec<PendingActivity>, Fault>,
     },
+    /// The follow long poll failed in a way worth retrying, and will again after `wait`.
+    FollowRetrying {
+        generation: u64,
+        error: Fault,
+        wait: std::time::Duration,
+    },
     /// What `__temporal_workflow_metadata` answered, already through the codec.
     QueryHandlers {
         generation: u64,
@@ -1051,6 +1057,20 @@ impl App {
                 name,
                 result,
             } => self.queried_reply(generation, name, result),
+            Msg::FollowRetrying {
+                generation,
+                error,
+                wait,
+            } => {
+                if generation != self.view.generation || !self.view.following {
+                    return;
+                }
+                self.fail_as(
+                    format!("follow: {error}, retrying in {}s", wait.as_secs()),
+                    error,
+                    Note::Warn,
+                );
+            }
             Msg::Pending { generation, result } => {
                 if generation != self.view.generation {
                     return;

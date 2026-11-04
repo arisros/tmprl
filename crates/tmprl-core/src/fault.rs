@@ -153,6 +153,21 @@ impl Fault {
     /// The code is the answer where there is one. The two sentences are Temporal Cloud's,
     /// kept because which status it sends them under has not been confirmed, and missing
     /// the refusal strands a namespace-scoped key on the opening screen.
+    /// Whether the same call may well succeed if made again: the network or the server had
+    /// a bad moment, rather than the request being wrong.
+    pub fn is_transient(&self) -> bool {
+        matches!(
+            self.code,
+            Code::Unavailable
+                | Code::DeadlineExceeded
+                | Code::Unknown
+                | Code::Aborted
+                | Code::Internal
+                | Code::ResourceExhausted
+                | Code::Cancelled
+        )
+    }
+
     pub fn is_refusal(&self) -> bool {
         if self.code == Code::PermissionDenied {
             return true;
@@ -195,6 +210,13 @@ impl From<&str> for Fault {
     fn from(message: &str) -> Self {
         message.to_string().into()
     }
+}
+
+/// How long to wait before retry `attempt`, counting from 1: doubling from a second, capped
+/// at thirty.
+pub fn retry_after(attempt: u32) -> std::time::Duration {
+    let secs = 1u64 << attempt.saturating_sub(1).min(5);
+    std::time::Duration::from_secs(secs.min(30))
 }
 
 #[cfg(test)]
@@ -296,5 +318,24 @@ mod tests {
         // hint there would only restate the failure.
         assert!(Code::Internal.hint().is_none());
         assert!(Code::Rejected.hint().is_none());
+    }
+
+    #[test]
+    fn a_dropped_connection_is_worth_retrying_and_a_wrong_request_is_not() {
+        assert!(Fault::rpc("GetWorkflowExecutionHistory", Code::Unavailable, "").is_transient());
+        assert!(
+            Fault::rpc("GetWorkflowExecutionHistory", Code::DeadlineExceeded, "").is_transient()
+        );
+        assert!(!Fault::rpc("GetWorkflowExecutionHistory", Code::NotFound, "").is_transient());
+        assert!(
+            !Fault::rpc("GetWorkflowExecutionHistory", Code::PermissionDenied, "").is_transient()
+        );
+        assert!(!Fault::codec("bad key").is_transient());
+    }
+
+    #[test]
+    fn retries_back_off_to_thirty_seconds() {
+        let secs: Vec<u64> = (1..=8).map(|n| retry_after(n).as_secs()).collect();
+        assert_eq!(secs, [1, 2, 4, 8, 16, 30, 30, 30]);
     }
 }

@@ -200,8 +200,8 @@ impl App {
     /// Re-describe on a timer for as long as a follow runs, because the history long poll
     /// has nothing to wake on while an activity retries.
     ///
-    /// Stops at the first failure, so a describe the server refuses warns once rather than
-    /// every few seconds.
+    /// A refusal stops it, so it warns once rather than every few seconds. A network
+    /// failure keeps it polling, and warns only on the first of a run of them.
     pub(super) fn start_pending_poll(&mut self) {
         let (Some(row), Some(conn)) = (self.view.viewing.clone(), self.conn.clone()) else {
             return;
@@ -209,13 +209,22 @@ impl App {
         let (tx, generation) = (self.tx.clone(), self.view.generation);
         self.view.pending_task = Some(tokio::spawn(async move {
             let mut every = tokio::time::interval(PENDING_POLL);
+            let mut failing = false;
             loop {
                 every.tick().await;
                 let result = conn
                     .pending_activities(&row.namespace, &row.workflow_id, &row.run_id)
                     .await;
-                let failed = result.is_err();
-                if tx.send(Msg::Pending { generation, result }).is_err() || failed {
+                let (quiet, last) = match &result {
+                    Ok(_) => (false, false),
+                    Err(e) if e.is_transient() => (failing, false),
+                    Err(_) => (false, true),
+                };
+                failing = result.is_err();
+                if !quiet && tx.send(Msg::Pending { generation, result }).is_err() {
+                    return;
+                }
+                if last {
                     return;
                 }
             }

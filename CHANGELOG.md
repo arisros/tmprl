@@ -15,6 +15,10 @@
   rather than on every key press, and shows its first 5,000 lines with lines cut at 4,000
   characters; a note at the end says how much more there is, and `<Space>e`, `!` and the
   yanks still get all of it. Scrolling past 65,535 rows no longer jumps back to the top.
+- **Follow survives a dropped connection.** `F` retries a long poll that failed for a
+  network or server reason, waiting 1s, then 2s and up to 30s, and says so, instead of
+  stopping for good. The retrying-activity check keeps polling through the same failures
+  and warns once, not every few seconds.
 
 ## 0.4.2 — 2026-10-16
 

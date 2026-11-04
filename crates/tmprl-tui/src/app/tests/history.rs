@@ -398,3 +398,42 @@ fn a_failure_jump_shows_the_workflow_tasks_to_reach_a_failed_one() {
     app.run("history.plumbing", None);
     assert_eq!(app.row_count(), 1, "zp still hides them");
 }
+
+#[test]
+fn a_dropped_follow_says_it_is_retrying_and_keeps_following() {
+    use tmprl_core::fault::{Code, Fault};
+    let mut app = viewing_running();
+    app.run("history.follow", None);
+
+    app.handle(Msg::FollowRetrying {
+        generation: app.view.generation,
+        error: Fault::rpc(
+            "GetWorkflowExecutionHistory",
+            Code::Unavailable,
+            "connection reset",
+        ),
+        wait: std::time::Duration::from_secs(4),
+    });
+
+    assert!(app.view.following);
+    let (msg, kind) = app.note.clone().unwrap();
+    assert_eq!(kind, Note::Warn);
+    assert!(msg.contains("retrying in 4s"), "got {msg}");
+}
+
+#[test]
+fn a_retry_notice_for_a_follow_already_stopped_is_dropped() {
+    use tmprl_core::fault::{Code, Fault};
+    let mut app = viewing_running();
+    app.run("history.follow", None);
+    app.run("history.follow", None);
+    app.note = None;
+
+    app.handle(Msg::FollowRetrying {
+        generation: app.view.generation,
+        error: Fault::rpc("GetWorkflowExecutionHistory", Code::Unavailable, ""),
+        wait: std::time::Duration::from_secs(1),
+    });
+
+    assert!(app.note.is_none());
+}
