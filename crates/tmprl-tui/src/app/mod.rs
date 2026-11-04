@@ -974,7 +974,8 @@ impl App {
                 }
                 self.view.loading_more = false;
                 match result {
-                    Ok((events, token)) => {
+                    Ok((mut events, token)) => {
+                        self.decode_from_cache(&mut events);
                         if !token.is_empty() {
                             self.view.history_resume = token.clone();
                         } else if self.view.following {
@@ -1002,6 +1003,7 @@ impl App {
                             }
                         }
                         self.clamp_cursor();
+                        self.maybe_decode();
                         self.continue_scan(generation);
                     }
                     Err(e) => {

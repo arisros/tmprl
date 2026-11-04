@@ -7,6 +7,10 @@
   and `$EDITOR` work on it. An older SDK that cannot list its queries still gives a picker
   from its own refusal, or a prompt for the name. `<Space>cs` shows where the workflow is
   blocked, its stack trace, as lines.
+- **Encrypted payloads decode without a nudge.** Opening a history with the payload pane
+  already open decodes what is under the cursor, a refresh or a followed page no longer
+  turns a decoded payload back into ciphertext, and a pane in a split gets its decoded
+  values even when the reply lands after the focus moved.
 
 ## 0.4.2 — 2026-10-16
 
