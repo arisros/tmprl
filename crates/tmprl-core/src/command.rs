@@ -83,6 +83,8 @@ pub enum Action {
     YankPayloadAll,
     YankPayloadInput,
     YankPayloadResult,
+    YankWorkflowId,
+    YankRunId,
     /// Fetch the next page of the workflow list. Driven by scrolling rather than by a key,
     /// but it is a command so that `:` reaches it like anything else.
     LoadMore,
@@ -104,6 +106,8 @@ pub enum Action {
     /// Open what is under the cursor in `$EDITOR`, `<leader>e`.
     OpenEditor,
     OpenSource,
+    OpenChild,
+    OpenParent,
 
     // Windows and tabs
     SplitRight,
@@ -222,6 +226,8 @@ impl Registry {
             "yank.payload",       "Yank",        "Yank every payload here"   => YankPayloadAll;
             "yank.payload-input", "Yank",        "Yank the input payloads"   => YankPayloadInput;
             "yank.payload-result","Yank",        "Yank the result payload"   => YankPayloadResult;
+            "yank.workflow-id",   "Yank",        "Yank the workflow id"      => YankWorkflowId;
+            "yank.run-id",        "Yank",        "Yank the run id"           => YankRunId;
 
             "list.more",          "List",        "Load the next page"        => LoadMore;
 
@@ -240,6 +246,8 @@ impl Registry {
             "payload.pipe",       "History",     "Pipe payloads through a command" => OpenPipe;
             "payload.edit",       "History",     "Open the payloads in $EDITOR" => OpenEditor;
             "history.source",     "History",     "Go to the source of this event" => OpenSource;
+            "history.child",      "History",     "Open the child workflow"   => OpenChild;
+            "history.parent",     "History",     "Open the parent workflow"  => OpenParent;
 
             "window.split-right", "Windows",     "Split side by side"        => SplitRight;
             "window.split-down",  "Windows",     "Split above and below"     => SplitDown;

@@ -8,15 +8,23 @@ impl App {
         let Some(prompt) = self.prompt.as_mut() else {
             return;
         };
+        let kind = prompt.kind;
         match chord.key {
-            Key::Esc => self.close_prompt(),
+            Key::Esc => {
+                self.awaiting_reason.clear();
+                self.close_prompt();
+            }
             Key::Enter => {
-                let entered = prompt.buf.trim().to_string();
-                let kind = prompt.kind;
+                let entered = prompt.buf.as_str().trim().to_string();
                 self.close_prompt();
                 if entered.is_empty() {
+                    self.awaiting_reason.clear();
                     return;
                 }
+                self.histories
+                    .entry(History::Prompt(kind))
+                    .or_default()
+                    .push(&entered);
                 match kind {
                     PromptKind::Command => self.run_typed_command(&entered),
                     PromptKind::Pipe => self.run_pipe(entered),
@@ -24,24 +32,104 @@ impl App {
                     PromptKind::Signal | PromptKind::Update => self.confirm_named(kind, entered),
                     PromptKind::Backfill => self.confirm_backfill(entered),
                     PromptKind::Query => self.run_query(entered),
+                    PromptKind::Reason => self.confirm_with_reason(entered),
                 }
             }
-            // Backspace on an empty line closes the prompt, as it does in vim.
-            Key::Backspace if prompt.buf.pop().is_none() => self.close_prompt(),
-            Key::Backspace => {}
-            Key::Char(c) if chord.mods.is_none() => prompt.buf.push(c),
-            _ => {}
+            Key::Up | Key::Down => {
+                let history = self.histories.entry(History::Prompt(kind)).or_default();
+                let recalled = if chord.key == Key::Up {
+                    history.older(prompt.buf.as_str())
+                } else {
+                    history.newer()
+                };
+                if let Some(text) = recalled {
+                    prompt.buf.set(text);
+                }
+            }
+            Key::Tab | Key::BackTab if kind == PromptKind::Command => {
+                self.cycle_completion(chord.key == Key::Tab)
+            }
+            _ => match prompt.buf.key(chord) {
+                // Backspace on an empty line closes the prompt, as it does in vim.
+                Edit::Emptied => {
+                    self.awaiting_reason.clear();
+                    self.close_prompt();
+                }
+                Edit::Changed => self.cmdline_cycle = None,
+                Edit::Moved | Edit::Unhandled => {}
+            },
         }
     }
 
+    pub(super) fn paste(&mut self, text: String) {
+        if self.picker.is_some() {
+            let line = text.lines().next().unwrap_or_default().trim().to_string();
+            self.picker_paste(&line);
+        } else if let Some(prompt) = self.prompt.as_mut() {
+            prompt.buf.paste(&text);
+            self.cmdline_cycle = None;
+        } else if self.mode == Mode::Insert {
+            self.insert_buf.paste(&text);
+            self.recompute_completion();
+        } else if self.mode == Mode::Normal {
+            let id = text
+                .split_whitespace()
+                .next()
+                .unwrap_or_default()
+                .to_string();
+            if id.is_empty() {
+                return;
+            }
+            self.run("find.workflow", None);
+            if self.picker.is_some() {
+                self.picker_paste(&id);
+            }
+        }
+    }
+
+    fn cycle_completion(&mut self, forward: bool) {
+        let ids: Vec<&'static str> = self.cmdline_matches().iter().map(|c| c.id).collect();
+        let Some(prompt) = self.prompt.as_mut() else {
+            return;
+        };
+        if ids.is_empty() {
+            return;
+        }
+        let (typed, next) = match self.cmdline_cycle.take() {
+            None => (
+                prompt.buf.as_str().to_string(),
+                if forward { 0 } else { ids.len() - 1 },
+            ),
+            Some((typed, i)) if forward => (typed, (i + 1) % ids.len()),
+            Some((typed, i)) => (typed, (i + ids.len() - 1) % ids.len()),
+        };
+        prompt.buf.set(ids[next]);
+        self.cmdline_cycle = Some((typed, next));
+    }
+
+    pub fn cmdline_pick(&self) -> Option<usize> {
+        self.cmdline_cycle.as_ref().map(|(_, i)| *i)
+    }
+
     pub(super) fn close_prompt(&mut self) {
+        if let Some(prompt) = &self.prompt {
+            self.histories
+                .entry(History::Prompt(prompt.kind))
+                .or_default()
+                .reset();
+        }
         self.prompt = None;
+        self.cmdline_cycle = None;
         self.mode = Mode::Normal;
     }
 
     /// Resolve what was typed at `:` and run it. Accepts a unique prefix, the way vim
     /// accepts `:q` for `:quit`.
     pub(super) fn run_typed_command(&mut self, entered: &str) {
+        if matches!(entered, "q" | "q!" | "qa" | "qa!" | "quit") {
+            self.run("app.quit", None);
+            return;
+        }
         let hits = self.registry.search(entered);
         match hits.iter().find(|c| c.id == entered).or(hits.first()) {
             Some(c) if hits.len() == 1 || c.id == entered => {
@@ -65,7 +153,11 @@ impl App {
     pub fn cmdline_matches(&self) -> Vec<&tmprl_core::Command> {
         match &self.prompt {
             Some(p) if p.kind == PromptKind::Command => {
-                self.registry.search(&p.buf).into_iter().take(8).collect()
+                let typed = self
+                    .cmdline_cycle
+                    .as_ref()
+                    .map_or(p.buf.as_str(), |(typed, _)| typed.as_str());
+                self.registry.search(typed).into_iter().take(8).collect()
             }
             _ => Vec::new(),
         }

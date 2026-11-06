@@ -7,6 +7,7 @@ fn a_mutation_key_only_opens_a_confirmation() {
     // Nothing reaches the cluster until the reader says yes.
     let mut app = on_a_workflow();
     app.run("workflow.terminate", None);
+    give_reason(&mut app);
 
     let c = app.confirm.clone().expect("a confirmation should open");
     assert_eq!(c.first().verb(), "Terminate");
@@ -62,6 +63,8 @@ fn a_readonly_profile_refuses_before_a_confirmation_opens() {
     );
 
     app.run("workflow.terminate", None);
+
+    give_reason(&mut app);
     assert!(app.confirm.is_none(), "no confirmation may open");
     let (text, level) = app.note.clone().expect("a refusal should be reported");
     assert!(
@@ -100,6 +103,8 @@ fn a_profile_without_a_readonly_flag_still_mutates() {
     );
 
     app.run("workflow.terminate", None);
+
+    give_reason(&mut app);
     assert!(app.confirm.is_some(), "a confirmation should still open");
 }
 
@@ -109,6 +114,7 @@ fn a_confirmation_owns_every_key_while_it_is_up() {
     let mut app = on_a_workflow();
     let before = app.view.cursor;
     app.run("workflow.terminate", None);
+    give_reason(&mut app);
 
     app.handle(Msg::Key(Chord::ch('j')));
     assert_eq!(app.view.cursor, before, "j must not move the cursor");
@@ -128,6 +134,7 @@ fn a_confirmation_owns_every_key_while_it_is_up() {
 fn escape_always_backs_out() {
     let mut app = on_a_workflow();
     app.run("workflow.terminate", None);
+    give_reason(&mut app);
     app.handle(Msg::Key(Chord::plain(tmprl_core::Key::Esc)));
 
     assert!(app.confirm.is_none());
@@ -157,6 +164,7 @@ fn deleting_costs_a_word_and_nearly_is_not_enough() {
 fn a_mutation_needs_something_under_the_cursor() {
     let mut app = app(); // namespace screen, nothing selected
     app.run("workflow.terminate", None);
+    give_reason(&mut app);
     assert!(app.confirm.is_none());
     assert!(matches!(app.note, Some((_, Note::Warn))));
 }
@@ -220,6 +228,7 @@ fn a_destructive_batch_costs_the_count_rather_than_a_keypress() {
     let mut app = on_four_workflows();
     select(&mut app, 3);
     app.run("workflow.terminate", None);
+    give_reason(&mut app);
 
     let c = app.confirm.clone().unwrap();
     assert_eq!(c.typed_word.as_deref(), Some("3"));
@@ -345,6 +354,8 @@ fn a_reset_resolves_to_a_workflow_task_the_cursor_is_not_on() {
     app.run("motion.bottom", None); // the activity group, not a workflow task
 
     app.run("workflow.reset", None);
+
+    give_reason(&mut app);
     let c = app.confirm.clone().expect("a confirmation");
     assert!(
         c.first().cli().contains("--event-id 3"),
@@ -358,6 +369,7 @@ fn a_reset_resolves_to_a_workflow_task_the_cursor_is_not_on() {
 fn a_reset_needs_a_history_and_says_so() {
     let mut app = on_a_workflow(); // still on the workflow list
     app.run("workflow.reset", None);
+    give_reason(&mut app);
     assert!(app.confirm.is_none());
     let (msg, kind) = app.note.clone().unwrap();
     assert_eq!(kind, Note::Warn);
@@ -377,6 +389,7 @@ fn a_history_with_no_completed_task_cannot_be_reset() {
         )),
     });
     app.run("workflow.reset", None);
+    give_reason(&mut app);
     assert!(app.confirm.is_none(), "there is nowhere valid to reset to");
 }
 
@@ -664,4 +677,55 @@ fn a_test_run_captures_the_audit_line_instead_of_writing_the_real_log() {
         lines[0]
     );
     assert!(lines[0].contains("\"outcome\":\"ok\""), "{}", lines[0]);
+}
+
+#[test]
+fn a_terminate_asks_why_and_records_it_on_every_row() {
+    let mut app = app();
+    loaded(
+        &mut app,
+        vec![wf("default", "r1", 300), wf("default", "r2", 200)],
+        vec![],
+    );
+    app.run("mode.visual", None);
+    app.run("motion.down", None);
+    app.run("workflow.terminate", None);
+
+    let prompt = app.prompt.clone().expect("the reason prompt");
+    assert_eq!(prompt.kind, PromptKind::Reason);
+    assert_eq!(
+        prompt.buf, "terminated from tmprl",
+        "Enter keeps the old default"
+    );
+    assert!(
+        app.confirm.is_none(),
+        "the confirmation comes after the reason"
+    );
+
+    app.handle(Msg::Key(Chord::ctrl('u')));
+    type_chars(&mut app, "stuck after bad deploy");
+    app.handle(Msg::Key(Chord::plain(tmprl_core::Key::Enter)));
+
+    let c = app.confirm.clone().expect("a confirmation");
+    assert_eq!(c.mutations.len(), 2);
+    for m in &c.mutations {
+        assert!(
+            matches!(m, Mutation::Terminate { reason, .. } if reason == "stuck after bad deploy"),
+            "{m:?}"
+        );
+    }
+}
+
+#[test]
+fn escape_at_the_reason_terminates_nothing() {
+    let mut app = on_a_workflow();
+    app.run("workflow.terminate", None);
+    app.handle(Msg::Key(Chord::plain(tmprl_core::Key::Esc)));
+    assert!(app.confirm.is_none());
+    assert!(app.prompt.is_none());
+
+    app.run("search.open", None);
+    type_chars(&mut app, "x");
+    app.handle(Msg::Key(Chord::plain(tmprl_core::Key::Enter)));
+    assert!(app.confirm.is_none());
 }

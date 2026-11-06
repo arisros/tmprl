@@ -25,6 +25,9 @@ use tmprl_core::payload::Payload;
 
 use super::OpError;
 
+// reqwest sets no timeout by default.
+const CODEC_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// A configured codec server.
 #[derive(Debug, Clone)]
 pub struct Codec {
@@ -35,10 +38,22 @@ pub struct Codec {
 
 impl Codec {
     pub fn new(endpoint: impl Into<String>, auth: Option<String>) -> Self {
+        Self::with_deadline(endpoint, auth, CODEC_DEADLINE)
+    }
+
+    fn with_deadline(
+        endpoint: impl Into<String>,
+        auth: Option<String>,
+        deadline: std::time::Duration,
+    ) -> Self {
         Self {
             endpoint: endpoint.into().trim_end_matches('/').to_string(),
             auth,
-            http: reqwest::Client::new(),
+            http: reqwest::Client::builder()
+                .connect_timeout(deadline.min(std::time::Duration::from_secs(10)))
+                .timeout(deadline)
+                .build()
+                .unwrap_or_default(),
         }
     }
 
@@ -393,6 +408,26 @@ mod live {
             .await
             .unwrap_err();
         assert!(err.to_string().contains("cannot be paired up"), "got {err}");
+    }
+
+    #[tokio::test]
+    async fn a_codec_server_that_never_answers_times_out() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (_sock, _) = listener.accept().await.unwrap();
+            std::future::pending::<()>().await;
+        });
+        let codec = Codec::with_deadline(
+            format!("http://{addr}"),
+            None,
+            std::time::Duration::from_millis(200),
+        );
+        let err = codec
+            .decode("default", &[Payload::new("binary/encrypted", vec![1])])
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("/decode"), "got {err}");
     }
 
     #[tokio::test]

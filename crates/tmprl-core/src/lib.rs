@@ -18,6 +18,7 @@ pub mod interaction;
 pub mod jumplist;
 pub mod key;
 pub mod keymap;
+pub mod line;
 pub mod loadable;
 pub mod mode;
 pub mod mutation;

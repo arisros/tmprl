@@ -16,6 +16,7 @@ pub struct Startup {
     pub readonly: bool,
     /// `--dashboard`: open the dashboard instead of the namespace list.
     pub dashboard: bool,
+    pub log: Option<String>,
 }
 
 impl Startup {

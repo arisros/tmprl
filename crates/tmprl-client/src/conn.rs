@@ -192,6 +192,9 @@ const DEFAULT_NAMESPACE: &str = "default";
 /// here therefore gets the same treatment as one in the file: a bare `host:port` takes
 /// `https` when the profile has TLS or an API key, and both are kept. Patching the built
 /// options instead would mean choosing the scheme a second time, differently.
+// The SDK sets no connect timeout by default.
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 fn options_from(
     mut loaded: ClientConfigProfile,
     profile: &ProfileRef,
@@ -206,8 +209,9 @@ fn options_from(
         .namespace
         .clone()
         .unwrap_or_else(|| DEFAULT_NAMESPACE.to_owned());
-    let conn_opts =
+    let mut conn_opts =
         ConnectionOptions::try_from(loaded).map_err(|e| ConnectError::Config(e.to_string()))?;
+    conn_opts.connect_timeout.get_or_insert(CONNECT_TIMEOUT);
     Ok((conn_opts, ClientOptions::new(namespace).build()))
 }
 
@@ -458,6 +462,17 @@ mod tests {
         assert_eq!(
             conn.target.as_str(),
             "https://my-ns.a1b2c.tmprl.cloud:7233/"
+        );
+    }
+
+    #[test]
+    fn a_connection_gives_up_on_an_unreachable_address_and_keeps_its_keepalive() {
+        let (conn, _) =
+            options_from(ClientConfigProfile::default(), &ProfileRef::default()).unwrap();
+        assert_eq!(conn.connect_timeout, Some(CONNECT_TIMEOUT));
+        assert!(
+            conn.keep_alive.is_some(),
+            "a dead connection is found by its pings"
         );
     }
 

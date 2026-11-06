@@ -4,10 +4,6 @@
 use super::*;
 
 impl App {
-    /// Schedules for the first namespace in scope.
-    ///
-    /// One namespace, not the fan-out: ListSchedules takes a single namespace and a schedule
-    /// list merged across several has no ordering that means anything.
     pub fn load_schedules(&mut self) {
         self.view.generation = self.view.generation.wrapping_add(1);
         self.view.schedules.begin_refresh();
@@ -16,20 +12,20 @@ impl App {
         let Some(conn) = self.conn.clone() else {
             return;
         };
-        let namespace = self
-            .view
-            .scope
-            .first()
-            .cloned()
-            .unwrap_or_else(|| self.namespace.clone());
+        let namespaces = self.namespaces_in_scope();
         let (tx, generation) = (self.tx.clone(), self.view.generation);
         tokio::spawn(async move {
-            let result = conn
-                .list_schedules(&namespace, PAGE_SIZE, Vec::new())
-                .await
-                .map(|p| p.rows);
+            let result = conn.list_all_schedules(&namespaces, SCAN_PAGE_SIZE).await;
             let _ = tx.send(Msg::Schedules { generation, result });
         });
+    }
+
+    pub(super) fn namespaces_in_scope(&self) -> Vec<String> {
+        if self.view.scope.is_empty() {
+            vec![self.namespace.clone()]
+        } else {
+            self.view.scope.clone()
+        }
     }
 
     /// Spawn a namespace fetch. Returns immediately; the result arrives as a `Msg`.
@@ -199,9 +195,6 @@ impl App {
 
     /// Re-describe on a timer for as long as a follow runs, because the history long poll
     /// has nothing to wake on while an activity retries.
-    ///
-    /// Stops at the first failure, so a describe the server refuses warns once rather than
-    /// every few seconds.
     pub(super) fn start_pending_poll(&mut self) {
         let (Some(row), Some(conn)) = (self.view.viewing.clone(), self.conn.clone()) else {
             return;
@@ -209,13 +202,22 @@ impl App {
         let (tx, generation) = (self.tx.clone(), self.view.generation);
         self.view.pending_task = Some(tokio::spawn(async move {
             let mut every = tokio::time::interval(PENDING_POLL);
+            let mut failing = false;
             loop {
                 every.tick().await;
                 let result = conn
                     .pending_activities(&row.namespace, &row.workflow_id, &row.run_id)
                     .await;
-                let failed = result.is_err();
-                if tx.send(Msg::Pending { generation, result }).is_err() || failed {
+                let (quiet, last) = match &result {
+                    Ok(_) => (false, false),
+                    Err(e) if e.is_transient() => (failing, false),
+                    Err(_) => (false, true),
+                };
+                failing = result.is_err();
+                if !quiet && tx.send(Msg::Pending { generation, result }).is_err() {
+                    return;
+                }
+                if last {
                     return;
                 }
             }

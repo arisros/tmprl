@@ -32,6 +32,23 @@ impl App {
         }
     }
 
+    pub fn shown_text(&self, p: &Payload) -> Option<Arc<ShownText>> {
+        let key = Self::payload_key(p);
+        if let Some(hit) = self.shown.borrow().get(&key) {
+            return Some(hit.clone());
+        }
+        let tmprl_core::payload::Rendered::Text(text) = p.render() else {
+            return None;
+        };
+        let shown = Arc::new(cut_for_pane(&text));
+        let mut cache = self.shown.borrow_mut();
+        if cache.len() >= SHOWN_CACHE {
+            cache.clear();
+        }
+        cache.insert(key, shown.clone());
+        Some(shown)
+    }
+
     /// Ask the codec server about anything encrypted under the cursor.
     ///
     /// Lazy on purpose: only what the pane is actually showing. Decoding a whole history
@@ -390,6 +407,36 @@ impl App {
                 Note::Info,
             ),
         });
+    }
+}
+
+const SHOWN_CACHE: usize = 64;
+pub(crate) const PANE_MAX_LINES: usize = 5_000;
+const PANE_MAX_LINE_CHARS: usize = 4_000;
+
+pub(crate) fn cut_for_pane(text: &str) -> ShownText {
+    let mut lines = Vec::new();
+    let mut total = 0;
+    for line in text.lines() {
+        total += 1;
+        if lines.len() >= PANE_MAX_LINES {
+            continue;
+        }
+        lines.push(cut_line(line));
+    }
+    ShownText {
+        hidden: total - lines.len(),
+        lines,
+    }
+}
+
+fn cut_line(line: &str) -> String {
+    match line.char_indices().nth(PANE_MAX_LINE_CHARS) {
+        None => line.to_string(),
+        Some((at, _)) => {
+            let rest = line[at..].chars().count();
+            format!("{}… {rest} more characters", &line[..at])
+        }
     }
 }
 

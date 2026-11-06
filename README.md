@@ -71,9 +71,11 @@ tmprl --config-path                         # every file tmprl reads, and whethe
 | `]f` `[f` | next / previous failure | `F` | follow, like `tail -f` |
 | `K` | payloads and the full failure | `!` | pipe them through `jq` |
 | `<C-w>j` | into the payload pane, `j` `k` `<C-d>` `<C-f>` `gg` `G` scroll it | `<Esc>` | back to the list |
-| `y` `Y` | yank value / row | `<Space>y{a,i,r}` | yank payloads |
+| `y` `Y` | yank value or id / row | `<Space>y{a,i,r}` | yank payloads |
+| `<Space>yw` | yank the workflow id | `<Space>yR` | yank the run id |
 | `<Space>m…` | cancel, terminate, signal, delete, reset, update | `gs` `gw` `gd` | schedules / workflows / dashboard |
 | `<Space>cq` | query the workflow, from the handlers it lists | `<Space>cs` | its stack trace |
+| `gc` | open the child under the cursor | `gp` | open the parent |
 | `<Space>s…` `<C-w>hjkl` | splits | `<Space>t…` | tabs |
 | `<Space>N` | switch namespace | `<Space>P` | switch profile, or `-` from the namespaces |
 | `<Space>T` | times as a clock or an age | `R` | reload from the server |
@@ -142,6 +144,9 @@ max_bytes = 1048576       # default 65536; a longer yank is written to a file, n
 [input]
 mouse = true              # the wheel scrolls, a click selects, a second click opens; off by default
 
+[display]
+colors = "truecolor"      # or "16" or "none"; "auto", the default, reads NO_COLOR and COLORTERM
+
 [profile.sit]
 accent  = "green"
 api_key = "…"             # over temporal.toml; or api_key_cmd below, not both
@@ -203,9 +208,9 @@ flowchart LR
 
 | Crate | Tests | |
 |---|---|---|
-| `tmprl-client` | 89 | all network IO |
-| `tmprl-core` | 457 | no terminal, no server |
-| `tmprl-tui` | 511 | ratatui |
+| `tmprl-client` | 92 | all network IO |
+| `tmprl-core` | 475 | no terminal, no server |
+| `tmprl-tui` | 546 | ratatui |
 | `tmprl-ui` | 47 | window tree |
 
 ```sh

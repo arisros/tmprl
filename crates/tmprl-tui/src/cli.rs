@@ -24,6 +24,8 @@ OPTIONS:
     -w, --workflow <ID>         Open the history of this workflow id or run id
         --dashboard             Open the dashboard, of the profile's namespace or -n's
         --readonly              Refuse every mutation for this run
+        --log <FILE>            Append every message, and the client's warnings, to FILE;
+                                RUST_LOG widens what is written
         --config-path           Print where tmprl reads its own config, and exit
     -h, --help                  Print this message
     -V, --version               Print version
@@ -43,7 +45,7 @@ NO_COLOR is honoured. Press ? inside the application for keybindings.
 pub enum Cli {
     Run {
         profile: ProfileRef,
-        startup: Startup,
+        startup: Box<Startup>,
     },
     Help,
     Version,
@@ -96,6 +98,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Cli, String> {
                 startup.workflow = Some(id);
             }
             "--address" => profile.address = Some(value("--address")?),
+            "--log" => startup.log = Some(value("--log")?),
             "--help" | "--version" | "--readonly" | "--dashboard" | "--config-path"
                 if inline.is_some() =>
             {
@@ -121,7 +124,10 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Cli, String> {
             "--dashboard opens the dashboard, so it cannot go with --query or --workflow".into(),
         );
     }
-    Ok(Cli::Run { profile, startup })
+    Ok(Cli::Run {
+        profile,
+        startup: Box::new(startup),
+    })
 }
 
 /// The value an option was given, from `--option=value` or from the next argument.
@@ -164,7 +170,7 @@ mod tests {
 
     fn run(line: &[&str]) -> (ProfileRef, Startup) {
         match parse_line(line) {
-            Ok(Cli::Run { profile, startup }) => (profile, startup),
+            Ok(Cli::Run { profile, startup }) => (profile, *startup),
             other => panic!("{line:?} should run, got {other:?}"),
         }
     }
@@ -241,6 +247,8 @@ mod tests {
             "--address",
             "localhost:7233",
             "--readonly",
+            "--log",
+            "tmprl.log",
         ]);
         assert_eq!(
             profile,
@@ -260,6 +268,7 @@ mod tests {
                 workflow: Some("order-42".into()),
                 readonly: true,
                 dashboard: false,
+                log: Some("tmprl.log".into()),
             }
         );
     }
@@ -269,6 +278,20 @@ mod tests {
         let (profile, startup) = run(&["--address", "temporal.internal:7233"]);
         assert_eq!(profile.address.as_deref(), Some("temporal.internal:7233"));
         assert!(!startup.opens_workflows());
+    }
+
+    #[test]
+    fn log_names_a_file_and_needs_one() {
+        assert_eq!(
+            run(&["--log", "/tmp/t.log"]).1.log.as_deref(),
+            Some("/tmp/t.log")
+        );
+        assert_eq!(
+            run(&["--log=/tmp/t.log"]).1.log.as_deref(),
+            Some("/tmp/t.log")
+        );
+        assert_eq!(run(&[]).1.log, None);
+        assert!(parse(["--log".to_string()]).is_err());
     }
 
     #[test]

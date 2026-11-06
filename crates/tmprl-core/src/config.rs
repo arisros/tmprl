@@ -325,6 +325,8 @@ pub struct Config {
     /// `[input] mouse`. Off unless asked for: a terminal that reports the mouse to tmprl no
     /// longer selects text with a plain drag.
     pub mouse: bool,
+    /// `[display] colors`. A setting wins over `NO_COLOR`, as no-color.org asks.
+    pub colors: Option<crate::theme::ColorDepth>,
 }
 
 /// Terminals commonly cap OSC 52 around 100 KB and truncate silently past it.
@@ -342,6 +344,7 @@ impl Default for Config {
             yank_max: DEFAULT_YANK_MAX,
             mouse: false,
             source: None,
+            colors: None,
         }
     }
 }
@@ -470,6 +473,11 @@ pub fn parse_config(src: &str) -> Result<Config, ConfigError> {
         Some(raw) => parse_input(raw)?,
     };
 
+    let colors = match table.get("display") {
+        None => None,
+        Some(raw) => parse_display(raw)?,
+    };
+
     Ok(Config {
         codec,
         timezone,
@@ -480,6 +488,7 @@ pub fn parse_config(src: &str) -> Result<Config, ConfigError> {
         yank_max,
         source,
         mouse,
+        colors,
     })
 }
 
@@ -564,6 +573,26 @@ fn parse_input(raw: &toml::Value) -> Result<bool, ConfigError> {
             path: "input.mouse".into(),
             expected: "true or false",
         }),
+    }
+}
+
+fn parse_display(raw: &toml::Value) -> Result<Option<crate::theme::ColorDepth>, ConfigError> {
+    const FILE: &str = "config.toml";
+    let table = raw.as_table().ok_or(ConfigError::Type {
+        file: FILE,
+        path: "display".into(),
+        expected: "a table",
+    })?;
+    match table.get("colors") {
+        None => Ok(None),
+        Some(v) => v
+            .as_str()
+            .and_then(crate::theme::ColorDepth::parse_setting)
+            .ok_or(ConfigError::Type {
+                file: FILE,
+                path: "display.colors".into(),
+                expected: "\"auto\", \"truecolor\", \"16\" or \"none\"",
+            }),
     }
 }
 
@@ -1263,6 +1292,30 @@ accent = "green"
         assert!(parse_config("[source]\ncommand = \"\"").is_err());
         assert_eq!(parse_config("").unwrap().yank_max, DEFAULT_YANK_MAX);
         assert_eq!(parse_config("[yank]\n").unwrap().yank_max, 64 * 1024);
+    }
+
+    #[test]
+    fn colours_can_be_forced_where_the_environment_does_not_say() {
+        use crate::theme::ColorDepth;
+        let colors = |src: &str| parse_config(src).unwrap().colors;
+        assert_eq!(colors(""), None);
+        assert_eq!(colors("[display]\ncolors = \"auto\""), None);
+        assert_eq!(
+            colors("[display]\ncolors = \"truecolor\""),
+            Some(ColorDepth::TrueColor)
+        );
+        assert_eq!(
+            colors("[display]\ncolors = \"16\""),
+            Some(ColorDepth::Ansi16)
+        );
+        assert_eq!(
+            colors("[display]\ncolors = \"none\""),
+            Some(ColorDepth::Mono)
+        );
+        assert!(matches!(
+            parse_config("[display]\ncolors = \"256\""),
+            Err(ConfigError::Type { path, .. }) if path == "display.colors"
+        ));
     }
 
     #[test]

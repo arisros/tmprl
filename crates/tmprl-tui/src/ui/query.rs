@@ -38,15 +38,19 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme, 
         // An empty query means "everything", which is worth saying rather than leaving the
         // bar blank and ambiguous.
         spans.push(Span::styled(" all workflows (i to filter)", t.faint));
-    } else {
-        spans.push(Span::styled(
-            format!(" {text}"),
-            if editing { t.fg } else { t.dim },
+    } else if editing {
+        const HINT: &str = "  ⏎ apply   Esc cancel";
+        let room = (area.width as usize).saturating_sub(" query  ".len() + HINT.chars().count());
+        spans.push(Span::raw(" "));
+        spans.extend(super::edit_spans(
+            &app.insert_buf,
+            room,
+            t.fg,
+            t.accent.add_modifier(Modifier::REVERSED),
         ));
-    }
-    if editing {
-        spans.push(Span::styled("█", t.accent));
-        spans.push(Span::styled("  ⏎ apply   Esc cancel", t.faint));
+        spans.push(Span::styled(HINT, t.faint));
+    } else {
+        spans.push(Span::styled(format!(" {text}"), t.dim));
     }
 
     frame.render_widget(Paragraph::new(Line::from(spans)), area);

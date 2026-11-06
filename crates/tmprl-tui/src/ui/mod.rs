@@ -386,6 +386,28 @@ fn gutter(i: usize, cursor: usize) -> String {
 }
 
 /// Shorten to `max` characters, on a character boundary, with an ellipsis.
+pub(crate) fn edit_spans(
+    line: &tmprl_core::line::LineEdit,
+    width: usize,
+    text: Style,
+    cursor: Style,
+) -> Vec<ratatui::text::Span<'static>> {
+    use ratatui::text::Span;
+    let before: Vec<char> = line.before().chars().collect();
+    let mut after = line.after().chars();
+    let under = after.next();
+    let room = width.saturating_sub(1).max(1);
+    let skip = before.len().saturating_sub(room);
+    let shown_before: String = before[skip..].iter().collect();
+    let left = room.saturating_sub(before.len() - skip);
+    let shown_after: String = after.take(left).collect();
+    vec![
+        Span::styled(shown_before, text),
+        Span::styled(under.map_or("█".to_string(), String::from), cursor),
+        Span::styled(shown_after, text),
+    ]
+}
+
 fn truncate(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
         return s.to_string();

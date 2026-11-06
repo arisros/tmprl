@@ -676,3 +676,30 @@ async fn a_query_nothing_answers_fails_within_the_deadline() {
         "a missing worker must not read as a missing handler, or as a cancel: {err}"
     );
 }
+
+#[tokio::test]
+async fn every_schedule_is_listed_across_pages() {
+    let Some(c) = conn().await else { return };
+    let namespace = c.namespace().to_string();
+    let one_page = c
+        .list_schedules(&namespace, 1000, Vec::new())
+        .await
+        .expect("list schedules");
+    if one_page.rows.len() < 2 {
+        eprintln!(
+            "SKIP: need >= 2 schedules to exercise paging, found {}",
+            one_page.rows.len()
+        );
+        return;
+    }
+    let paged = c
+        .list_all_schedules(&[namespace], 1)
+        .await
+        .expect("list every schedule");
+    let ids = |rows: &[tmprl_core::ScheduleRow]| {
+        let mut ids: Vec<String> = rows.iter().map(|r| r.schedule_id.clone()).collect();
+        ids.sort();
+        ids
+    };
+    assert_eq!(ids(&paged), ids(&one_page.rows));
+}

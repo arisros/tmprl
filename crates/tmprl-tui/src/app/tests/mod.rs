@@ -16,6 +16,7 @@ mod mutate;
 mod nav;
 mod payload;
 mod profile;
+mod prompt;
 mod startup;
 mod windows;
 mod yank;
@@ -262,4 +263,14 @@ fn on_schedules() -> App {
         recent_runs: 0,
     }]);
     app
+}
+
+fn give_reason(app: &mut App) {
+    if app
+        .prompt
+        .as_ref()
+        .is_some_and(|p| p.kind == PromptKind::Reason)
+    {
+        app.handle(Msg::Key(Chord::plain(tmprl_core::Key::Enter)));
+    }
 }

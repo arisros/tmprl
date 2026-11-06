@@ -220,6 +220,16 @@ impl App {
         self.schedule_picker_search();
     }
 
+    pub(super) fn picker_paste(&mut self, text: &str) {
+        let Some(p) = self.picker.as_mut() else {
+            return;
+        };
+        for c in text.chars().filter(|c| !c.is_control()) {
+            p.push(c);
+        }
+        self.schedule_picker_search();
+    }
+
     /// Start the debounce after a picker's prompt changed.
     ///
     /// Only for the workflow picker, and only while the loaded rows match nothing: the
@@ -374,7 +384,7 @@ impl App {
         self.mode = Mode::Command;
         self.prompt = Some(Prompt {
             kind: PromptKind::Search,
-            buf: String::new(),
+            buf: LineEdit::default(),
         });
     }
 

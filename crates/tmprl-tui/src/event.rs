@@ -83,6 +83,7 @@ pub async fn run(
                         app.handle(Msg::Mouse(mouse));
                     }
                 }
+                Some(Ok(Event::Paste(text))) => app.handle(Msg::Paste(text)),
                 Some(Ok(Event::Resize(_, _))) => app.handle(Msg::Redraw),
                 Some(Ok(_)) => {}
                 Some(Err(e)) => return Err(e.into()),
@@ -108,6 +109,7 @@ fn retake_terminal(mouse: bool) -> Result<DefaultTerminal> {
         crossterm::terminal::Clear(crossterm::terminal::ClearType::All)
     )?;
     drop_pending_input()?;
+    bracketed_paste(true)?;
     if mouse {
         capture_mouse(true)?;
     }
@@ -120,7 +122,17 @@ pub fn release_terminal(mouse: bool) {
     if mouse {
         let _ = capture_mouse(false);
     }
+    let _ = bracketed_paste(false);
     ratatui::restore();
+}
+
+pub fn bracketed_paste(on: bool) -> std::io::Result<()> {
+    use crossterm::event::{DisableBracketedPaste, EnableBracketedPaste};
+    if on {
+        crossterm::execute!(std::io::stdout(), EnableBracketedPaste)
+    } else {
+        crossterm::execute!(std::io::stdout(), DisableBracketedPaste)
+    }
 }
 
 pub fn capture_mouse(on: bool) -> std::io::Result<()> {

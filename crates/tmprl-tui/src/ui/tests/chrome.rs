@@ -351,3 +351,31 @@ fn the_scrollbar_does_not_eat_the_column_beside_it() {
         "and so does every column before the bar:\n{out}"
     );
 }
+
+#[test]
+fn a_prompt_draws_its_cursor_where_it_is() {
+    let mut app = app_with_rows();
+    app.run("search.open", None);
+    for c in "abc".chars() {
+        app.handle(crate::app::Msg::Key(Chord::ch(c)));
+    }
+    app.handle(crate::app::Msg::Key(Chord::plain(tmprl_core::Key::Left)));
+    let out = draw(&mut app, 80, 10);
+    let last = out.lines().last().unwrap();
+    assert!(last.starts_with("/abc"), "{last}");
+    assert!(
+        !last.contains('█'),
+        "the cursor is on the c, not after it:\n{last}"
+    );
+}
+
+#[test]
+fn a_line_longer_than_the_screen_keeps_its_cursor_in_view() {
+    let mut app = app_with_rows();
+    app.run("search.open", None);
+    let long: String = "x".repeat(200) + "END";
+    app.handle(crate::app::Msg::Paste(long));
+    let out = draw(&mut app, 80, 10);
+    let last = out.lines().last().unwrap();
+    assert!(last.contains("END█"), "{last}");
+}

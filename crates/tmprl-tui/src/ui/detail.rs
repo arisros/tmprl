@@ -88,7 +88,10 @@ pub fn render(
     // This pane's only border is the rule along its top, so the bar takes a column rather
     // than being drawn over the payload.
     let inner = super::list_scrollbar(frame, inner, scroll, lines.len(), t);
-    frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, 0)), inner);
+    frame.render_widget(
+        Paragraph::new(visible_rows(lines, scroll, inner.height)),
+        inner,
+    );
     record_text(frame, inner, view);
     (max_scroll, scroll)
 }
@@ -171,6 +174,15 @@ fn group_lines<'a>(
         ));
     }
     let mut lines = vec![Line::from(title)];
+    let ids = g.ids(outline.events());
+    if !ids.is_empty() {
+        let mut spans = Vec::new();
+        for (name, value) in ids {
+            spans.push(Span::styled(format!("  {name} = "), t.faint));
+            spans.push(Span::styled(value.to_string(), t.fg));
+        }
+        lines.push(Line::from(spans));
+    }
     if let Some(p) = live {
         lines.push(pending_line(p, app, t));
     }
@@ -313,12 +325,17 @@ fn payload_lines<'a>(payloads: &[(String, Payload)], app: &App, t: &Theme) -> Ve
             format!("  {label}"),
             t.accent.add_modifier(Modifier::BOLD),
         )));
-        match p.render() {
-            Rendered::Text(text) => {
-                for l in text.lines() {
-                    lines.push(Line::from(Span::styled(format!("    {l}"), t.fg)));
-                }
+        if let Some(shown) = app.shown_text(p) {
+            for l in &shown.lines {
+                lines.push(Line::from(Span::styled(format!("    {l}"), t.fg)));
             }
+            if shown.hidden > 0 {
+                lines.push(hidden_line(shown.hidden, t));
+            }
+            continue;
+        }
+        match p.render() {
+            Rendered::Text(_) => {}
             Rendered::Null => lines.push(Line::from(Span::styled("    null", t.faint))),
             // Say what it is and how big rather than showing bytes. The value is not lost,
             // it is just not something a terminal should be asked to print.
@@ -375,9 +392,16 @@ fn render_piped(
     let lines: Vec<Line> = if body.trim().is_empty() {
         vec![Line::from(Span::styled("  (no output)", t.faint))]
     } else {
-        body.lines()
+        let shown = crate::app::cut_for_pane(body);
+        let mut lines: Vec<Line> = shown
+            .lines
+            .into_iter()
             .map(|l| Line::from(Span::styled(format!("  {l}"), style)))
-            .collect()
+            .collect();
+        if shown.hidden > 0 {
+            lines.push(hidden_line(shown.hidden, t));
+        }
+        lines
     };
 
     let visible = area.height.saturating_sub(1) as usize;
@@ -397,9 +421,28 @@ fn render_piped(
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let inner = super::list_scrollbar(frame, inner, scroll, lines.len(), t);
-    frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, 0)), inner);
+    frame.render_widget(
+        Paragraph::new(visible_rows(lines, scroll, inner.height)),
+        inner,
+    );
     record_text(frame, inner, view);
     max_scroll
+}
+
+fn hidden_line<'a>(hidden: usize, t: &Theme) -> Line<'a> {
+    Line::from(Span::styled(
+        format!("    … {hidden} more lines, <leader>e opens the whole payload in $EDITOR"),
+        t.faint,
+    ))
+}
+
+/// `Paragraph::scroll` takes a `u16`, which wraps past 65,535 rows.
+fn visible_rows(lines: Vec<Line<'_>>, scroll: usize, height: u16) -> Vec<Line<'_>> {
+    lines
+        .into_iter()
+        .skip(scroll)
+        .take(height as usize)
+        .collect()
 }
 
 /// Wrap every line to the pane, and where each original line now starts.

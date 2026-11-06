@@ -26,6 +26,16 @@ impl ColorDepth {
     ///
     /// `TERM` is deliberately not consulted. It says what the terminal emulates, not what it
     /// can paint, and guessing 24-bit from it is how a palette ends up unreadable.
+    pub fn parse_setting(s: &str) -> Option<Option<Self>> {
+        match s {
+            "auto" => Some(None),
+            "truecolor" | "24bit" => Some(Some(Self::TrueColor)),
+            "16" => Some(Some(Self::Ansi16)),
+            "none" => Some(Some(Self::Mono)),
+            _ => None,
+        }
+    }
+
     pub fn detect(no_color: Option<&str>, colorterm: Option<&str>) -> Self {
         if no_color.is_some_and(|v| !v.is_empty()) {
             return Self::Mono;
