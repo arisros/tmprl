@@ -7,8 +7,6 @@ import (
 	"go.temporal.io/sdk/workflow"
 )
 
-// stage runs a group of activities the way a framework would: announce the stage, do the
-// work, store what was learned, announce the end. It is what gives a history its rhythm.
 func stage(ctx workflow.Context, s Shipment, name string, doc Result, steps ...string) error {
 	if err := workflow.ExecuteActivity(ctx, PublishStageStartName, s.ID, name).Get(ctx, nil); err != nil {
 		return err
@@ -28,8 +26,7 @@ func stage(ctx workflow.Context, s Shipment, name string, doc Result, steps ...s
 	return workflow.ExecuteActivity(ctx, PublishStageEndName, s.ID, name).Get(ctx, nil)
 }
 
-// Workflow books one shipment: screen it, quote it, book a carrier, have a person inspect
-// it, clear customs, send it on its way.
+// Workflow books one shipment, from screening to dispatch.
 func Workflow(ctx workflow.Context, s Shipment) (Result, error) {
 	doc := Result{"id": s.ID, "status": "NEW"}
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -41,7 +38,6 @@ func Workflow(ctx workflow.Context, s Shipment) (Result, error) {
 		},
 	})
 
-	// Somebody upstream may correct the shipment while it is in flight.
 	err := workflow.SetUpdateHandler(ctx, UpdateDataSet, func(ctx workflow.Context, fields Result) (Result, error) {
 		for k, v := range fields {
 			doc[k] = v
@@ -63,8 +59,6 @@ func Workflow(ctx workflow.Context, s Shipment) (Result, error) {
 	}).Get(&quoteID)
 	doc["quote.id"] = quoteID
 
-	// Rating is the one step with a tight deadline and few tries, so a slow lane service
-	// fails the shipment rather than holding it.
 	rating := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 3 * time.Second,
 		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 2, InitialInterval: time.Second},
@@ -83,7 +77,6 @@ func Workflow(ctx workflow.Context, s Shipment) (Result, error) {
 		return nil, err
 	}
 
-	// Hand the shipment to a person, and wait.
 	answerAfter := 4
 	if s.Scenario == AwaitingInspection {
 		answerAfter = 0
@@ -119,8 +112,7 @@ func Workflow(ctx workflow.Context, s Shipment) (Result, error) {
 	return doc, nil
 }
 
-// TaskWorkflow is the half that waits on a person: it opens a task, tells someone, and
-// sits until they answer through an update. The sample can answer for them.
+// TaskWorkflow waits on a person, who answers through an update.
 func TaskWorkflow(ctx workflow.Context, in TaskInput) (Result, error) {
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,

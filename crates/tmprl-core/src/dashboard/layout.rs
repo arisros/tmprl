@@ -29,7 +29,6 @@ pub enum Show {
     Upcoming,
 }
 
-/// The timestamp a [`Window`] measures against.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TimeField {
     #[default]
@@ -46,7 +45,6 @@ impl TimeField {
     }
 }
 
-/// How far back a panel looks: no further than `since`, no nearer than `older`, or both.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Window {
     pub since_ms: Option<i64>,
@@ -62,8 +60,6 @@ impl Window {
         }
     }
 
-    /// `filter` narrowed to the window. The grammar has no `now()`, so each bound becomes a
-    /// literal instant every time this is asked.
     pub(super) fn narrow(&self, filter: &str, now_ms: i64) -> String {
         let field = self.by.attribute();
         let mut out = filter.trim().to_string();
@@ -95,15 +91,12 @@ pub enum PanelKind {
         query: String,
         names: Vec<String>,
     },
-    /// The workflows among the first `scan` listed with an activity on its `attempts`th
-    /// try or later. No query can find them: each listed workflow is described.
     Retrying {
         query: String,
         window: Window,
         attempts: i32,
         scan: usize,
     },
-    /// How many workflows fell in each stretch of the window, as columns.
     Histogram {
         query: String,
         window: Window,
@@ -120,7 +113,6 @@ pub struct PanelSpec {
     pub title: Option<String>,
     pub width: u16,
     pub limit: usize,
-    /// Empty means the scope of the pane the dashboard is in.
     pub namespaces: Vec<String>,
 }
 
@@ -166,8 +158,6 @@ impl PanelSpec {
             self.namespaces.clone()
         };
         match &self.kind {
-            // For a histogram, the whole window's count: the total in its title, and what
-            // says the panel is loading or failed. Its columns are sources the board adds.
             PanelKind::Counts { query, window } | PanelKind::Histogram { query, window, .. } => {
                 Source::Counts {
                     namespaces,
@@ -204,8 +194,6 @@ pub struct Layout {
 }
 
 impl Layout {
-    /// The layout shown before anything is known about a namespace, and for one with
-    /// nothing in it.
     pub fn builtin() -> Self {
         Self {
             rows: vec![

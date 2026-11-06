@@ -1,5 +1,4 @@
 //! Rendering tests: the app drawn into ratatui's `TestBackend` and read back as text. One
-//! file per screen; the fixtures they share are here.
 
 use super::*;
 use ratatui::Terminal;
@@ -29,8 +28,6 @@ fn ns(name: &str, days: i64) -> NamespaceInfo {
     }
 }
 
-/// An app with data but no connection. Rendering must be testable without a server,
-/// that is the whole point of keeping IO out of the render path.
 fn app_with_rows() -> App {
     let (tx, _rx) = unbounded_channel();
     let mut app = App::detached("prod", "default", tx);
@@ -70,8 +67,6 @@ fn wf(ns: &str, id: &str, status: WorkflowStatus, start: i64) -> WorkflowRow {
     }
 }
 
-/// A workflow screen with rows, no connection. Start times are relative to now so the
-/// age column renders something stable.
 fn app_with_workflows(scope: &[&str]) -> App {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -107,8 +102,6 @@ fn app_with_workflows(scope: &[&str]) -> App {
     app
 }
 
-/// A running workflow whose only activity is backing off before its fourth attempt. The
-/// history has nothing but the scheduling event; the rest came from describe.
 fn app_with_retrying_activity() -> App {
     use tmprl_core::history::{Category as C, Failure, GroupRef as G, NormalizedEvent, Role as R};
     use tmprl_core::pending::{PendingActivity, PendingState};
@@ -152,13 +145,10 @@ fn app_with_retrying_activity() -> App {
     app
 }
 
-/// A history screen with a workflow, a hidden workflow task, and two activities, the
-/// second of which failed after a retry.
 fn app_with_history() -> App {
     app_with_failure(tmprl_core::history::Failure::new("card declined"))
 }
 
-/// The same history, with the failure the last activity closed with given by the caller.
 fn app_with_failure(failure: tmprl_core::history::Failure) -> App {
     use tmprl_core::history::{
         Category as C, GroupRef as G, NormalizedEvent, Outcome as O, Role as R,
@@ -191,7 +181,6 @@ fn app_with_failure(failure: tmprl_core::history::Failure) -> App {
     app
 }
 
-/// The foreground of the first cell on the row containing `row_text` that shows `symbol`.
 fn fg_on_row(app: &mut App, w: u16, h: u16, row_text: &str, symbol: &str) -> Option<Color> {
     let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
     term.draw(|f| render(f, app)).unwrap();
@@ -208,7 +197,6 @@ fn fg_on_row(app: &mut App, w: u16, h: u16, row_text: &str, symbol: &str) -> Opt
     })
 }
 
-/// A history whose activity carries a JSON input and result.
 fn app_with_payloads() -> App {
     use tmprl_core::history::{
         Category as C, GroupRef as G, NormalizedEvent, Outcome as O, Role as R,
@@ -275,7 +263,6 @@ fn app_with_payloads() -> App {
     app
 }
 
-/// Row and column of the first line mentioning `needle`.
 fn position(out: &str, needle: &str) -> (usize, usize) {
     out.lines()
         .enumerate()

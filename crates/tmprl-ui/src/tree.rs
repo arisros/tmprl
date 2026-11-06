@@ -2,7 +2,6 @@
 
 use crate::{Axis, Direction, Rect, ViewId};
 
-/// A window, laid out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Pane {
     pub view: ViewId,
@@ -16,23 +15,16 @@ enum Node {
     Split {
         axis: Axis,
         children: Vec<Node>,
-        /// Relative sizes, not absolute cells. A tree laid out at one terminal size and then
-        /// at another keeps its proportions, which is what makes a resize of the terminal
-        /// not scramble a layout the reader arranged.
         weights: Vec<u16>,
     },
 }
 
-/// A tree of windows, with one of them focused.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Tree {
     root: Node,
-    /// Child indices from the root down to the focused leaf. Empty means the root is a leaf.
     focus: Vec<usize>,
 }
 
-/// The weight a freshly split window gets. Any constant works (only ratios matter) but a
-/// round number keeps `resize` arithmetic legible when debugging a layout.
 const DEFAULT_WEIGHT: u16 = 100;
 
 impl Tree {
@@ -46,18 +38,10 @@ impl Tree {
     pub fn focused(&self) -> ViewId {
         match Self::at(&self.root, &self.focus) {
             Some(Node::Leaf(v)) => *v,
-            // Unreachable while `focus` always points at a leaf, which every mutation
-            // maintains. Falling back to the first view beats panicking in a renderer.
             _ => self.views().first().copied().unwrap_or(ViewId(0)),
         }
     }
 
-    /// Focus a named window, wherever it sits in the tree. `false` if it is not in this one.
-    ///
-    /// Distinct from [`Tree::focus_direction`], which asks "what is to the left of here"
-    /// and needs a geometry to answer. A picker already knows exactly which window it
-    /// means, so making it aim with direction keys would be the picker's whole point
-    /// thrown away.
     pub fn focus_view(&mut self, view: ViewId) -> bool {
         let mut path = Vec::new();
         if Self::path_to(&self.root, view, &mut path) {
@@ -67,10 +51,6 @@ impl Tree {
         false
     }
 
-    /// Depth-first walk for the child indices leading to `view`.
-    ///
-    /// `path` is left holding the route on success. On failure every frame pops what it
-    /// pushed, so a caller's vector is untouched by a search that found nothing.
     fn path_to(node: &Node, view: ViewId, path: &mut Vec<usize>) -> bool {
         match node {
             Node::Leaf(v) => *v == view,
@@ -87,7 +67,6 @@ impl Tree {
         }
     }
 
-    /// Every view in the tree, left to right, top to bottom.
     pub fn views(&self) -> Vec<ViewId> {
         let mut out = Vec::new();
         Self::walk(&self.root, &mut |v| out.push(v));
@@ -99,10 +78,9 @@ impl Tree {
     }
 
     pub fn is_empty(&self) -> bool {
-        false // a tree always has at least one leaf
+        false
     }
 
-    /// Split the focused window, and focus the new one, as vim does.
     pub fn split(&mut self, axis: Axis, view: ViewId) {
         let path = self.focus.clone();
         let Some(node) = Self::at_mut(&mut self.root, &path) else {
@@ -110,7 +88,6 @@ impl Tree {
         };
 
         match node {
-            // Splitting a leaf turns it into a two-child split.
             Node::Leaf(existing) => {
                 *node = Node::Split {
                     axis,
@@ -122,14 +99,9 @@ impl Tree {
             Node::Split { .. } => {}
         }
 
-        // If the new window's parent splits on the same axis as its grandparent, the nesting
-        // is redundant, vim flattens it, and so does this, or `<C-w>l` would have to step
-        // through invisible levels.
         self.flatten();
     }
 
-    /// Close the focused window. Returns false when it is the only one, since a tab with no
-    /// windows has nothing to draw.
     pub fn close(&mut self) -> bool {
         if self.focus.is_empty() {
             return false;
@@ -149,7 +121,6 @@ impl Tree {
         children.remove(index);
         weights.remove(index);
 
-        // A split with one child left is not a split any more.
         if children.len() == 1 {
             let only = children.remove(0);
             let Some(parent) = Self::at_mut(&mut self.root, &parent_path) else {
@@ -157,10 +128,8 @@ impl Tree {
             };
             *parent = only;
             self.focus = parent_path;
-            // Focus must land on a leaf, not on whatever the collapsed child happened to be.
             self.descend_to_leaf();
         } else {
-            // Focus the neighbour that took its place, or the last one if it was the last.
             self.focus = parent_path;
             self.focus.push(index.min(children.len() - 1));
             self.descend_to_leaf();
@@ -169,14 +138,6 @@ impl Tree {
         true
     }
 
-    /// Move focus geometrically, the way `<C-w>hjkl` does.
-    ///
-    /// Geometric rather than tree-structural: the window to the right is the one that *looks*
-    /// to the right, which is not always a sibling. Candidates must overlap this window
-    /// across the direction's axis, so pressing `<C-w>j` in a tall left-hand pane does not
-    /// jump to something in a different column that happens to sit lower.
-    ///
-    /// Returns false when there is nothing that way.
     pub fn focus_direction(&mut self, dir: Direction, area: Rect) -> bool {
         let panes = self.layout_with_paths(area);
         let Some((_, from)) = panes.iter().find(|(_, p)| p.focused).map(|(a, b)| (a, *b)) else {
@@ -194,8 +155,6 @@ impl Tree {
                 Direction::Up => p.rect.bottom() <= from.rect.y,
                 Direction::Down => p.rect.y >= from.rect.bottom(),
             })
-            // Nearest edge first, then nearest along the other axis, so a column of
-            // candidates resolves to the one closest to where the cursor already is.
             .min_by_key(|(_, p)| {
                 let gap = match dir {
                     Direction::Left => from.rect.x.saturating_sub(p.rect.right()),
@@ -219,11 +178,6 @@ impl Tree {
         }
     }
 
-    /// Grow or shrink the focused window along `dir` by `cells` worth of weight.
-    ///
-    /// Applied to the nearest ancestor that actually splits on that axis: asking a
-    /// side-by-side split to get taller is meaningless, and silently doing nothing there
-    /// would look like a broken key.
     pub fn resize(&mut self, dir: Direction, delta: i32) -> bool {
         let axis = dir.axis();
         let mut path = self.focus.clone();
@@ -243,8 +197,6 @@ impl Tree {
                 if weights.len() < 2 {
                     return false;
                 }
-                // Growing one window shrinks its neighbour: the parent's total is fixed, so
-                // weight has to come from somewhere rather than being conjured.
                 let neighbour = if index + 1 < weights.len() {
                     index + 1
                 } else {
@@ -265,12 +217,10 @@ impl Tree {
         false
     }
 
-    /// Give every window in every split the same share, as `<C-w>=` does.
     pub fn equalize(&mut self) {
         Self::equalize_node(&mut self.root);
     }
 
-    /// Where everything goes, given the space available.
     pub fn layout(&self, area: Rect) -> Vec<Pane> {
         self.layout_with_paths(area)
             .into_iter()
@@ -349,7 +299,6 @@ impl Tree {
         }
     }
 
-    /// Push focus down to a leaf, taking the first child at each level.
     fn descend_to_leaf(&mut self) {
         loop {
             match Self::at(&self.root, &self.focus) {
@@ -359,12 +308,9 @@ impl Tree {
         }
     }
 
-    /// Merge a split into its parent when both divide on the same axis.
     fn flatten(&mut self) {
         let focused = self.focused();
         Self::flatten_node(&mut self.root);
-        // Flattening renumbers children, so the old path may point elsewhere. Re-find the
-        // view that was focused rather than trusting the indices.
         if let Some(path) = Self::path_of(&self.root, focused, &mut Vec::new()) {
             self.focus = path;
         }
@@ -395,8 +341,6 @@ impl Tree {
                     children: inner,
                     weights: inner_weights,
                 } if inner_axis == *axis => {
-                    // Redistribute the parent's share of this slot across the children that
-                    // are being promoted into it, so the layout does not visibly jump.
                     let total: u32 = inner_weights.iter().map(|w| *w as u32).sum::<u32>().max(1);
                     for (c, w) in inner.into_iter().zip(inner_weights) {
                         new_children.push(c);
@@ -449,19 +393,12 @@ impl Tree {
     }
 }
 
-/// Divide `area` along `axis` in proportion to `weights`.
-///
-/// Every pane gets at least one cell, and the remainder from integer division goes to the
-/// earliest panes. Without the floor, a heavily lopsided split renders a zero-width window
-/// that cannot be seen or focused out of.
 fn divide(area: Rect, axis: Axis, weights: &[u16]) -> Vec<Rect> {
     let n = weights.len();
     if n == 0 {
         return Vec::new();
     }
     let total_extent = area.extent(axis);
-    // Not enough room for one cell each: hand out what there is and let the rest be empty,
-    // rather than overlapping panes on top of each other.
     if (total_extent as usize) < n {
         return (0..n)
             .map(|i| {
@@ -483,14 +420,12 @@ fn divide(area: Rect, axis: Axis, weights: &[u16]) -> Vec<Rect> {
         .map(|w| (*w).max(1) as u32)
         .sum::<u32>()
         .max(1);
-    let spare = total_extent as u32 - n as u32; // one cell already reserved per pane
+    let spare = total_extent as u32 - n as u32;
     let mut spans: Vec<u16> = weights
         .iter()
         .map(|w| 1 + ((*w).max(1) as u32 * spare / sum) as u16)
         .collect();
 
-    // Integer division leaves cells over; give them to the earliest panes so the total is
-    // exactly the space available and no column goes unpainted.
     let assigned: u32 = spans.iter().map(|s| *s as u32).sum();
     let mut leftover = total_extent as u32 - assigned;
     let mut i = 0;
@@ -539,7 +474,6 @@ mod tests {
         ViewId(n)
     }
 
-    /// A generous area so proportional division lands on round numbers.
     const AREA: Rect = Rect {
         x: 0,
         y: 0,
@@ -589,12 +523,11 @@ mod tests {
 
     #[test]
     fn panes_tile_the_area_exactly_with_no_gap_or_overlap() {
-        // Integer division leaves cells over; unassigned they show as an unpainted column.
         let mut tree = Tree::new(v(1));
         tree.split(Axis::Columns, v(2));
         tree.split(Axis::Columns, v(3));
 
-        let area = Rect::new(0, 0, 100, 40); // 100 / 3 does not divide
+        let area = Rect::new(0, 0, 100, 40);
         let mut panes = tree.layout(area);
         panes.sort_by_key(|p| p.rect.x);
 
@@ -611,8 +544,6 @@ mod tests {
 
     #[test]
     fn splitting_on_the_same_axis_flattens_instead_of_nesting() {
-        // Nested same-axis splits look identical but make focus movement step through
-        // invisible levels.
         let mut tree = Tree::new(v(1));
         tree.split(Axis::Columns, v(2));
         tree.split(Axis::Columns, v(3));
@@ -621,13 +552,9 @@ mod tests {
         assert_eq!(tree.views(), [v(1), v(2), v(3)]);
         assert_eq!(tree.focused(), v(3), "focus survives the flattening");
 
-        // Flattening must not move anything on screen. vim's `:vsplit` halves the *current*
-        // window, so splitting twice gives one half and two quarters, not three thirds.
-        // The nesting is what goes away, not the proportions.
         let widths: Vec<u16> = tree.layout(AREA).iter().map(|p| p.rect.width).collect();
         assert_eq!(widths, [50, 25, 25], "flattening must preserve the layout");
 
-        // Evening them up is `<C-w>=`, a separate decision.
         tree.equalize();
         let widths: Vec<u16> = tree.layout(AREA).iter().map(|p| p.rect.width).collect();
         assert!(
@@ -642,7 +569,6 @@ mod tests {
         tree.split(Axis::Columns, v(2));
         tree.split(Axis::Rows, v(3));
 
-        // 2 was the right half; it is now split top and bottom.
         let layout = rects(&tree);
         assert_eq!(layout.len(), 3);
         assert!(layout.contains(&(1, Rect::new(0, 0, 50, 40))));
@@ -653,7 +579,7 @@ mod tests {
     #[test]
     fn focus_moves_to_what_looks_that_way() {
         let mut tree = Tree::new(v(1));
-        tree.split(Axis::Columns, v(2)); // 1 | 2, focus on 2
+        tree.split(Axis::Columns, v(2));
 
         assert!(tree.focus_direction(Direction::Left, AREA));
         assert_eq!(tree.focused(), v(1));
@@ -665,7 +591,7 @@ mod tests {
     fn focus_does_not_move_off_the_edge() {
         let mut tree = Tree::new(v(1));
         tree.split(Axis::Columns, v(2));
-        tree.focus_direction(Direction::Left, AREA); // on 1, the leftmost
+        tree.focus_direction(Direction::Left, AREA);
 
         assert!(
             !tree.focus_direction(Direction::Left, AREA),
@@ -677,9 +603,6 @@ mod tests {
 
     #[test]
     fn focus_skips_windows_that_do_not_share_any_rows() {
-        // 1 fills the left; 2 over 3 on the right. From 1, `l` must reach 2, the one it
-        // shares rows with, not 3.
-
         let mut tree = Tree::new(v(1));
         tree.split(Axis::Columns, v(2));
         tree.split(Axis::Rows, v(3));
@@ -689,7 +612,6 @@ mod tests {
         assert!(tree.focus_direction(Direction::Right, AREA));
         assert_eq!(tree.focused(), v(2), "the top-right shares row 0 with 1");
 
-        // And from 2, down reaches 3 but right reaches nothing.
         assert!(tree.focus_direction(Direction::Down, AREA));
         assert_eq!(tree.focused(), v(3));
         assert!(!tree.focus_direction(Direction::Right, AREA));
@@ -708,7 +630,6 @@ mod tests {
 
     #[test]
     fn closing_the_last_window_is_refused() {
-        // A tab with no windows has nothing to draw; quitting is a separate decision.
         let mut tree = Tree::new(v(1));
         assert!(!tree.close());
         assert_eq!(tree.len(), 1);
@@ -718,13 +639,12 @@ mod tests {
     fn closing_focuses_a_neighbour_and_never_a_split() {
         let mut tree = Tree::new(v(1));
         tree.split(Axis::Columns, v(2));
-        tree.split(Axis::Columns, v(3)); // 1 | 2 | 3, focus 3
+        tree.split(Axis::Columns, v(3));
 
         assert!(tree.close());
         assert_eq!(tree.views(), [v(1), v(2)]);
         assert_eq!(tree.focused(), v(2), "focus falls back to the neighbour");
 
-        // Focus must be a real window afterwards, not an interior node.
         assert!(tree.layout(AREA).iter().any(|p| p.focused));
     }
 
@@ -732,7 +652,7 @@ mod tests {
     fn closing_a_nested_window_collapses_its_parent_onto_a_leaf() {
         let mut tree = Tree::new(v(1));
         tree.split(Axis::Columns, v(2));
-        tree.split(Axis::Rows, v(3)); // right half split; focus 3
+        tree.split(Axis::Rows, v(3));
 
         assert!(tree.close());
         assert_eq!(tree.len(), 2);
@@ -752,7 +672,7 @@ mod tests {
     #[test]
     fn resizing_takes_from_the_neighbour_rather_than_conjuring_space() {
         let mut tree = Tree::new(v(1));
-        tree.split(Axis::Columns, v(2)); // focus 2, the right half
+        tree.split(Axis::Columns, v(2));
 
         let before: u16 = tree.layout(AREA)[0].rect.width;
         assert!(tree.resize(Direction::Right, 50));
@@ -769,7 +689,6 @@ mod tests {
 
     #[test]
     fn resizing_along_an_axis_with_no_split_does_nothing() {
-        // Asking a side-by-side split to get taller is meaningless.
         let mut tree = Tree::new(v(1));
         tree.split(Axis::Columns, v(2));
         assert!(!tree.resize(Direction::Down, 10));
@@ -807,8 +726,6 @@ mod tests {
 
     #[test]
     fn a_layout_keeps_its_proportions_at_a_different_terminal_size() {
-        // Weights are relative, so resizing the terminal must not scramble an arrangement
-        // the reader set up.
         let mut tree = Tree::new(v(1));
         tree.split(Axis::Columns, v(2));
         tree.resize(Direction::Right, 50);
@@ -826,8 +743,6 @@ mod tests {
 
     #[test]
     fn a_tiny_area_does_not_produce_overlapping_windows() {
-        // Three windows in two columns cannot all be seen; they must still not be drawn on
-        // top of each other.
         let mut tree = Tree::new(v(1));
         tree.split(Axis::Columns, v(2));
         tree.split(Axis::Columns, v(3));
@@ -882,8 +797,6 @@ mod tests {
 
     #[test]
     fn focusing_a_window_that_is_not_here_changes_nothing() {
-        // A pane picker spans every tab; asking the wrong tree must be a clean miss rather
-        // than a focus pointing at a leaf that does not exist.
         let mut t = Tree::new(ViewId(1));
         t.split(Axis::Columns, ViewId(2));
         let before = t.focused();

@@ -8,7 +8,6 @@ fn started(startup: Startup) -> App {
     app
 }
 
-/// An app started with `-w order-r1`, and the lookup still out.
 fn looking_up() -> App {
     started(Startup {
         workflow: Some("order-r1".into()),
@@ -24,7 +23,6 @@ fn found(app: &mut App, result: Result<Vec<WorkflowRow>, Fault>) {
     });
 }
 
-/// A run of `order-r1`, as the lookup returns several of for one workflow id.
 fn run_of(run: &str, start: i64) -> WorkflowRow {
     let mut row = wf("default", run, start);
     row.workflow_id = "order-r1".into();
@@ -88,7 +86,6 @@ fn a_workflow_opens_its_history() {
 #[test]
 fn several_runs_open_the_newest_and_say_so() {
     let mut app = looking_up();
-    // Out of order, as a fan-out across visibility pages can be.
     found(
         &mut app,
         Ok(vec![
@@ -154,13 +151,11 @@ fn a_query_given_with_a_workflow_is_what_the_fallback_list_shows() {
 
 #[test]
 fn a_lookup_that_arrives_after_the_reader_moved_on_is_dropped() {
-    // Went up to the namespaces while it was out.
     let mut app = looking_up();
     app.run("nav.up", None);
     found(&mut app, Ok(vec![run_of("r1", 100)]));
     assert_eq!(app.view.screen, Screen::Namespaces);
 
-    // Asked for something else: the reply carries the generation it was issued under.
     let mut app = looking_up();
     let issued = app.view.generation;
     app.run("list.problems", None);
@@ -242,7 +237,6 @@ fn the_readonly_flag_holds_whatever_the_config_says() {
 
 #[test]
 fn a_readonly_profile_is_named_even_when_the_flag_is_also_given() {
-    // Dropping the flag would not make this run writable, so the flag is not the answer.
     let mut app = on_a_workflow();
     app.apply_config(None, None, Some("[profile.prod]\nreadonly = true"));
     app.start(Startup {

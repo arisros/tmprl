@@ -45,14 +45,11 @@ async fn main() -> std::process::ExitCode {
         return std::process::ExitCode::FAILURE;
     }
 
-    // Named here rather than left to the loader, so `config.toml` is looked up under the
-    // profile that is actually connected: `readonly` must hold for `TEMPORAL_PROFILE=prod`.
     if profile.name.is_none() {
         profile.name = std::env::var("TEMPORAL_PROFILE")
             .ok()
             .filter(|p| !p.is_empty());
     }
-    // A bad config.toml is reported once the app is up; here it only means no API key from it.
     if let Some(cfg) = config::read("config.toml")
         .ok()
         .flatten()
@@ -63,8 +60,6 @@ async fn main() -> std::process::ExitCode {
         profile.ignore_env = !resolved.env;
     }
 
-    // Connect *before* touching the terminal, so a connection error is an ordinary message
-    // on stderr rather than a flash of alternate screen followed by a stack trace.
     let conn = match Conn::connect(&profile).await {
         Ok(c) => c,
         Err(e) => {
@@ -79,9 +74,6 @@ async fn main() -> std::process::ExitCode {
     let mut app = app::App::new(conn, tx.clone());
     app.set_temporal_config(profile.config_file.clone());
 
-    // Config is applied before the terminal is touched, so a bad keys.toml is a plain
-    // message on stderr rather than an error flashed behind an alternate screen. A file
-    // that exists but cannot be read is reported; an absent one is simply no config.
     let read_config = |name: &str| match config::read(name) {
         Ok(found) => found,
         Err(e) => {
@@ -96,8 +88,6 @@ async fn main() -> std::process::ExitCode {
         read_config("theme.toml"),
         read_config("dashboard.toml"),
     );
-    // The theme first: both report through the statusline, which holds one message, and a
-    // key that does not work matters more than a colour that is off.
     app.apply_theme(theme::depth_from_env(), theme.as_deref());
     app.apply_dashboard(dashboard.as_deref());
     app.apply_config(keys.as_deref(), views.as_deref(), config.as_deref());
@@ -107,8 +97,7 @@ async fn main() -> std::process::ExitCode {
     let terminal = ratatui::init();
     let _ = event::bracketed_paste(true);
     if mouse {
-        // After `ratatui::init`, so this runs before the hook it installed: a panic must
-        // not leave the shell with a terminal that still reports the mouse.
+        // After ratatui::init, so this hook runs before its own and the mouse is released first.
         let restore = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
             let _ = event::capture_mouse(false);

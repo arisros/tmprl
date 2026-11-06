@@ -1,7 +1,4 @@
 //! Completions for the `:` command line.
-//!
-//! Candidates come from the command registry, so anything runnable is discoverable by
-//! typing part of its name, there is no second list to keep in sync.
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
@@ -26,7 +23,6 @@ pub fn render(frame: &mut Frame, app: &App, t: &Theme) {
     let width = 56u16.min(area.width);
     let popup = Rect {
         x: area.x,
-        // Sits directly above the status row, which is where the command line itself is.
         y: area.y + area.height.saturating_sub(height + 1),
         width,
         height,

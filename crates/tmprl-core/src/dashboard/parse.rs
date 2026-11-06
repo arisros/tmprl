@@ -18,7 +18,6 @@ const TOP_KEYS: &str = "row";
 
 const ROW_KEYS: &str = "height, lines or panel";
 
-/// The try an activity is on before a retrying panel lists its workflow.
 pub(super) const DEFAULT_ATTEMPTS: i32 = 3;
 
 fn allowed(kind: &str) -> Option<(&'static [&'static str], &'static str)> {
@@ -332,28 +331,6 @@ fn parse_panel(table: &toml::Table, path: &str) -> Result<PanelSpec, ConfigError
     })
 }
 
-/// Parse `dashboard.toml`:
-///
-/// ```toml
-/// [[row]]
-/// lines = 3
-///
-/// [[row.panel]]
-/// kind = "counts"
-///
-/// [[row]]
-///
-/// [[row.panel]]
-/// kind  = "workflows"
-/// title = "Recent failures"
-/// query = "ExecutionStatus IN ('Failed', 'TimedOut', 'Terminated')"
-/// since = "24h"
-/// width = 2
-/// ```
-///
-/// Strict: a key that does not exist, or one that belongs to another kind of panel, is an
-/// error. A misspelt `query` would otherwise show every workflow under a "failures" title.
-/// A file with no rows is an empty layout, which the caller reads as "not configured".
 pub fn parse_dashboard(src: &str) -> Result<Layout, ConfigError> {
     let table: toml::Table = toml::from_str(src).map_err(|e| ConfigError::Syntax {
         file: FILE,

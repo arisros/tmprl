@@ -6,7 +6,6 @@ use tmprl_core::interaction::{self, Handlers};
 use super::*;
 
 impl App {
-    /// `<leader>cq`: ask the workflow which queries it has, then offer them.
     pub(super) fn open_query(&mut self) {
         let Some(row) = self.query_target() else {
             return;
@@ -36,7 +35,6 @@ impl App {
         });
     }
 
-    /// `<leader>cs`: the stack trace, which every SDK answers without being asked to.
     pub(super) fn stack_trace(&mut self) {
         if self.query_target().is_some() {
             self.run_query(interaction::STACK_TRACE.into());
@@ -61,8 +59,6 @@ impl App {
             }),
             Err(e) => match interaction::known_from_refusal(&e.message) {
                 Some(names) => Some(Handlers::from_names(names)),
-                // Refused without a list: the workflow is there and answers, it just cannot
-                // say what it has, so the name is the reader's to give.
                 None if e.code == Code::InvalidArgument => None,
                 None => {
                     self.fail_as(format!("query: {e}"), e, Note::Error);
@@ -106,7 +102,6 @@ impl App {
             .unwrap_or_default()
     }
 
-    /// Ask one handler. The answer replaces the payloads in the pane until the cursor moves.
     pub(super) fn run_query(&mut self, name: String) {
         let (Some(row), Some(conn)) = (self.query_target(), self.conn.clone()) else {
             return;
@@ -151,8 +146,6 @@ impl App {
         }
     }
 
-    /// The workflow a query goes to: the one whose history is open, since the answer is
-    /// shown in that history's payload pane.
     fn query_target(&mut self) -> Option<WorkflowRow> {
         if self.view.screen != Screen::History {
             self.note = Some((
@@ -165,10 +158,6 @@ impl App {
     }
 }
 
-/// Decode what the codec server can, and keep the rest as it came.
-///
-/// Done in the task rather than through the pane's lazy decode, because the handler list has
-/// to be read before anything is drawn.
 async fn decode(codec: Option<&Codec>, namespace: &str, payloads: Vec<Payload>) -> Vec<Payload> {
     let Some(codec) = codec else {
         return payloads;

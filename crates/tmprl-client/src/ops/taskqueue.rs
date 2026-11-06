@@ -13,8 +13,6 @@ use super::workflow::epoch_millis;
 use crate::Conn;
 
 impl Conn {
-    /// One kind of task per call: the server describes a queue's workflow tasks or its
-    /// activity tasks, never both, so a queue's health is two of these merged.
     pub async fn describe_task_queue(
         &self,
         namespace: &str,
@@ -45,7 +43,6 @@ impl Conn {
 
 fn health_from(resp: DescribeTaskQueueResponse) -> QueueHealth {
     QueueHealth {
-        // Absent on a server too old to report stats, which is not the same as zero.
         backlog: resp.stats.as_ref().map(|s| s.approximate_backlog_count),
         backlog_age_ms: resp
             .stats

@@ -8,7 +8,6 @@ use tmprl_core::form::Form;
 
 use crate::theme::Theme;
 
-/// Width of the label column, so the values line up under each other.
 const LABEL: usize = 15;
 
 pub fn render(frame: &mut Frame, form: &Form, t: &Theme) {
@@ -19,8 +18,6 @@ pub fn render(frame: &mut Frame, form: &Form, t: &Theme) {
             format!("  {:<LABEL$}", field.label),
             if focused { t.fg } else { t.dim },
         );
-        // An empty field shows what belongs in it. Faint, so a hint is never mistaken for a
-        // value that is already there.
         let value = if field.value.is_empty() && !focused {
             Span::styled(field.hint.to_string(), t.faint)
         } else {

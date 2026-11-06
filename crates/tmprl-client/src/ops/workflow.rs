@@ -1,13 +1,4 @@
 //! Listing and counting workflow executions.
-//!
-//! Two RPCs back the workflow table. `ListWorkflowExecutions` returns the rows, one page at
-//! a time; `CountWorkflowExecutions` with a `GROUP BY` returns the header tallies in a
-//! single cheap call, instead of the table having to page to exhaustion to know how many
-//! workflows are failing.
-//!
-//! Both take an explicit namespace rather than using the connection's own. A connection is
-//! bound to one namespace, but clones share a single HTTP/2 channel, so a fan-out across
-//! namespaces is one connection and N requests. See `list_workflows_across`.
 
 use temporalio_client::tonic::Request;
 use temporalio_common::protos::temporal::api::{
@@ -21,31 +12,21 @@ use tmprl_core::workflow::{StatusCounts, WorkflowRow, WorkflowStatus, merge_by_s
 use super::OpError;
 use crate::Conn;
 
-/// Per-namespace continuation tokens. A namespace missing from the list has no more pages;
-/// an entry with an empty token starts from the beginning.
 pub type Continuation = Vec<(String, Vec<u8>)>;
 
-/// One page of the workflow table, plus the token that fetches the next.
 #[derive(Debug, Clone, Default)]
 pub struct WorkflowPage {
     pub rows: Vec<WorkflowRow>,
-    /// Empty on the last page. This is opaque server state, never construct one.
     pub next_page_token: Vec<u8>,
 }
 
 impl WorkflowPage {
-    /// Whether another page exists. Infinite scroll stops asking when this goes false.
     pub fn has_more(&self) -> bool {
         !self.next_page_token.is_empty()
     }
 }
 
 impl Conn {
-    /// One page of executions matching `query`, newest first.
-    ///
-    /// This deliberately does *not* page to exhaustion the way `list_namespaces` does. A
-    /// namespace list is tens of rows; a workflow list is unbounded, and draining it would
-    /// hang the interface on any real cluster.
     pub async fn list_workflows(
         &self,
         namespace: &str,
@@ -75,12 +56,6 @@ impl Conn {
         })
     }
 
-    /// The first page from several namespaces at once, merged newest-first.
-    ///
-    /// Returned alongside the rows is a continuation token *per namespace*, because the
-    /// namespaces exhaust at different points and one merged token cannot express that.
-    /// A namespace that is already finished simply does not appear in the returned list.
-    /// Feed that list to [`Conn::continue_workflows_across`] for the next page.
     pub async fn list_workflows_across(
         &self,
         namespaces: &[String],
@@ -94,12 +69,7 @@ impl Conn {
         self.fetch_pages(&starting, query, page_size).await
     }
 
-    /// The next page, asking *only* the namespaces that still have one.
-    ///
-    /// Taking the token list rather than the namespace list is the point. Re-deriving the
-    /// namespaces from the original scope would hand an exhausted namespace an empty token,
-    /// which the server reads as "start from the beginning", so it would return page one
-    /// again, along with a fresh token, and that namespace would never finish.
+    // Only namespaces with a token: an exhausted one given an empty token starts again.
     pub async fn continue_workflows_across(
         &self,
         tokens: &Continuation,
@@ -109,8 +79,6 @@ impl Conn {
         self.fetch_pages(tokens, query, page_size).await
     }
 
-    /// One request per namespace, in flight together. They share the connection's channel,
-    /// so this costs N streams rather than N connections.
     async fn fetch_pages(
         &self,
         tokens: &Continuation,
@@ -138,11 +106,6 @@ impl Conn {
         Ok((merge_by_start_time(all), next))
     }
 
-    /// Per-status counts for the list header.
-    ///
-    /// One `GROUP BY` call rather than one call per status. The grouped counts are
-    /// approximate by design on large clusters (Temporal says so) which is why the total
-    /// is taken from the response rather than summed from the groups.
     pub async fn count_workflows_by_status(
         &self,
         namespace: &str,
@@ -167,10 +130,6 @@ impl Conn {
 }
 
 impl Conn {
-    /// Header counts summed over a fan-out.
-    ///
-    /// A header that counted only the first of several namespaces would be quietly wrong,
-    /// which is worse than having no header at all.
     pub async fn count_workflows_across(
         &self,
         namespaces: &[String],
@@ -198,9 +157,7 @@ impl Conn {
     }
 }
 
-/// Map the protobuf row onto the domain row.
 fn row_from(namespace: &str, e: WorkflowExecutionInfo) -> WorkflowRow {
-    // `status()` borrows `e`, so resolve it before the string fields are moved out.
     let status = status_from_proto(e.status());
     let (workflow_id, run_id) = e
         .execution
@@ -220,9 +177,7 @@ fn row_from(namespace: &str, e: WorkflowExecutionInfo) -> WorkflowRow {
     }
 }
 
-/// Exhaustive on purpose. When Temporal adds an execution status this stops compiling,
-/// which is the moment we want to hear about it, a `_` arm would render the new status as
-/// `Unspecified` and nobody would notice for a release or two.
+// Exhaustive on purpose: a new status should stop the build.
 pub(crate) fn status_from_proto(s: ProtoStatus) -> WorkflowStatus {
     match s {
         ProtoStatus::Unspecified => WorkflowStatus::Unspecified,
@@ -237,8 +192,6 @@ pub(crate) fn status_from_proto(s: ProtoStatus) -> WorkflowStatus {
     }
 }
 
-/// A `GROUP BY ExecutionStatus` group value is a `json/plain` Keyword payload whose data is
-/// the quoted status name, e.g. `"Running"`. Parsing tolerates the quotes.
 fn status_from_payload(
     p: &temporalio_common::protos::temporal::api::common::v1::Payload,
 ) -> Option<WorkflowStatus> {
@@ -272,7 +225,6 @@ mod tests {
 
     #[test]
     fn every_proto_status_maps_to_a_domain_status() {
-        // Pairwise distinct: a copy-paste slip in the match would collapse two statuses.
         let all = [
             ProtoStatus::Unspecified,
             ProtoStatus::Running,
@@ -292,7 +244,6 @@ mod tests {
 
     #[test]
     fn group_payloads_decode_to_a_status() {
-        // The exact bytes a dev server returns for `GROUP BY ExecutionStatus`.
         assert_eq!(
             status_from_payload(&payload("\"Running\"")),
             Some(WorkflowStatus::Running)
@@ -315,8 +266,6 @@ mod tests {
 
     #[test]
     fn a_row_without_an_execution_still_maps() {
-        // Defensive: every field of WorkflowExecutionInfo is optional on the wire, and a
-        // panic here would take down the whole table for one malformed row.
         let row = row_from("ns", WorkflowExecutionInfo::default());
         assert_eq!(row.namespace, "ns");
         assert!(row.workflow_id.is_empty() && row.run_id.is_empty());

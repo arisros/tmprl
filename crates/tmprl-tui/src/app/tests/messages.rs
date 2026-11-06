@@ -38,8 +38,6 @@ fn a_failure_is_logged_with_its_code_and_the_call_it_came_from() {
 
 #[test]
 fn the_log_outlives_the_note_line() {
-    // The note is gone by the next key. That is exactly when someone wants to read it
-    // again, so the log must not go with it.
     let mut app = app();
     failed_list(&mut app, unavailable());
     app.handle(Msg::Key(Chord::ch('j')));
@@ -50,8 +48,6 @@ fn the_log_outlives_the_note_line() {
 
 #[test]
 fn a_note_is_logged_once_however_long_it_stays_up() {
-    // Ticks and server replies leave the note where it is. Logging on every message that
-    // finds a note present would fill the log with one line a second.
     let mut app = app();
     failed_list(&mut app, unavailable());
     for _ in 0..5 {
@@ -64,7 +60,6 @@ fn a_note_is_logged_once_however_long_it_stays_up() {
 
 #[test]
 fn the_same_note_twice_is_two_entries() {
-    // Two refusals are two things that happened, even when they read the same.
     let mut app = app();
     failed_list(&mut app, unavailable());
     failed_list(&mut app, unavailable());
@@ -107,8 +102,6 @@ fn the_log_is_bounded() {
 
 #[test]
 fn a_refusal_to_list_namespaces_is_recognised_by_its_code() {
-    // The wording differs between a self-hosted server and Temporal Cloud; the code does
-    // not, and before the code survived to here only the wording could be matched.
     let mut app = app();
     app.handle(Msg::Namespaces(Err(Fault::rpc(
         "ListNamespaces",
@@ -163,8 +156,6 @@ fn a_failed_schedule_list_is_logged_with_its_call() {
 
 #[test]
 fn a_warning_worded_by_the_caller_still_keeps_the_failure_behind_it() {
-    // "pending activities: ..." is the note's wording; the log must still know which code
-    // it was, or the wording is all that is left to search a server log with.
     let mut app = app();
     app.handle(Msg::Pending {
         generation: app.view.generation,

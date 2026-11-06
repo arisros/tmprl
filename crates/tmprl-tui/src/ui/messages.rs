@@ -8,8 +8,6 @@ use ratatui::widgets::{Block, Clear, Paragraph};
 use crate::app::{App, Logged, Note};
 use crate::theme::Theme;
 
-/// Width of the time and level columns, so continuation and detail lines sit under the
-/// text. Two of margin, `14:03:22`, two, the level padded to five, two.
 const INDENT: usize = 19;
 
 pub fn render(frame: &mut Frame, app: &mut App, t: &Theme) {
@@ -22,8 +20,6 @@ pub fn render(frame: &mut Frame, app: &mut App, t: &Theme) {
         return;
     }
 
-    // Wrapped by hand, because a server's message is as long as the server likes and the
-    // end of it is often the useful part, and the scroll limit needs the row count.
     let width = (area.width as usize).saturating_sub(2 + INDENT).max(10);
     let mut lines: Vec<Line> = Vec::new();
     for m in &app.messages {
@@ -84,7 +80,6 @@ fn entry(lines: &mut Vec<Line>, m: &Logged, width: usize, app: &App, t: &Theme) 
     let Some(fault) = &m.fault else {
         return;
     };
-    // The name gRPC uses, because that is what a server log or a bug report will say.
     let origin = if fault.operation.is_empty() {
         fault.code.name().to_string()
     } else {

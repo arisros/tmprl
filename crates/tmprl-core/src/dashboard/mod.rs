@@ -1,7 +1,4 @@
 //! The dashboard: panels over a scope, the layout they sit in, and `dashboard.toml`.
-//!
-//! A panel does not fetch. It reads from a [`Source`], and panels asking for the same thing
-//! share one, so "recent failures" and "failing types" are one request and always agree.
 
 mod board;
 mod compose;

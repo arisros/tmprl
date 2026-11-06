@@ -1,11 +1,4 @@
 //! Connecting to a Temporal frontend.
-//!
-//! Profile resolution is delegated to Temporal's own loader, the two steps behind
-//! `ClientOptions::load_from_config`: it reads `~/.config/temporalio/temporal.toml`,
-//! applies the `TEMPORAL_*` environment variables over it, and resolves TLS material
-//! (including reading cert/key files off disk). Reimplementing that would only drift from
-//! what the `temporal` CLI does, so we don't. The command line's `--address` and
-//! `--namespace` are set on the loaded profile between those two steps.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -20,55 +13,31 @@ use temporalio_common::envconfig::{
 };
 use tmprl_core::config::ApiKey;
 
-/// Which profile to connect as, and what the command line overrides in it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ProfileRef {
-    /// Profile name from the TOML config. `None` uses `TEMPORAL_PROFILE`, else `default`.
     pub name: Option<String>,
-    /// Override the config file path. `None` uses `TEMPORAL_CONFIG_FILE`, else the OS default.
     pub config_file: Option<String>,
-    /// Override the profile's server address, `host:port` or a URL. Everything else the
-    /// profile says about the connection, TLS and the API key included, still applies.
     pub address: Option<String>,
-    /// Override the profile's namespace.
     pub namespace: Option<String>,
-    /// The API key from tmprl's `config.toml`, over the file's and `TEMPORAL_API_KEY`.
     pub api_key: Option<ApiKey>,
-    /// Load the profile without the `TEMPORAL_*` variables layered over it.
     pub ignore_env: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConnectError {
-    /// `envconfig::ConfigError` boxes a `dyn Error` source that is not `Sync`, which makes
-    /// the whole error unusable across `anyhow` and tokio task boundaries. Flatten it here
-    /// so everything above this crate gets a `Send + Sync` error.
     #[error("could not load Temporal profile: {0}")]
     Config(String),
     #[error("could not connect to Temporal: {0}")]
     Connect(String),
 }
 
-/// Which file the connection profiles are read from.
-///
-/// The platform path is authoritative, because it is the one the `temporal` CLI uses:
-/// `$HOME/.config` on Unix, `$HOME/Library/Application Support` on macOS. Returning `None`
-/// lets the loader apply it, which also preserves the `TEMPORAL_CONFIG_FILE` step in the
-/// precedence chain.
-///
-/// `~/.config/temporalio/temporal.toml` is consulted only as a fallback, and only on a
-/// platform where it is not already the default. On macOS that directory is where people
-/// reasonably expect the file to live, and a config that is present but silently unread is
-/// a bad half hour; matching the CLI still wins whenever the CLI's own file exists.
 fn config_source(explicit: Option<&str>) -> Option<DataSource> {
     if let Some(p) = explicit {
         return Some(DataSource::Path(p.to_string()));
     }
-    // Set: the loader reads it, and overriding here would silently outrank it.
     if std::env::var_os("TEMPORAL_CONFIG_FILE").is_some_and(|v| !v.is_empty()) {
         return None;
     }
-    // The CLI's own file wins whenever it is there.
     if platform_config_file().is_some_and(|p| p.is_file()) {
         return None;
     }
@@ -78,7 +47,6 @@ fn config_source(explicit: Option<&str>) -> Option<DataSource> {
         .then(|| DataSource::Path(path.to_string_lossy().into_owned()))
 }
 
-/// `$XDG_CONFIG_HOME/temporalio/temporal.toml`, else `~/.config/temporalio/temporal.toml`.
 pub fn xdg_config_file() -> Option<PathBuf> {
     let base = match std::env::var_os("XDG_CONFIG_HOME") {
         Some(d) if !d.is_empty() => PathBuf::from(d),
@@ -87,7 +55,6 @@ pub fn xdg_config_file() -> Option<PathBuf> {
     Some(base.join("temporalio").join("temporal.toml"))
 }
 
-/// Where connection profiles will actually be read from, for `--config-path`.
 pub fn config_file_in_use(explicit: Option<&str>) -> Option<PathBuf> {
     if let Some(p) = explicit {
         return Some(PathBuf::from(p));
@@ -101,17 +68,14 @@ pub fn config_file_in_use(explicit: Option<&str>) -> Option<PathBuf> {
     }
     match xdg_config_file() {
         Some(p) if p.is_file() => Some(p),
-        // Neither exists: name the platform path, since that is where it should be created.
         _ => platform,
     }
 }
 
-/// `temporal.toml` under the platform config directory, the path the CLI documents.
 pub fn platform_config_file() -> Option<PathBuf> {
     dirs_config_dir().map(|d| d.join("temporalio").join("temporal.toml"))
 }
 
-/// The platform config directory `temporalio-common` itself uses.
 fn dirs_config_dir() -> Option<PathBuf> {
     #[cfg(target_os = "macos")]
     {
@@ -126,7 +90,6 @@ fn dirs_config_dir() -> Option<PathBuf> {
     }
 }
 
-/// A profile in `temporal.toml`, as a list of them shows it. Never carries credentials.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProfileSummary {
     pub name: String,
@@ -134,11 +97,6 @@ pub struct ProfileSummary {
     pub namespace: Option<String>,
 }
 
-/// Every profile in the file the connection would be read from, sorted by name.
-///
-/// As written in the file: the `TEMPORAL_*` variables are applied when a profile is
-/// connected, not here, so the list shows what each profile says rather than what the
-/// environment would turn it into.
 pub fn list_profiles(config_file: Option<&str>) -> Result<Vec<ProfileSummary>, ConnectError> {
     profiles_from(config_source(config_file))
 }
@@ -162,8 +120,6 @@ fn profiles_from(source: Option<DataSource>) -> Result<Vec<ProfileSummary>, Conn
     Ok(profiles)
 }
 
-/// A live, namespace-bound connection. Cheap to clone, clones share one HTTP/2 channel,
-/// which is what makes multi-namespace fan-out cheap.
 #[derive(Clone)]
 pub struct Conn {
     client: Client,
@@ -182,16 +138,8 @@ impl std::fmt::Debug for Conn {
     }
 }
 
-/// The namespace Temporal's loader falls back to when a profile names none.
 const DEFAULT_NAMESPACE: &str = "default";
 
-/// Turn a loaded profile into connection options, with the command line applied over it.
-///
-/// This is `ClientOptions::load_from_config` taken in its two halves, so the overrides can
-/// land between them, on the profile and before Temporal's own conversion. An address set
-/// here therefore gets the same treatment as one in the file: a bare `host:port` takes
-/// `https` when the profile has TLS or an API key, and both are kept. Patching the built
-/// options instead would mean choosing the scheme a second time, differently.
 // The SDK sets no connect timeout by default.
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
@@ -215,7 +163,6 @@ fn options_from(
     Ok((conn_opts, ClientOptions::new(namespace).build()))
 }
 
-/// Run `api_key_cmd` without a shell. Its output is never put in an error: it is the key.
 async fn run_api_key_cmd(command: &str) -> Result<String, ConnectError> {
     let home = std::env::var("HOME").ok();
     let (program, args) = tmprl_core::source::argv(command, home.as_deref())
@@ -243,7 +190,6 @@ async fn run_api_key_cmd(command: &str) -> Result<String, ConnectError> {
         .ok_or_else(|| ConnectError::Config(format!("api_key_cmd `{program}` printed no key")))
 }
 
-/// `pass show` prints the secret on the first line and metadata after it.
 fn first_line(stdout: &[u8]) -> Option<String> {
     let line = String::from_utf8_lossy(stdout)
         .lines()
@@ -261,8 +207,6 @@ impl Conn {
             .disable_env(profile.ignore_env)
             .build();
 
-        // The loader applies the environment, so a flag outranks `TEMPORAL_ADDRESS` and
-        // `TEMPORAL_NAMESPACE`, which outrank the file.
         let mut loaded = load_client_config_profile(load, None)
             .map_err(|e| ConnectError::Config(e.to_string()))?;
         match &profile.api_key {
@@ -274,8 +218,6 @@ impl Conn {
         }
         let (conn_opts, client_opts) = options_from(loaded, profile)?;
         let namespace: Arc<str> = client_opts.namespace.as_str().into();
-        // Read before `connect` consumes the options. A namespace name is not unique
-        // across clusters, so the audit log needs the target to be readable later.
         let address: Arc<str> = conn_opts.target.to_string().into();
         let client = Client::connect(conn_opts, client_opts)
             .await
@@ -297,14 +239,10 @@ impl Conn {
         &self.profile
     }
 
-    /// The frontend this is connected to, as a URL. Never carries credentials: an API key
-    /// lives in the connection options, not the target.
     pub fn address(&self) -> &str {
         &self.address
     }
 
-    /// Raw `WorkflowService`. Requests take `tonic::Request<T>` and the connection's
-    /// retry policy is already applied underneath.
     pub fn wf(&self) -> Box<dyn WorkflowService> {
         self.client.connection().workflow_service()
     }
@@ -317,8 +255,6 @@ impl Conn {
         self.client.connection().cloud_service()
     }
 
-    /// The high-level client, for the handful of operations where `temporalio-client`
-    /// already does the assembly work for us (schedules, workflow handles).
     pub fn raw(&self) -> &Client {
         &self.client
     }
@@ -330,7 +266,6 @@ mod tests {
 
     #[test]
     fn an_explicit_path_wins() {
-        // `--temporal-config` must outrank every discovery rule below it.
         assert!(matches!(
             config_source(Some("/tmp/explicit.toml")),
             Some(DataSource::Path(p)) if p == "/tmp/explicit.toml"
@@ -343,8 +278,6 @@ mod tests {
 
     #[test]
     fn the_platform_path_is_the_one_the_cli_documents() {
-        // `temporal config --help`: $HOME/.config on Unix, $HOME/Library/Application Support
-        // on macOS. tmprl must not disagree with the CLI about which file it is reading.
         let path = platform_config_file().expect("HOME is set in a test run");
         assert!(path.ends_with("temporalio/temporal.toml"), "{path:?}");
         #[cfg(target_os = "macos")]
@@ -357,8 +290,6 @@ mod tests {
 
     #[test]
     fn the_xdg_path_is_only_a_fallback() {
-        // Consulted when the CLI's own file is absent, so a config someone put in
-        // ~/.config on a Mac is found rather than silently ignored.
         let path = xdg_config_file().expect("HOME is set in a test run");
         assert!(path.ends_with("temporalio/temporal.toml"), "{path:?}");
     }
@@ -396,7 +327,6 @@ mod tests {
             run_api_key_cmd("printf secret\\nmeta").await.unwrap(),
             "secret"
         );
-        // Through a shell `$HOME` would expand; here it is just an argument.
         assert_eq!(run_api_key_cmd("echo $HOME").await.unwrap(), "$HOME");
     }
 
@@ -426,8 +356,6 @@ mod tests {
 
     #[test]
     fn an_address_override_keeps_the_profiles_tls_and_api_key() {
-        // `--address` moves the target and nothing else: a port-forward to a cluster that
-        // wants the profile's key must still send it, over TLS.
         let over = overriding(Some("localhost:7233"), None);
         let (conn, client) = options_from(cloud_profile(), &over).unwrap();
         assert_eq!(conn.target.as_str(), "https://localhost:7233/");
@@ -549,8 +477,6 @@ authorization = "Bearer secret"
 
     #[test]
     fn config_file_in_use_always_names_something() {
-        // `--config-path` has to print a path even when no file exists yet, otherwise it
-        // cannot answer "where should I create it".
         assert!(config_file_in_use(None).is_some());
     }
 }

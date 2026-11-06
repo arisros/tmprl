@@ -1,5 +1,4 @@
 //! Rendering. Every function here is a pure projection of `&App` onto a frame, no state
-//! is mutated except the viewport height, which the layout is what determines.
 
 mod cmdline;
 mod complete;
@@ -21,8 +20,6 @@ mod timeline;
 mod whichkey;
 mod workflows;
 
-// The row labels the search matches against are built in `view`, and must read the same
-// way the rows render, otherwise `/activity` finds rows that do not look like they say it.
 pub(crate) use highlight::{highlight, match_style};
 pub(crate) use history::category_label;
 
@@ -40,7 +37,6 @@ use crate::theme::Theme;
 use crate::view::View;
 
 pub fn render(frame: &mut Frame, app: &mut App) {
-    // A copy, so the palette can be lent to every renderer while `app` is still mutated.
     let theme = app.theme;
     let [header, body, status] = Layout::vertical([
         Constraint::Length(1),
@@ -49,15 +45,10 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     ])
     .areas(frame.area());
 
-    // Focus movement is geometric, so the tree has to know the area it was laid out in.
     app.set_frame(to_ui(body));
     let panes = app.tabs.layout(to_ui(body));
 
-    // The focused pane's measurements are written back before anything is borrowed
-    // immutably: a half page is half of *this* pane, not half the terminal.
     if let Some(pane) = panes.iter().find(|p| p.focused) {
-        // Inside the border a split draws, or a pane asked to sit beside the list could be
-        // measured as fitting there and then drawn stacked.
         let rect = from_ui(pane.rect);
         let rect = if panes.len() > 1 {
             Block::default().borders(Borders::ALL).inner(rect)
@@ -91,8 +82,6 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
     let mut focused_detail_max = None;
     for pane in &panes {
-        // A non-focused pane draws from its parked state. Falling back to the focused view
-        // would draw the same pane twice, which is worse than an empty rectangle.
         let Some(view) = (if pane.focused {
             Some(&app.view)
         } else {
@@ -128,15 +117,10 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             }
         }
     }
-    // Spent on this draw whether or not the pane was open: opening `K` later is not the
-    // moment the search landed, and jumping then would move a pane you had not asked to.
     app.view.detail_seek = false;
 
     statusline::render_status(frame, status, app, &theme);
 
-    // Overlays, outermost last. They belong to the session, not to a pane.
-    // Only `:` has completions to show; `!` takes a shell command and draws in the
-    // statusline alone.
     if app
         .prompt
         .as_ref()
@@ -144,8 +128,6 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     {
         cmdline::render(frame, app, &theme);
     }
-    // The picker docks over the bottom of the panes. Above which-key and help, because
-    // while it is open it owns the keyboard and they cannot be reached anyway.
     if let Some(p) = &app.picker {
         picker::render(frame, p, &theme);
     }
@@ -161,22 +143,17 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     if let Some(f) = &app.form {
         form::render(frame, f, &theme);
     }
-    // Outermost of all: while this is up nothing else can be acted on, so nothing else
-    // should be able to sit over it.
     if let Some(c) = &app.confirm {
         confirm::render(frame, c, &theme);
     }
 }
 
-/// How a pane divides its own rectangle.
 struct PaneAreas {
     query: ratatui::layout::Rect,
     list: ratatui::layout::Rect,
     detail: Option<ratatui::layout::Rect>,
 }
 
-/// Below this width a side-by-side payload pane leaves neither half readable, so `right`
-/// falls back to stacking.
 const MIN_SIDE_BY_SIDE_WIDTH: u16 = 100;
 
 fn pane_body(
@@ -186,8 +163,6 @@ fn pane_body(
     payload: PayloadPane,
     size: u16,
 ) -> PaneAreas {
-    // The query bar is part of the workflow screen's chrome, not an overlay: it is always
-    // on screen so the query is never something you have to go and open.
     let query_height = match screen {
         Screen::Workflows => 1,
         Screen::Profiles
@@ -200,8 +175,6 @@ fn pane_body(
         Layout::vertical([Constraint::Length(query_height), Constraint::Min(1)]).areas(area);
 
     if screen == Screen::History && show_detail {
-        // The list keeps a floor however large the pane is asked to be: enough of it to keep
-        // your place, which is what `j` and `k` move through.
         let [list, detail] =
             if payload == PayloadPane::Right && rest.width >= MIN_SIDE_BY_SIDE_WIDTH {
                 Layout::horizontal([Constraint::Min(40), Constraint::Percentage(size)]).areas(rest)
@@ -222,7 +195,6 @@ fn pane_body(
     }
 }
 
-/// Draw one window. Returns the payload pane's scroll extent, when it drew one.
 fn render_pane(
     frame: &mut Frame,
     area: ratatui::layout::Rect,
@@ -232,7 +204,6 @@ fn render_pane(
     focused: bool,
     split: bool,
 ) -> Option<(usize, usize)> {
-    // With one window there is nothing to distinguish, and a border would only cost a row.
     let area = if split {
         let block = Block::default()
             .borders(Borders::ALL)
@@ -261,7 +232,6 @@ fn render_pane(
         Screen::Workflows => {
             query::render(frame, areas.query, view, app, theme, focused);
             workflows::render(frame, areas.list, view, app, theme);
-            // After the rows, because it sits over them.
             if focused && let Some(c) = &app.completion {
                 complete::render(frame, areas.list, area, c, theme);
             }
@@ -271,8 +241,6 @@ fn render_pane(
         Screen::History => {
             history::render(frame, areas.list, view, app, theme);
             if let Some(mut pane) = areas.detail {
-                // Beside the list, the pane's own top rule does not separate it from the
-                // rows to its left, so it gets a vertical one as well.
                 if pane.x > areas.list.x {
                     let rule = Block::default()
                         .borders(Borders::LEFT)
@@ -296,15 +264,6 @@ fn from_ui(r: tmprl_ui::Rect) -> ratatui::layout::Rect {
     ratatui::layout::Rect::new(r.x, r.y, r.width, r.height)
 }
 
-/// Draw a scrollbar for a list, and give back the width the rows may use.
-///
-/// The bar only appears when there is something to scroll, so a list that fits looks
-/// exactly as it did before. A borderless pane has no spare column for it, so one is taken
-/// out of the content: the alternative is drawing the thumb over the rightmost column,
-/// which here holds the age, and a corrupted value is worse than a narrower one.
-///
-/// The decision is made from the row count alone, before any width is computed, so the
-/// columns do not shift as the cursor moves.
 fn list_scrollbar(frame: &mut Frame, area: Rect, cursor: usize, total: usize, t: &Theme) -> Rect {
     let height = area.height as usize;
     if total <= height || area.width < 4 {
@@ -314,8 +273,6 @@ fn list_scrollbar(frame: &mut Frame, area: Rect, cursor: usize, total: usize, t:
         width: area.width.saturating_sub(1),
         ..area
     };
-    // `width: 1` and not a struct update from `area`: a full-width rect would put the
-    // right-hand bar off the end of it, where it is clipped away entirely.
     let bar = Rect {
         x: area.x + area.width - 1,
         y: area.y,
@@ -326,10 +283,6 @@ fn list_scrollbar(frame: &mut Frame, area: Rect, cursor: usize, total: usize, t:
     body
 }
 
-/// Draw a scrollbar over a bordered area's right edge.
-///
-/// For the overlays: the thumb rides the border it already has, so nothing gives up a
-/// column and the pane is the same size whether or not it is scrolling.
 fn border_scrollbar(frame: &mut Frame, area: Rect, position: usize, total: usize, t: &Theme) {
     let height = area.height.saturating_sub(2) as usize;
     if total <= height || height == 0 {
@@ -338,8 +291,6 @@ fn border_scrollbar(frame: &mut Frame, area: Rect, position: usize, total: usize
     draw_scrollbar(frame, area, position, total, height, t);
 }
 
-/// No arrows, no track: an unscrolled pane should look untouched, and the thumb alone says
-/// both how far down this is and how much of the whole it covers.
 fn draw_scrollbar(
     frame: &mut Frame,
     area: Rect,
@@ -362,7 +313,6 @@ fn draw_scrollbar(
     );
 }
 
-/// Colour reinforces the glyph; it never carries information on its own.
 fn status_style(s: WorkflowStatus, t: &Theme) -> Style {
     match s {
         WorkflowStatus::Running => t.accent,
@@ -374,9 +324,6 @@ fn status_style(s: WorkflowStatus, t: &Theme) -> Style {
     }
 }
 
-/// The hybrid relative/absolute gutter, matching `set relativenumber number`: the cursor
-/// row shows its own 1-based index, every other row its distance. That is what makes a
-/// count like `7j` something you read off the screen rather than estimate.
 fn gutter(i: usize, cursor: usize) -> String {
     if i == cursor {
         format!("{:>4} ", i + 1)
@@ -385,7 +332,6 @@ fn gutter(i: usize, cursor: usize) -> String {
     }
 }
 
-/// Shorten to `max` characters, on a character boundary, with an ellipsis.
 pub(crate) fn edit_spans(
     line: &tmprl_core::line::LineEdit,
     width: usize,
@@ -418,11 +364,6 @@ fn truncate(s: &str, max: usize) -> String {
     out
 }
 
-/// A centred box `w` x `h`, clamped to the frame.
-/// What an empty list says when its load failed: the failure, and what to do about it.
-///
-/// A hint that already names `R` stands alone; otherwise the retry is spelled out, since
-/// on an empty screen nothing else says the key exists.
 fn failed(fault: &tmprl_core::fault::Fault) -> String {
     match fault.hint() {
         Some(hint) if hint.contains(" R") => format!("{fault}. {hint}"),
@@ -431,7 +372,6 @@ fn failed(fault: &tmprl_core::fault::Fault) -> String {
     }
 }
 
-/// Break long text on spaces so it can be read across several lines.
 fn wrap(s: &str, width: usize) -> Vec<String> {
     let mut out = Vec::new();
     let mut line = String::new();

@@ -1,10 +1,4 @@
 //! Workflow queries: the handlers a workflow says it has.
-//!
-//! A query is answered by a worker, which replays the history and calls a function in the
-//! workflow's own code. The server only relays it, so what can be asked differs per workflow
-//! type and is known only by asking the workflow, through `__temporal_workflow_metadata`.
-//! An SDK that predates that handler refuses it, and most refusals list the names it does
-//! know, which is the fallback before asking the reader to type one.
 
 use crate::payload::Payload;
 
@@ -20,13 +14,10 @@ pub struct Handler {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Handlers {
     pub queries: Vec<Handler>,
-    /// What the workflow says it is doing, `workflow.SetCurrentDetails` in Go.
     pub current_details: Option<String>,
 }
 
 impl Handlers {
-    /// From the metadata as an SDK sends it, `json/protobuf`. Proto JSON is camel case;
-    /// snake case is accepted too, since that is what a serde derive over the proto writes.
     pub fn from_metadata_json(text: &str) -> Option<Self> {
         let v: serde_json::Value = serde_json::from_str(text).ok()?;
         let field = |v: &serde_json::Value, camel: &str, snake: &str| {
@@ -57,7 +48,6 @@ impl Handlers {
         })
     }
 
-    /// From the names a refusal listed, which carry no descriptions.
     pub fn from_names(names: Vec<String>) -> Self {
         Self {
             queries: names
@@ -71,8 +61,6 @@ impl Handlers {
         }
     }
 
-    /// What a picker offers: the workflow's own handlers, then the stack trace. Other `__`
-    /// names describe the SDK rather than the workflow, so they are left out.
     pub fn offered(&self) -> Vec<Handler> {
         let mut out: Vec<Handler> = self
             .queries
@@ -94,10 +82,6 @@ impl Handlers {
     }
 }
 
-/// The names a refusal of an unknown query type lists, when it lists them.
-///
-/// Go says `KnownQueryTypes=[a b]`, Java `knownTypes=[a, b]`, TypeScript
-/// `Registered queries: [a b]`. Anything else is not guessed at.
 pub fn known_from_refusal(message: &str) -> Option<Vec<String>> {
     let after = ["KnownQueryTypes=", "knownTypes=", "Registered queries:"]
         .iter()
@@ -113,7 +97,6 @@ pub fn known_from_refusal(message: &str) -> Option<Vec<String>> {
     (!names.is_empty()).then_some(names)
 }
 
-/// Labels for the payload pane: the handler's name, indexed when it returned several.
 pub fn labelled(name: &str, payloads: Vec<Payload>) -> Vec<(String, Payload)> {
     let several = payloads.len() > 1;
     payloads
@@ -131,8 +114,6 @@ pub fn labelled(name: &str, payloads: Vec<Payload>) -> Vec<(String, Payload)> {
         .collect()
 }
 
-/// A JSON string that spans lines, as `__stack_trace` answers, shown as its lines rather
-/// than as one line of `\n` escapes.
 fn as_lines(p: Payload) -> Payload {
     if p.encoding != "json/plain" {
         return p;

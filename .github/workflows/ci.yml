@@ -24,14 +24,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - run: cargo fmt --all -- --check
-      # Every file has a //! header, is named in the code maps that list it, and the test
-      # counts in README.md and docs/ARCHITECTURE.md match the code.
       - run: scripts/check-docs.sh
       - run: cargo clippy --all-targets --all-features
       - run: cargo build --all-targets
 
-  # rust-version in Cargo.toml is a promise to `cargo install` users on older toolchains;
-  # nothing else checks it. Keep the toolchain here equal to it.
+  # Keep equal to rust-version in Cargo.toml.
   msrv:
     name: msrv (1.95)
     runs-on: ubuntu-latest
@@ -46,8 +43,6 @@ jobs:
 
       - run: cargo check --all-targets --all-features --locked
 
-  # Half the release targets and the Homebrew formula are macOS, which otherwise first
-  # builds in release.yml. No server here, so the integration tests skip.
   macos:
     name: macOS · build · tests
     runs-on: macos-latest
@@ -59,9 +54,7 @@ jobs:
 
       - run: cargo test --all-features
 
-  # The dev server is built into the temporal CLI, so the CLI version is what picks the
-  # server version. v1.5.1 carries server 1.29.1; latest moves by itself. An entry here must
-  # be a tag of temporalio/cli, the download 404s on anything else.
+  # Each entry must be a temporalio/cli tag; the CLI version picks the server version.
   test:
     name: tests (live server, temporal CLI ${{ matrix.temporal-cli }})
     runs-on: ubuntu-latest
@@ -103,15 +96,12 @@ jobs:
               --task-queue ci --type CiWorkflow --workflow-id "ci-$i"
           done
 
-      # TMPRL_REQUIRE_SERVER turns the local "skip when no server" behaviour into a
-      # hard failure, so a broken connection layer cannot pass as a green build.
       - name: Test
         env:
           TEMPORAL_ADDRESS: 127.0.0.1:7233
           TMPRL_REQUIRE_SERVER: "1"
         run: cargo llvm-cov --all-features --lcov --output-path lcov.info
 
-      # One upload is enough; the legs differ only in the server.
       - uses: codecov/codecov-action@v5
         if: matrix.temporal-cli == 'latest'
         with:

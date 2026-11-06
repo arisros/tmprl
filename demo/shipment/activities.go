@@ -12,7 +12,6 @@ import (
 
 // Activity names, as they appear in a workflow history.
 const (
-	// The framework's own steps, wrapped around every stage.
 	PublishStageStartName = "PublishStageStart"
 	PublishStageEndName   = "PublishStageEnd"
 	StoreRevisionName     = "StoreRevision"
@@ -41,8 +40,6 @@ const (
 	CloseTaskName      = "close_task"
 )
 
-// work stands in for the call an activity would make: a pause that is the same for the
-// same shipment and step, so a seeded run looks the same every time.
 func work(ctx context.Context, key string, minMs, maxMs int) error {
 	h := fnv.New32a()
 	h.Write([]byte(key + activity.GetInfo(ctx).ActivityType.Name))

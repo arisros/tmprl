@@ -7,7 +7,6 @@ use crate::key::{Chord, Key};
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LineEdit {
     text: String,
-    /// A byte offset, always on a char boundary.
     at: usize,
 }
 

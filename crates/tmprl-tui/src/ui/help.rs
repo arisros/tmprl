@@ -1,8 +1,4 @@
 //! The help overlay.
-//!
-//! Generated from the command registry and the keymap rather than written by hand, so it is
-//! incapable of going stale: a command with no binding shows as unbound, and a binding to a
-//! command that does not exist is impossible.
 
 use ratatui::Frame;
 use ratatui::style::Modifier;
@@ -12,14 +8,10 @@ use ratatui::widgets::{Block, Clear, Paragraph};
 use crate::app::App;
 use crate::theme::Theme;
 
-/// Width of the key column. One wider than the longest string it will render, so a long
-/// binding list can never touch the title beside it.
 const KEYS: usize = 22;
 const TITLE: usize = 26;
 
 pub fn render(frame: &mut Frame, app: &mut App, t: &Theme) {
-    // Wide enough that command ids are not truncated, the ids are the part a reader
-    // needs verbatim, since they are what `:` and keys.toml take.
     let area = super::centered(
         frame.area(),
         78,
@@ -49,15 +41,11 @@ pub fn render(frame: &mut Frame, app: &mut App, t: &Theme) {
                 }
                 seen.join(" / ")
             };
-            // Truncated, not just padded: a command with several bindings (a keys.toml
-            // addition on top of two defaults) would otherwise run into the title column.
             lines.push(Line::from(vec![
                 Span::styled(
                     format!("  {:<KEYS$}", super::truncate(&rendered, KEYS - 1)),
                     t.warn,
                 ),
-                // Truncated for the same reason as the keys beside it: the id column is
-                // what `:` and keys.toml consume, so it is the one that must stay readable.
                 Span::styled(
                     format!("{:<TITLE$}", super::truncate(cmd.title, TITLE - 1)),
                     t.fg,
@@ -68,8 +56,6 @@ pub fn render(frame: &mut Frame, app: &mut App, t: &Theme) {
         lines.push(Line::raw(""));
     }
 
-    // The overlay is taller than most terminals, so it scrolls. The reducer owns the
-    // offset; the renderer is the only thing that knows how far it can usefully go.
     let visible = area.height.saturating_sub(2) as usize;
     app.overlay_max_scroll = lines.len().saturating_sub(visible);
     let scroll = app.overlay_scroll.min(app.overlay_max_scroll);
@@ -78,8 +64,6 @@ pub fn render(frame: &mut Frame, app: &mut App, t: &Theme) {
     let title = if app.overlay_max_scroll == 0 {
         " help (Esc to close) ".to_string()
     } else {
-        // Say that there is more, and how to get to it. A silently clipped list is how a
-        // reader concludes a command does not exist.
         format!(
             " help (j/k to scroll, {}/{}, Esc to close) ",
             scroll + 1,
@@ -97,7 +81,5 @@ pub fn render(frame: &mut Frame, app: &mut App, t: &Theme) {
         ),
         area,
     );
-    // The overlay is boxed on all four sides, so the thumb rides the right border and the
-    // list keeps its full width.
     super::border_scrollbar(frame, area, scroll, total, t);
 }

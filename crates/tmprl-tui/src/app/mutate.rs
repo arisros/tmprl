@@ -3,7 +3,6 @@
 use super::*;
 
 impl App {
-    /// The schedule a schedule mutation would act on.
     pub(super) fn target_schedule(&self) -> Option<ScheduleRow> {
         if self.view.screen != Screen::Schedules {
             return None;
@@ -11,12 +10,6 @@ impl App {
         self.view.schedule_rows().get(self.view.cursor).cloned()
     }
 
-    /// The workflow a mutation would act on: the row under the cursor on the workflow list,
-    /// or the one whose history is open.
-    /// Every workflow a mutation would act on.
-    ///
-    /// The visual selection when there is one, otherwise the single row under the cursor.
-    /// One path rather than two, so a batch cannot drift from what a single action does.
     pub(super) fn target_workflows(&self) -> Vec<WorkflowRow> {
         if self.view.screen == Screen::Workflows
             && let Some((lo, hi)) = self.view.selection()
@@ -27,7 +20,6 @@ impl App {
         self.target_workflow().into_iter().collect()
     }
 
-    /// Every schedule a mutation would act on, on the same rule.
     pub(super) fn target_schedules(&self) -> Vec<ScheduleRow> {
         if self.view.screen == Screen::Schedules
             && let Some((lo, hi)) = self.view.selection()
@@ -46,12 +38,10 @@ impl App {
         }
     }
 
-    /// Open the confirmation for a mutation. Nothing happens to the cluster here.
     pub(super) fn confirm_mutation(&mut self, kind: MutationKind) {
         if self.refuses_mutation() {
             return;
         }
-        // Schedule operations act on a schedule id, not an execution.
         if matches!(
             kind,
             MutationKind::PauseSchedule
@@ -65,8 +55,6 @@ impl App {
                 return;
             }
             if matches!(kind, MutationKind::BackfillSchedule) {
-                // The window has to be typed, so this reaches a confirmation only after the
-                // prompt comes back.
                 self.prompt = Some(Prompt {
                     kind: PromptKind::Backfill,
                     buf: LineEdit::default(),
@@ -74,9 +62,6 @@ impl App {
                 self.mode = Mode::Command;
                 return;
             }
-            // Pause reads the state of the *first* row and moves every selected schedule to
-            // the same one. Toggling each independently would leave a mixed selection still
-            // mixed, which is never what one keypress was asking for.
             let target_paused = !rows[0].paused;
             let mutations = rows
                 .into_iter()
@@ -103,8 +88,6 @@ impl App {
             return;
         }
 
-        // Both need a name, which has to be typed. Reuse the prompt rather than inventing a
-        // second text field; the name applies to every row the selection covers.
         if matches!(kind, MutationKind::Signal | MutationKind::Update) {
             if self.target_workflows().is_empty() {
                 self.note = Some(("no workflow under the cursor".into(), Note::Warn));
@@ -123,8 +106,6 @@ impl App {
         }
 
         if matches!(kind, MutationKind::Reset) {
-            // A reset goes back to an event, which only a history has, and a history is one
-            // workflow. There is nothing to batch.
             let Some(row) = self.target_workflow() else {
                 self.note = Some(("no workflow under the cursor".into(), Note::Warn));
                 return;
@@ -173,7 +154,6 @@ impl App {
                         workflow_id,
                         run_id,
                     },
-                    // Cancel, and the kinds already returned above.
                     _ => Mutation::Cancel {
                         namespace,
                         workflow_id,
@@ -210,7 +190,6 @@ impl App {
         }
     }
 
-    /// Turn a typed signal or update name into a confirmation.
     pub(super) fn confirm_named(&mut self, kind: PromptKind, name: String) {
         let rows = self.target_workflows();
         if rows.is_empty() {
@@ -242,10 +221,6 @@ impl App {
         self.confirm = Some(Confirm::batch(mutations));
     }
 
-    /// Turn a typed backfill window into a confirmation.
-    ///
-    /// A bad range stops here with the parser's own message rather than reaching the server,
-    /// which would answer with something less specific.
     pub(super) fn confirm_backfill(&mut self, entered: String) {
         let Some(row) = self.target_schedule() else {
             return;
@@ -263,22 +238,13 @@ impl App {
         }
     }
 
-    /// Open the form that collects a new schedule.
-    ///
-    /// Unlike every other mutation this one has no target under the cursor: it is creating
-    /// the thing, so it only needs a namespace to create it in.
     pub(super) fn open_new_schedule_form(&mut self) {
-        // Six fields typed and then refused is the costliest refusal there is.
         if self.refuses_mutation() {
             return;
         }
         self.form = Some(Form::new_schedule());
     }
 
-    /// Keys while the form is up.
-    ///
-    /// It owns every key, so nothing bound elsewhere fires mid-edit and a literal `j` goes
-    /// into the field rather than moving a cursor somewhere behind it.
     pub(super) fn form_key(&mut self, chord: Chord) {
         use tmprl_core::Key;
         let Some(form) = self.form.as_mut() else {
@@ -294,9 +260,6 @@ impl App {
             Key::Down => form.next(),
             Key::Up => form.previous(),
             Key::Enter => self.confirm_new_schedule(),
-            // Backspace on an empty field moves back rather than closing the form: a form is
-            // several fields deep, so losing all of them to one key would be a trap.
-            // The guard does the deleting, as `prompt_key` and `picker_key` do.
             Key::Backspace if !form.backspace() => form.previous(),
             Key::Backspace => {}
             Key::Char(c) if chord.mods.is_none() => form.push(c),
@@ -304,13 +267,11 @@ impl App {
         }
     }
 
-    /// Validate the form and put the command in front of the reader.
     pub(super) fn confirm_new_schedule(&mut self) {
         let Some(form) = self.form.as_mut() else {
             return;
         };
         if let Some(label) = form.missing() {
-            // Send them to the field rather than only naming it.
             form.focus(label);
             self.note = Some((format!("{label} is required"), Note::Warn));
             return;
@@ -334,9 +295,6 @@ impl App {
         self.confirm = Some(Confirm::new(mutation));
     }
 
-    /// The event a reset would go back to: the last completed workflow task at or before the
-    /// cursor. Resolved rather than demanded, because the workflow tasks the server needs
-    /// are exactly the rows the outline folds away.
     pub(super) fn reset_target(&self) -> Option<i64> {
         if self.view.screen != Screen::History {
             return None;
@@ -349,10 +307,6 @@ impl App {
         tmprl_core::history::reset_point(outline.events(), at)
     }
 
-    /// Keys while a confirmation is up.
-    ///
-    /// This owns every key, so nothing bound elsewhere can act while a destructive action is
-    /// pending. Enter is the only way forward and Esc is always a way out.
     pub(super) fn confirm_key(&mut self, chord: Chord) {
         use tmprl_core::Key;
         let Some(confirm) = self.confirm.as_mut() else {
@@ -366,14 +320,10 @@ impl App {
             Key::Enter if confirm.is_satisfied() => {
                 let mutations = std::mem::take(&mut confirm.mutations);
                 self.confirm = None;
-                // The rows it covered are about to change or disappear, so the selection
-                // that named them is spent. Leaving it up would invite a second batch over
-                // a range that no longer means what it did.
                 self.view.anchor = None;
                 self.mode = Mode::Normal;
                 self.run_mutations(mutations);
             }
-            // Enter with the word unfinished is not a refusal, just not yet.
             Key::Enter => {}
             Key::Backspace => {
                 confirm.entered.pop();
@@ -383,14 +333,6 @@ impl App {
         }
     }
 
-    /// Send it. Spawned like every other RPC, a mutation must not freeze a keystroke either.
-    /// Carry out every mutation a confirmation covered.
-    ///
-    /// One after another rather than all at once: the fan-out paging bug taught that a
-    /// request count scaling with the size of the set is how a namespace rate limit is hit,
-    /// and a batch the reader selected by hand is never large enough for the latency to
-    /// matter. Each result comes back as its own `Mutated`, so a failure halfway through is
-    /// reported for the row it happened on rather than sinking the whole set.
     pub(super) fn run_mutations(&mut self, mutations: Vec<Mutation>) {
         if self.refuses_mutation() {
             return;
@@ -425,16 +367,10 @@ impl App {
         });
     }
 
-    /// Refuse a mutation on a read-only run, and say what made it read-only.
-    ///
-    /// Checked at both ends: here, so a refusal costs one keystroke rather than a typed
-    /// signal payload, and again in `run_mutation`, which is the only path to the wire.
     pub(super) fn refuses_mutation(&mut self) -> bool {
         if !self.readonly() {
             return false;
         }
-        // The profile is named whenever it is a cause: restarting without `--readonly`
-        // would not help there, so pointing at the flag would send the reader the wrong way.
         let why = if self.readonly {
             format!("profile {} is read-only", self.profile)
         } else {
@@ -444,10 +380,6 @@ impl App {
         true
     }
 
-    /// Record what was attempted, whether or not it worked.
-    ///
-    /// Appended, never rewritten, and failures go in too: the log is what was *attempted*,
-    /// which is the question being asked when someone reads it.
     pub(super) fn audit_to(
         &mut self,
         mutation: &Mutation,
@@ -462,8 +394,6 @@ impl App {
         match &mut self.audit_sink {
             AuditSink::File => {
                 if let Err(e) = crate::config::append_audit(&line) {
-                    // A failed audit write must not be silent: the log is the record that an
-                    // irreversible thing happened.
                     self.note = Some((format!("audit log: {e}"), Note::Error));
                 }
             }

@@ -27,8 +27,6 @@ fn a_search_moves_the_cursor_to_the_first_match() {
 
 #[test]
 fn a_search_can_match_the_row_the_cursor_is_already_on() {
-    // `/` is typed while looking at the screen. Skipping a match that is right there,
-    // the way `n` deliberately does, would read as the search having failed.
     let mut app = app();
     four(&mut app);
     app.view.cursor = row_of(&app, "r2");
@@ -84,8 +82,6 @@ fn n_without_a_previous_search_says_so_rather_than_moving() {
 
 #[test]
 fn a_search_finds_a_run_id_that_is_not_on_screen() {
-    // The reason labels are wider than the columns: a run id pasted out of a log is
-    // exactly what you arrive with, and it is not one of the rendered fields.
     let mut app = app();
     four(&mut app);
     search_for(&mut app, "r3");
@@ -115,9 +111,6 @@ fn the_match_count_is_reported() {
 
 #[test]
 fn the_pattern_survives_so_n_keeps_working_after_a_refresh() {
-    // The search register is session state, not view state. A reload replaces every row
-    // in the pane, and having to retype the pattern afterwards is the friction this
-    // avoids.
     let mut app = app();
     four(&mut app);
     search_for(&mut app, "refund");
@@ -131,8 +124,6 @@ fn the_pattern_survives_so_n_keeps_working_after_a_refresh() {
     );
 }
 
-// ---- pickers ----
-
 #[test]
 fn the_workflow_picker_lists_every_loaded_workflow() {
     let mut app = app();
@@ -143,8 +134,6 @@ fn the_workflow_picker_lists_every_loaded_workflow() {
 
 #[test]
 fn the_picker_owns_the_keyboard_while_it_is_open() {
-    // `j` must type a `j` into the prompt, not move the list underneath. A picker that
-    // let motions leak through would scroll the thing it is covering.
     let mut app = app();
     four(&mut app);
     let before = app.view.cursor;
@@ -182,7 +171,6 @@ fn accepting_a_workflow_opens_its_history() {
 
 #[test]
 fn ctrl_n_and_ctrl_p_move_the_picker_cursor() {
-    // Not `<C-j>` / `<C-k>`: tmux eats those before tmprl sees them.
     let mut app = app();
     four(&mut app);
     app.run("find.workflow", None);
@@ -217,8 +205,6 @@ fn backspace_on_an_empty_picker_prompt_closes_it() {
 
 #[test]
 fn a_picker_with_nothing_to_show_says_why_instead_of_opening() {
-    // On the namespace screen there are no workflows loaded yet. An empty box would
-    // look broken; the reason is the useful answer.
     let mut app = app();
     app.view.screen = Screen::Namespaces;
     app.run("find.workflow", None);
@@ -230,8 +216,6 @@ fn a_picker_with_nothing_to_show_says_why_instead_of_opening() {
 
 #[test]
 fn the_filter_builder_offers_the_types_actually_loaded() {
-    // The point of building filters from the rows on screen: it offers `Refund` because
-    // this namespace has one, not because someone hardcoded a list.
     let mut app = app();
     four(&mut app);
     app.run("find.filter", None);
@@ -249,8 +233,6 @@ fn the_filter_builder_offers_a_custom_attribute_the_cluster_registered() {
 
     let mut app = app();
     four(&mut app);
-    // Whatever this cluster lets you filter on is a property of the cluster, so it can only
-    // arrive from it.
     let namespace = app.namespace().to_string();
     app.handle(Msg::SearchAttributes {
         namespace,
@@ -294,8 +276,6 @@ fn attributes_for_a_namespace_already_left_are_dropped() {
 
 #[test]
 fn a_time_window_is_found_by_the_words_its_timestamp_cannot_be_read_as() {
-    // The clause is an absolute instant, because the grammar has no `now()`. Typing "last
-    // hour" has to find it anyway, or the entry may as well not be there.
     let mut app = app();
     four(&mut app);
     app.run("find.filter", None);
@@ -334,7 +314,6 @@ fn a_filter_clause_on_an_empty_query_stands_alone() {
 
 #[test]
 fn an_order_by_clause_is_appended_rather_than_anded() {
-    // `... AND ORDER BY StartTime DESC` is a query the server rejects.
     let mut app = app();
     four(&mut app);
     app.view.query = "ExecutionStatus = 'Running'".into();
@@ -370,8 +349,6 @@ fn the_event_picker_needs_a_history() {
 
 #[test]
 fn the_pane_picker_is_not_offered_for_a_single_pane() {
-    // With one window there is nothing to switch to, and a picker holding only the pane
-    // you are already in is a keystroke that does nothing.
     let mut app = app();
     four(&mut app);
     app.run("find.pane", None);
@@ -416,8 +393,6 @@ fn the_namespace_picker_switches_the_pane_to_the_one_chosen() {
 
 #[test]
 fn switching_namespace_keeps_the_query() {
-    // "the same question, over there" is the common case; retyping the filter every
-    // time would cost more than the navigation the picker saves.
     let mut app = app();
     app.handle(Msg::Namespaces(Ok(vec![NamespaceInfo {
         name: "payments".into(),
@@ -433,8 +408,6 @@ fn switching_namespace_keeps_the_query() {
 
 #[test]
 fn the_problem_list_lands_in_the_query_bar_where_it_can_be_edited() {
-    // A preset, not a separate screen: the query stays visible and narrowing it further
-    // is ordinary editing.
     let mut app = app();
     four(&mut app);
     app.run("list.problems", None);
@@ -446,8 +419,6 @@ fn the_problem_list_lands_in_the_query_bar_where_it_can_be_edited() {
 
 #[test]
 fn a_first_search_from_the_top_does_not_claim_to_have_wrapped() {
-    // Row 0 is where a freshly loaded pane puts the cursor, so the old `cursor - 1`
-    // seek made almost every first search report a wrap.
     let mut app = app();
     four(&mut app);
     assert_eq!(app.view.cursor, 0);
@@ -460,7 +431,7 @@ fn a_first_search_from_the_top_does_not_claim_to_have_wrapped() {
 fn a_search_that_matches_nothing_does_not_record_a_jump() {
     let mut app = app();
     four(&mut app);
-    app.run("nav.open", None); // a real jump, so there is something to lose
+    app.run("nav.open", None);
     app.run("nav.jump-back", None);
 
     search_for(&mut app, "nothing-matches-this");
@@ -474,8 +445,6 @@ fn a_search_that_matches_nothing_does_not_record_a_jump() {
 
 #[test]
 fn the_command_picker_finds_a_command_by_its_title() {
-    // `:` matches ids and titles; `<leader>fh` matched only ids, so `failed` found
-    // `list.problems` in one and not the other.
     let mut app = app();
     four(&mut app);
     app.run("find.command", None);
@@ -514,8 +483,6 @@ fn a_prompt_the_loaded_rows_cannot_answer_is_one_for_the_server() {
 
 #[test]
 fn a_few_characters_are_not_worth_a_query() {
-    // Three characters of a UUID match half a namespace; the round trip would be spent to
-    // say so.
     let mut app = app();
     four(&mut app);
     app.run("find.workflow", None);
@@ -541,8 +508,6 @@ fn a_reply_for_a_prompt_since_retyped_is_dropped() {
 
 #[test]
 fn a_workflow_the_server_found_opens_although_no_pane_lists_it() {
-    // The whole point of the fallback: this run is in no table on screen, so opening it
-    // cannot go through the list the picker was built from.
     let mut app = app();
     four(&mut app);
     app.run("find.workflow", None);
@@ -566,8 +531,6 @@ fn a_workflow_the_server_found_opens_although_no_pane_lists_it() {
 
 #[test]
 fn a_search_that_runs_out_of_loaded_events_reads_on() {
-    // The activity is 900 events in; the pane has the first page. Saying "no match" would
-    // be answering a question about the page, not about the run.
     let mut app = half_read_history();
     search_for(&mut app, "Settle");
 
@@ -613,7 +576,6 @@ fn escape_stops_a_search_that_is_still_reading() {
     let (note, _) = app.note.clone().unwrap();
     assert!(note.contains("search stopped"), "{note}");
 
-    // A page that lands after the stop must not restart it.
     use tmprl_core::history::{Category as C, GroupRef as G, Role as R};
     app.handle(Msg::History {
         generation: app.view.generation,
@@ -628,7 +590,6 @@ fn escape_stops_a_search_that_is_still_reading() {
 
 #[test]
 fn a_fully_loaded_history_still_just_says_no_match() {
-    // Nothing to read on to: the answer is about the run, not about a page.
     let mut app = viewing_history();
     search_for(&mut app, "Nowhere");
     let (note, level) = app.note.clone().unwrap();
@@ -638,8 +599,6 @@ fn a_fully_loaded_history_still_just_says_no_match() {
 
 #[test]
 fn a_search_over_a_workflow_list_never_reads_on() {
-    // Only a history is finite and one run's business. Paging a namespace to find a row is
-    // a different, unbounded thing.
     let mut app = app();
     four(&mut app);
     search_for(&mut app, "Nowhere");
@@ -688,7 +647,6 @@ fn a_decoded_payload_becomes_searchable() {
 
 #[test]
 fn the_event_picker_does_not_show_payloads() {
-    // A flattened input in a picker label pushes the row's name off the line.
     let app = viewing_payloads();
     let items = app.history_items();
     assert!(
@@ -718,7 +676,6 @@ fn flattened_payloads_are_kept_between_searches_and_freed_after_leaving() {
 
 #[test]
 fn a_hit_inside_a_payload_names_the_path() {
-    // Nothing on the row can show a payload value, so the statusline says where it was.
     let mut app = viewing_payloads();
     search_for(&mut app, "amount=100");
     let (note, _) = app.note.clone().unwrap();

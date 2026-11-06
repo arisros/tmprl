@@ -6,7 +6,6 @@ use super::*;
 fn opening_a_workflow_reads_its_history() {
     let app = viewing_history();
     assert_eq!(app.view.viewing.as_ref().unwrap().run_id, "r1");
-    // Three groups: the workflow and two activities. The workflow task is plumbing.
     assert_eq!(app.row_count(), 3);
 }
 
@@ -25,7 +24,7 @@ fn dash_returns_to_the_workflow_it_came_from() {
 #[test]
 fn folding_a_group_shows_its_events_and_keeps_the_cursor_on_it() {
     let mut app = viewing_history();
-    app.run("motion.down", None); // onto the "Charge" activity
+    app.run("motion.down", None);
     let before = app.row_count();
     let at = app.view.cursor;
 
@@ -36,7 +35,6 @@ fn folding_a_group_shows_its_events_and_keeps_the_cursor_on_it() {
         "the cursor stays on the group's own line"
     );
 
-    // Folding shut from *inside* the group must not strand the cursor past the end.
     app.run("motion.down", None);
     app.run("motion.down", None);
     app.run("history.fold", None);
@@ -47,7 +45,7 @@ fn folding_a_group_shows_its_events_and_keeps_the_cursor_on_it() {
 #[test]
 fn expanding_everything_keeps_the_cursor_on_the_same_group() {
     let mut app = viewing_history();
-    app.run("motion.bottom", None); // the failed "Ship" activity
+    app.run("motion.bottom", None);
     let group = app.group_under_cursor();
 
     app.run("history.expand-all", None);
@@ -84,7 +82,6 @@ fn failures_are_reachable_by_key() {
     let outline = app.view.history.value().unwrap();
     assert_eq!(outline.group(group).unwrap().subject, "Ship");
 
-    // Saying so beats moving the cursor nowhere and looking broken.
     app.run("history.next-failure", None);
     assert!(matches!(app.note, Some((_, Note::Warn))));
 }
@@ -95,7 +92,6 @@ fn a_second_history_page_is_appended_and_regrouped() {
     loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
     app.run("nav.open", None);
 
-    // First page stops mid-group: "Charge" is scheduled but has not finished.
     app.handle(Msg::History {
         generation: app.view.generation,
         result: Ok((history_events()[..5].to_vec(), vec![7])),
@@ -103,7 +99,6 @@ fn a_second_history_page_is_appended_and_regrouped() {
     let charge = app.view.history.value().unwrap().group(2).unwrap().clone();
     assert!(charge.is_open(), "the group is incomplete on page one");
 
-    // The rest arrives and completes it, which is why pages are re-grouped whole.
     app.handle(Msg::History {
         generation: app.view.generation,
         result: Ok((history_events()[5..].to_vec(), Vec::new())),
@@ -145,8 +140,6 @@ fn follow_starts_and_stops_on_the_same_key() {
 
 #[test]
 fn follow_refuses_on_a_workflow_that_has_already_closed() {
-    // Polling a closed workflow waits for events that can never arrive. "Closed" means
-    // the *workflow* group has a terminal event, an activity finishing is not enough.
     use tmprl_core::history::{Category as C, GroupRef as G, Outcome as O, Role as R};
     let mut app = app();
     loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
@@ -183,7 +176,6 @@ fn an_empty_token_while_following_means_the_workflow_closed() {
     app.run("history.follow", None);
     assert!(app.view.following);
 
-    // The long poll returns the terminal event with no continuation token.
     use tmprl_core::history::{Category as C, GroupRef as G, Outcome as O, Role as R};
     app.handle(Msg::History {
         generation: app.view.generation,
@@ -203,7 +195,6 @@ fn an_empty_token_while_following_means_the_workflow_closed() {
 
 #[test]
 fn replayed_events_do_not_duplicate_when_follow_resumes() {
-    // Follow resumes from the last non-empty token, which replays that page.
     let mut app = viewing_running();
     let before = app.view.history_events.len();
 
@@ -220,8 +211,6 @@ fn replayed_events_do_not_duplicate_when_follow_resumes() {
 
 #[test]
 fn the_resume_token_is_the_last_non_empty_one() {
-    // Paging leaves history_token empty once caught up; following from that would
-    // restart the read at event 1.
     let mut app = viewing_running();
     assert_eq!(app.view.history_resume, vec![9]);
 
@@ -274,8 +263,6 @@ fn a_pending_reply_for_a_history_since_left_is_dropped() {
 
 #[test]
 fn opening_another_run_forgets_the_last_ones_pending_activities() {
-    // SDKs number activity ids from "1" in every run, so a list left over from the
-    // previous run would attach itself to this one's rows.
     let mut app = app();
     app.view.screen = Screen::History;
     app.view.viewing = Some(wf("default", "r1", 0));
@@ -315,7 +302,6 @@ fn subject_under_cursor(app: &App) -> String {
     outline.group(group).unwrap().subject.clone()
 }
 
-/// Two activities still open, `Charge` with id "1" and `Ship` with id "2".
 fn two_open_activities() -> Vec<NormalizedEvent> {
     use tmprl_core::history::{Category as C, GroupRef as G, Role as R};
     let activity = |id: i64, subject: &str, activity_id: &str| {

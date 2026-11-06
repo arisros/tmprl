@@ -15,7 +15,6 @@ impl App {
                 .get(self.view.cursor)
                 .map(|n| n.name.clone())
                 .unwrap_or_default(),
-            // The workflow id is the field you actually want to paste into a CLI command.
             Screen::Workflows => self
                 .workflow_rows()
                 .get(self.view.cursor)
@@ -56,7 +55,6 @@ impl App {
         }
     }
 
-    /// The selected rows as JSON, or just the row under the cursor when nothing is selected.
     pub(super) fn records_selected(&self) -> String {
         let (lo, hi) = self
             .selection()
@@ -164,8 +162,6 @@ impl App {
         }
     }
 
-    /// The selected history rows as JSON. A group serialises as the summary the compact
-    /// view shows; an event as its own fields.
     pub(super) fn history_records(&self, lo: usize, take: usize) -> Vec<String> {
         let Some(outline) = self.view.history.value() else {
             return Vec::new();
@@ -195,11 +191,6 @@ impl App {
             .collect()
     }
 
-    /// Yank the payloads under the cursor, or the subset `part` names.
-    ///
-    /// A single match is yanked unwrapped: `<leader>yr` on an ordinary activity should give
-    /// the result itself, ready to paste, not `{"result": …}`. Several are yanked as the
-    /// keyed object, because then the labels are what tells `input[0]` from `input[1]`.
     pub(super) fn yank_execution(&mut self, pick: fn(&WorkflowRow) -> &String) {
         match self.execution_field(pick) {
             Some(value) => self.yank(value),
@@ -226,7 +217,6 @@ impl App {
             .into_iter()
             .filter(|(label, _)| match part {
                 PayloadPart::All => true,
-                // `input`, and `input[0]`, `input[1]` … when the activity took several.
                 PayloadPart::Input => label == "input" || label.starts_with("input["),
                 PayloadPart::Result => label == "result" || label.starts_with("result["),
             })
@@ -246,8 +236,6 @@ impl App {
 
         let (json, skipped) = tmprl_core::payload::payloads_as_json(&picked);
         let Some(json) = json else {
-            // Every match was encrypted or binary. Yanking ciphertext would look like it
-            // worked, which is worse than saying why it did not.
             self.note = Some((
                 format!("cannot yank: {} is not decoded text", skipped.join(", ")),
                 Note::Warn,
@@ -288,8 +276,6 @@ impl App {
         }
     }
 
-    /// Over the limit the clipboard is left alone and the text goes to a file, kept until
-    /// the user removes it: the path in the note is the only way to reach it.
     fn yank_to_file(&mut self, text: &str) {
         let n = text.len();
         let max = self.yank_max;
@@ -315,8 +301,6 @@ impl App {
     }
 }
 
-/// The same private directory and file modes `<leader>e` uses, for the same reason: the
-/// text is often a decoded payload.
 pub(super) fn write_yank_file(text: &str) -> Result<std::path::PathBuf, String> {
     let dir = std::env::temp_dir().join(format!("tmprl-{}", uuid::Uuid::new_v4()));
     super::payload::create_private_dir(&dir)
@@ -334,8 +318,6 @@ pub(super) fn write_yank_file(text: &str) -> Result<std::path::PathBuf, String> 
     Ok(path)
 }
 
-/// Minimal JSON string escaping, enough for the identifiers and enum names yanked today.
-/// A real serializer arrives with payload rendering in M2.
 pub(super) fn json_string(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');

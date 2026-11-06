@@ -15,8 +15,6 @@ fn the_editor_is_refused_away_from_a_history() {
 
 #[test]
 fn the_editor_writes_the_payloads_and_leaves_a_request_behind() {
-    // The reducer's whole job here: choose and write. Spawning belongs to the event
-    // loop, which is why this test never runs an editor.
     let mut app = app();
     loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
     app.run("nav.open", None);
@@ -58,8 +56,6 @@ fn the_editor_writes_the_payloads_and_leaves_a_request_behind() {
         );
     }
 
-    // Finishing removes the copy: it is not a document, and leaving it would pile up
-    // readable payloads in the temp directory for the rest of the session.
     app.finish_edit(&request, None);
     assert!(
         !request.path.exists(),
@@ -69,8 +65,6 @@ fn the_editor_writes_the_payloads_and_leaves_a_request_behind() {
 
 #[test]
 fn an_unreadable_payload_is_reported_on_the_request_not_as_a_note() {
-    // The note set during `open_editor` is never seen: the loop takes the request
-    // before the next draw and `finish_edit` overwrites the note afterwards.
     let mut app = app();
     loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
     app.run("nav.open", None);
@@ -104,7 +98,6 @@ fn an_unreadable_payload_is_reported_on_the_request_not_as_a_note() {
 
 #[test]
 fn taking_the_edit_request_clears_it() {
-    // The loop must not open the same file twice on the next pass round.
     let mut app = app();
     app.editing = Some(EditRequest {
         path: std::path::PathBuf::from("/tmp/tmprl-nonexistent/x.json"),
@@ -115,12 +108,10 @@ fn taking_the_edit_request_clears_it() {
     assert!(app.take_edit_request().is_none());
 }
 
-// ---- jumplist ----
-
 #[test]
 fn the_pipe_prompt_gathers_a_group_s_input_and_result() {
     let mut app = viewing_payloads();
-    app.run("motion.down", None); // the Charge group
+    app.run("motion.down", None);
     let payloads = app.payloads_under_cursor();
     let labels: Vec<&str> = payloads.iter().map(|(l, _)| l.as_str()).collect();
     assert_eq!(
@@ -148,7 +139,7 @@ fn the_pipe_prompt_opens_prefilled_with_jq() {
 #[test]
 fn piping_is_refused_when_nothing_readable_is_under_the_cursor() {
     let mut app = viewing_payloads();
-    app.run("motion.bottom", None); // the encrypted group
+    app.run("motion.bottom", None);
     app.run("payload.pipe", None);
 
     assert!(app.prompt.is_none(), "there is nothing worth piping");
@@ -171,8 +162,6 @@ fn piping_is_refused_away_from_a_history() {
 
 #[test]
 fn a_filter_result_is_dropped_when_the_cursor_moves() {
-    // The output belonged to the row it was run on; leaving it up under a different
-    // heading would be a lie.
     let mut app = viewing_payloads();
     app.run("motion.down", None);
     app.view.piped = Some(Ok("{}".into()));
@@ -190,7 +179,6 @@ fn a_pipe_result_message_opens_the_pane_and_lands() {
 
 #[test]
 fn both_prompts_edit_the_same_way() {
-    // `:` and `!` share their editing; only Enter differs. This pins that they do.
     use tmprl_core::Key;
     for open in ["app.command-line", "payload.pipe"] {
         let mut app = viewing_payloads();
@@ -217,7 +205,6 @@ fn backspace_on_an_empty_prompt_closes_it() {
     assert!(app.prompt.is_none(), "as it does in vim");
 }
 
-/// The runner is IO, so it is exercised against real commands rather than mocked.
 #[tokio::test]
 async fn a_filter_receives_the_payloads_on_stdin() {
     let out = pipe_through("cat", br#"{"a":1}"#.to_vec()).await.unwrap();
@@ -226,8 +213,6 @@ async fn a_filter_receives_the_payloads_on_stdin() {
 
 #[tokio::test]
 async fn a_failing_filter_reports_the_command_s_own_stderr() {
-    // When a jq expression is wrong, jq's message is the entire diagnosis; paraphrasing
-    // it would lose the line and column.
     let err = pipe_through("echo 'boom' >&2; exit 3", Vec::new())
         .await
         .unwrap_err();
@@ -242,7 +227,6 @@ async fn a_filter_that_exits_silently_still_reports_failure() {
 
 #[tokio::test]
 async fn a_filter_that_ignores_its_input_does_not_error() {
-    // `head -1` closes the pipe early; writing to a closed pipe is not a failure.
     let out = pipe_through("echo done", vec![b'x'; 1_000_000])
         .await
         .unwrap();
@@ -251,10 +235,8 @@ async fn a_filter_that_ignores_its_input_does_not_error() {
 
 #[test]
 fn a_decoded_payload_replaces_the_encrypted_one_everywhere() {
-    // Replacing in place is what lets the pane, `!` piping and yanking all read the
-    // plaintext without knowing a codec exists.
     let mut app = viewing_payloads();
-    app.run("motion.bottom", None); // the encrypted group
+    app.run("motion.bottom", None);
 
     let encrypted = app
         .payloads_under_cursor()
@@ -280,14 +262,11 @@ fn a_decoded_payload_replaces_the_encrypted_one_everywhere() {
         now.render(),
         tmprl_core::payload::Rendered::Text("{\n  \"secret\": true\n}".into())
     );
-    // And it is pipeable, which it was not before.
     assert!(now.pipeable().is_some());
 }
 
 #[test]
 fn a_decode_failure_is_reported_and_can_be_retried() {
-    // Leaving the in-flight set populated would make one failure permanent for the
-    // session, with no way to ask again.
     let mut app = viewing_payloads();
     app.decoding.insert(42);
     app.handle(Msg::Decoded(Err("codec server returned 502".into())));
@@ -300,8 +279,6 @@ fn a_decode_failure_is_reported_and_can_be_retried() {
 
 #[test]
 fn a_failed_decode_is_remembered_rather_than_flashed() {
-    // The note is gone by the next keystroke, and the badge it leaves behind is
-    // identical to a payload nothing was ever asked about, so the reader is told nothing.
     let mut app = viewing_payloads();
     let p = Payload::new("binary/aes_comp", vec![1, 2, 3]);
     app.codec = Some(Arc::new(Codec::new("http://127.0.0.1:1", None)));
@@ -312,7 +289,6 @@ fn a_failed_decode_is_remembered_rather_than_flashed() {
         DecodeState::Failed(why) => assert!(why.contains("connection refused"), "{why}"),
         other => panic!("expected a recorded failure, got {other:?}"),
     }
-    // `R` is the retry: a codec fixed outside tmprl needs some way back.
     app.run("app.refresh", None);
     assert_eq!(app.decode_state(&p), DecodeState::Idle);
 }
@@ -335,7 +311,6 @@ fn a_payload_key_distinguishes_encodings_with_identical_bytes() {
 
 #[test]
 fn nothing_is_decoded_without_a_configured_codec() {
-    // No endpoint means no request; the badge stays and says what is needed.
     let mut app = viewing_payloads();
     app.run("motion.bottom", None);
     app.run("history.detail", None);
@@ -465,7 +440,6 @@ fn history_arrives(app: &mut App, events: Vec<tmprl_core::history::NormalizedEve
 
 #[tokio::test]
 async fn a_history_arriving_under_an_open_pane_asks_for_its_ciphertext() {
-    // The pane was open before the events were there, so no cursor move is coming to ask.
     let mut app = viewing_payloads();
     app.codec = Some(Arc::new(Codec::new("http://127.0.0.1:1", None)));
     app.run("motion.bottom", None);
@@ -479,8 +453,6 @@ async fn a_history_arriving_under_an_open_pane_asks_for_its_ciphertext() {
 
 #[test]
 fn a_refresh_keeps_what_was_already_decoded() {
-    // The server sends the ciphertext again, and the cache stops it being asked for again,
-    // so without this it would stay locked.
     let mut app = viewing_payloads();
     app.run("motion.bottom", None);
     app.handle(Msg::Decoded(Ok(vec![(

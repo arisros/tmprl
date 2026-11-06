@@ -1,19 +1,7 @@
 //! The workflow domain model.
-//!
-//! These types live here rather than in `tmprl-client` because logic hangs off them,
-//! status ordering, relative ages, merge-sorting a multi-namespace fan-out, re-finding the
-//! cursor after a refresh. All of that is computable without a server or a terminal, so it
-//! belongs in the crate that needs neither to be tested. `tmprl-client` maps protobuf into
-//! these; nothing above it ever sees a generated type.
 
 use std::cmp::Ordering;
 
-/// Execution status, mirroring `temporal.api.enums.v1.WorkflowExecutionStatus`.
-///
-/// This is a hand-written mirror rather than a re-export so that `tmprl-core` stays free of
-/// the generated protos. The conversion in `tmprl-client` matches on the proto enum
-/// exhaustively, so a status added by Temporal is a compile error there, not a blank cell
-/// here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
 pub enum WorkflowStatus {
     #[default]
@@ -29,8 +17,6 @@ pub enum WorkflowStatus {
 }
 
 impl WorkflowStatus {
-    /// Every status, in the order the header renders them: the ones an operator is looking
-    /// for first. "How many are broken" is the question people open this screen to answer.
     pub const DISPLAY_ORDER: [WorkflowStatus; 9] = [
         WorkflowStatus::Running,
         WorkflowStatus::Failed,
@@ -43,8 +29,6 @@ impl WorkflowStatus {
         WorkflowStatus::Unspecified,
     ];
 
-    /// The name Temporal uses in a visibility query, and in the `GROUP BY` payloads that
-    /// `CountWorkflowExecutions` returns. Round-trips with [`WorkflowStatus::parse`].
     pub fn query_name(self) -> &'static str {
         match self {
             WorkflowStatus::Unspecified => "Unspecified",
@@ -59,8 +43,6 @@ impl WorkflowStatus {
         }
     }
 
-    /// A glyph, so status is legible without colour. `NO_COLOR`, a 16-colour terminal and a
-    /// colour-blind reader all get the same information as everyone else.
     pub fn glyph(self) -> char {
         match self {
             WorkflowStatus::Unspecified => '?',
@@ -75,9 +57,6 @@ impl WorkflowStatus {
         }
     }
 
-    /// Parse the name Temporal returns. Accepts the query spelling (`ContinuedAsNew`) and
-    /// the proto spelling (`WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW`), because the two
-    /// arrive from different RPCs and it is not worth making callers care which.
     pub fn parse(s: &str) -> Option<Self> {
         let t = s.trim().trim_matches('"');
         let squashed: String = t
@@ -102,18 +81,11 @@ impl WorkflowStatus {
             .filter(|_| !squashed.is_empty())
     }
 
-    /// Whether the execution is still open. Closed workflows never change again, which is
-    /// what lets the list cache them across a refresh.
     pub fn is_running(self) -> bool {
         matches!(self, WorkflowStatus::Running | WorkflowStatus::Paused)
     }
 }
 
-/// One row of the workflow table.
-///
-/// `namespace` is carried on the row rather than held once for the whole list because a
-/// multi-namespace fan-out merges rows from several namespaces into one table, and a row
-/// that cannot say where it came from is not actionable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkflowRow {
     pub namespace: String,
@@ -122,26 +94,17 @@ pub struct WorkflowRow {
     pub workflow_type: String,
     pub task_queue: String,
     pub status: WorkflowStatus,
-    /// Epoch milliseconds. `None` when the server did not set it, which is rare but legal.
     pub start_time: Option<i64>,
     pub close_time: Option<i64>,
     pub history_length: i64,
 }
 
 impl WorkflowRow {
-    /// Identity of a row across refreshes and across namespaces.
-    ///
-    /// A run id is unique within a namespace but not across a fan-out, so the key is the
-    /// pair. This is what the cursor is anchored to. See [`find_by_key`].
     pub fn key(&self) -> (&str, &str) {
         (self.namespace.as_str(), self.run_id.as_str())
     }
 }
 
-/// Newest first, which is the order the workflow list is read in.
-///
-/// Ties break on the row key so the order is total: a merge of several namespaces that
-/// started workflows in the same millisecond must not shuffle between refreshes.
 pub fn by_start_time_desc(a: &WorkflowRow, b: &WorkflowRow) -> Ordering {
     b.start_time
         .cmp(&a.start_time)
@@ -149,40 +112,25 @@ pub fn by_start_time_desc(a: &WorkflowRow, b: &WorkflowRow) -> Ordering {
         .then_with(|| a.run_id.cmp(&b.run_id))
 }
 
-/// Most recently closed first, for a list read by when things ended. A row still open
-/// sorts last.
 pub fn by_close_time_desc(a: &WorkflowRow, b: &WorkflowRow) -> Ordering {
     b.close_time
         .cmp(&a.close_time)
         .then_with(|| by_start_time_desc(a, b))
 }
 
-/// Merge per-namespace pages into one table, newest first.
-///
-/// This sorts rather than merges pre-sorted runs, because there is nothing to merge: the
-/// server does not order `ListWorkflowExecutions`, and standard visibility rejects an
-/// `ORDER BY` clause. Ordering is entirely tmprl's job. See [`WorkflowList`].
 pub fn merge_by_start_time(pages: Vec<Vec<WorkflowRow>>) -> Vec<WorkflowRow> {
     let mut all: Vec<WorkflowRow> = pages.into_iter().flatten().collect();
     all.sort_by(by_start_time_desc);
     all
 }
 
-/// Where a row with this key ended up after a refresh.
-///
-/// The workflow list is live: rows appear above the cursor while you are reading, so a
-/// cursor stored as a row index silently points at a different workflow a second later.
-/// Anchoring to the key and re-finding it is the whole fix.
 pub fn find_by_key(rows: &[WorkflowRow], key: (&str, &str)) -> Option<usize> {
     rows.iter().position(|r| r.key() == key)
 }
 
-/// Counts per status for the list header, from `CountWorkflowExecutions ... GROUP BY`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StatusCounts {
-    /// The server's total. Grouped counts are approximate and may sum to less than this,
-    /// which is documented Temporal behaviour, so the total is kept separately rather than
-    /// derived.
+    // Grouped counts are approximate and can sum to less than the total.
     pub total: i64,
     counts: Vec<(WorkflowStatus, i64)>,
 }
@@ -199,7 +147,6 @@ impl StatusCounts {
         Self { total, counts }
     }
 
-    /// Non-zero counts, in display order.
     pub fn iter(&self) -> impl Iterator<Item = (WorkflowStatus, i64)> + '_ {
         self.counts.iter().copied().filter(|(_, n)| *n > 0)
     }
@@ -213,15 +160,8 @@ impl StatusCounts {
     }
 }
 
-/// A short, fixed-width age like `4s`, `12m`, `3h`, `9d`.
-///
-/// The workflow list is a dense table on a terminal that may be 80 columns wide, so this
-/// trades precision for a column that never wraps. Exact timestamps belong in the detail
-/// view, where there is room for them.
 pub fn humanize_age_ms(millis: i64) -> String {
     if millis < 0 {
-        // Clock skew between the server and this machine. Better to show `0s` than a
-        // negative age that looks like a bug in the table.
         return "0s".into();
     }
     let secs = millis / 1000;
@@ -233,17 +173,6 @@ pub fn humanize_age_ms(millis: i64) -> String {
     }
 }
 
-/// The workflow table as it accumulates pages.
-///
-/// Infinite scroll appends pages; a refresh or a new query replaces them. Two properties
-/// have to hold no matter which happened:
-///
-/// * **Sorted newest-first.** The server does not order `ListWorkflowExecutions`, and the
-///   dev server's standard visibility store rejects `ORDER BY` outright, so the ordering is
-///   this type's job rather than the query's.
-/// * **No duplicates.** Pages are snapshots of a set that is changing underneath them, so
-///   the same execution can legitimately arrive on two pages. A table that shows a workflow
-///   twice makes the operator doubt the whole screen.
 #[derive(Debug, Clone, Default)]
 pub struct WorkflowList {
     rows: Vec<WorkflowRow>,
@@ -263,30 +192,25 @@ impl WorkflowList {
         self.rows.is_empty()
     }
 
-    /// Per-namespace continuation tokens to send with the next page request.
     pub fn tokens(&self) -> &[(String, Vec<u8>)] {
         &self.tokens
     }
 
-    /// Whether any namespace still has pages left.
     pub fn has_more(&self) -> bool {
         !self.tokens.is_empty()
     }
 
-    /// Start over: a new query, or a refresh of the current one.
     pub fn reset(&mut self, rows: Vec<WorkflowRow>, tokens: Vec<(String, Vec<u8>)>) {
         self.rows.clear();
         self.tokens = tokens;
         self.insert_sorted(rows);
     }
 
-    /// Add the next page.
     pub fn append(&mut self, rows: Vec<WorkflowRow>, tokens: Vec<(String, Vec<u8>)>) {
         self.tokens = tokens;
         self.insert_sorted(rows);
     }
 
-    /// Where the row with this key sits now, if it is still listed.
     pub fn position_of(&self, key: (&str, &str)) -> Option<usize> {
         find_by_key(&self.rows, key)
     }
@@ -294,7 +218,6 @@ impl WorkflowList {
     fn insert_sorted(&mut self, rows: Vec<WorkflowRow>) {
         self.rows.extend(rows);
         self.rows.sort_by(by_start_time_desc);
-        // `by_start_time_desc` breaks ties on the key, so duplicates are adjacent.
         self.rows.dedup_by(|a, b| a.key() == b.key());
     }
 }
@@ -326,7 +249,6 @@ mod tests {
 
     #[test]
     fn status_parses_both_spellings_temporal_uses() {
-        // `GROUP BY` payloads arrive quoted, and the proto spelling turns up in errors.
         assert_eq!(
             WorkflowStatus::parse("\"ContinuedAsNew\""),
             Some(WorkflowStatus::ContinuedAsNew)
@@ -345,8 +267,6 @@ mod tests {
 
     #[test]
     fn every_status_has_a_distinct_glyph() {
-        // Two statuses sharing a glyph would make the column ambiguous for exactly the
-        // readers the glyph column exists for.
         let mut g: Vec<char> = WorkflowStatus::DISPLAY_ORDER
             .iter()
             .map(|s| s.glyph())
@@ -359,7 +279,6 @@ mod tests {
 
     #[test]
     fn display_order_covers_every_status() {
-        // A status missing here would be silently dropped from the header counts.
         assert_eq!(
             WorkflowStatus::DISPLAY_ORDER.len(),
             9,
@@ -383,8 +302,6 @@ mod tests {
 
     #[test]
     fn merge_is_stable_when_start_times_collide() {
-        // Same millisecond, different namespaces: the order must not depend on which page
-        // happened to arrive first, or rows shuffle under the cursor on every refresh.
         let one = merge_by_start_time(vec![
             vec![row("b", "x", Some(100))],
             vec![row("a", "y", Some(100))],
@@ -410,7 +327,6 @@ mod tests {
         let key = before[0].key();
         let key = (key.0.to_string(), key.1.to_string());
 
-        // A newer workflow arrives at the top, pushing everything down one row.
         let after = vec![
             row("a", "r0", Some(110)),
             row("a", "r1", Some(100)),
@@ -427,7 +343,6 @@ mod tests {
     fn a_vanished_row_reports_no_position() {
         let rows = vec![row("a", "r1", Some(100))];
         assert_eq!(find_by_key(&rows, ("a", "gone")), None);
-        // A run id from another namespace must not match.
         assert_eq!(find_by_key(&rows, ("other", "r1")), None);
     }
 
@@ -456,7 +371,6 @@ mod tests {
         assert_eq!(humanize_age_ms(60_000), "1m");
         assert_eq!(humanize_age_ms(3_600_000), "1h");
         assert_eq!(humanize_age_ms(86_400_000), "1d");
-        // Server clock ahead of ours must not render as a negative age.
         assert_eq!(humanize_age_ms(-5_000), "0s");
     }
 }
@@ -491,8 +405,6 @@ mod list_tests {
 
     #[test]
     fn appended_pages_stay_sorted_newest_first() {
-        // The server returns pages in no particular order, so a later page routinely
-        // contains rows that belong above rows already on screen.
         let mut list = WorkflowList::default();
         list.reset(vec![row("a", "r2", 200)], vec![("a".into(), vec![1])]);
         list.append(vec![row("a", "r3", 300), row("a", "r1", 100)], vec![]);
@@ -503,7 +415,6 @@ mod list_tests {
 
     #[test]
     fn a_row_arriving_on_two_pages_is_listed_once() {
-        // Pages are snapshots of a set that changes underneath them, so overlap is normal.
         let mut list = WorkflowList::default();
         list.reset(vec![row("a", "r1", 100)], vec![("a".into(), vec![1])]);
         list.append(vec![row("a", "r1", 100), row("a", "r0", 50)], vec![]);
@@ -512,8 +423,6 @@ mod list_tests {
 
     #[test]
     fn the_same_run_id_in_two_namespaces_is_two_rows() {
-        // Run ids are unique per namespace, not globally: deduplicating on the run id
-        // alone would silently hide a row in a fan-out.
         let mut list = WorkflowList::default();
         list.reset(
             vec![row("a", "shared", 100), row("b", "shared", 90)],
@@ -559,7 +468,6 @@ mod list_tests {
         assert!(list.has_more());
         assert_eq!(list.tokens().len(), 2);
 
-        // Namespace `a` exhausts; `b` still has pages.
         list.append(vec![row("b", "r2", 90)], vec![("b".into(), vec![3])]);
         assert_eq!(list.tokens(), &[("b".to_string(), vec![3])]);
         assert!(list.has_more());

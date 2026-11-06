@@ -11,7 +11,6 @@ use crate::loadable::Loadable;
 use crate::query;
 use crate::workflow::{WorkflowRow, WorkflowStatus, by_start_time_desc};
 
-/// Where `<CR>` on an item leads.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Drill {
     Query {
@@ -25,7 +24,6 @@ pub enum Drill {
     },
 }
 
-/// A way for the cursor to go.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Heading {
     Left,
@@ -34,7 +32,6 @@ pub enum Heading {
     Down,
 }
 
-/// The item under the cursor, remembered across a refresh by what it is, not where it was.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Anchor {
     panel: usize,
@@ -50,7 +47,6 @@ struct Panel {
     items: Vec<Item>,
 }
 
-/// A layout, the requests behind it, and what has come back so far.
 #[derive(Debug)]
 pub struct Board {
     layout: Layout,
@@ -59,20 +55,14 @@ pub struct Board {
     data: Vec<Loadable<SourceData>>,
     faults: Vec<Option<Fault>>,
     panels: Vec<Panel>,
-    /// Whether the layout follows the data, and the panels it has shown with items in them.
     adaptive: bool,
     kept: Vec<Slot>,
-    /// How many of the sources are counts of one name, added by `sync_tallies`.
     tallies: usize,
-    /// When the board was last told the time. Its histograms are cut against it.
     clock: i64,
-    /// The workflows a retrying panel is looking into now. One it has stopped looking
-    /// into is not asked about again.
     watching: Vec<Source>,
 }
 
 impl Board {
-    /// A board with the layout it was given, as `dashboard.toml` asks for.
     pub fn new(layout: Layout, scope: &[String]) -> Self {
         let mut board = Self {
             layout: Layout::default(),
@@ -91,8 +81,6 @@ impl Board {
         board
     }
 
-    /// A board that chooses its panels from what its probes find. It starts as the builtin
-    /// layout, whose four sources are the probes.
     pub fn adaptive(scope: &[String]) -> Self {
         let mut board = Self::new(Layout::builtin(), scope);
         board.adaptive = true;
@@ -103,7 +91,6 @@ impl Board {
         self.adaptive
     }
 
-    /// Let panels that have emptied go, as `R` does: the layout is being asked for afresh.
     pub fn forget(&mut self) {
         self.kept.clear();
         self.recompose();
@@ -147,7 +134,6 @@ impl Board {
                     run_id: row.run_id.clone(),
                 })
             }
-            // A timeout's closing event carries no reason, and the rest did not end badly.
             WorkflowStatus::TimedOut
             | WorkflowStatus::Running
             | WorkflowStatus::Completed
@@ -157,7 +143,6 @@ impl Board {
         }
     }
 
-    /// Add a request for why each listed workflow that ended badly did.
     fn sync_reasons(&mut self) {
         let asked = self
             .sources
@@ -183,8 +168,6 @@ impl Board {
         }
     }
 
-    /// Tell the board the time, so its histograms cover the stretches that end now. A
-    /// stretch that has just begun gets a request of its own.
     pub fn advance(&mut self, now_ms: i64) {
         self.clock = now_ms;
         self.sync_buckets();
@@ -235,8 +218,6 @@ impl Board {
         })
     }
 
-    /// Add a request for each stretch of a histogram that has none, and make a cursor stop
-    /// of each stretch with something in it.
     fn sync_buckets(&mut self) {
         for at in 0..self.panels.len() {
             let wanted = self.bucket_sources(&self.panels[at]);
@@ -265,8 +246,6 @@ impl Board {
         }
     }
 
-    /// Look into the workflows a retrying panel lists: add a request for what each is
-    /// waiting on, and make a line of each one with an activity tried often enough.
     fn sync_pending(&mut self) {
         let mut watching = Vec::new();
         for at in 0..self.panels.len() {
@@ -281,7 +260,6 @@ impl Board {
                     .collect(),
                 _ => Vec::new(),
             };
-            // The longest running first: of one page, they are the likeliest to be stuck.
             rows.sort_by(|a, b| by_start_time_desc(b, a));
             rows.truncate(scan);
 
@@ -336,9 +314,6 @@ impl Board {
         self.watching = watching;
     }
 
-    /// Whether nothing on the board reads this source any more, so that asking for it
-    /// again would be a request wasted. A workflow that has left the page a retrying panel
-    /// looks into is the case.
     pub fn dormant(&self, source: usize) -> bool {
         matches!(
             self.sources.get(source),
@@ -346,8 +321,6 @@ impl Board {
         )
     }
 
-    /// Whether a retrying panel has yet to hear about some of the workflows it looks into,
-    /// so that an empty one is not read as "nothing is retrying".
     pub fn looking(&self) -> bool {
         self.watching.iter().any(|wanted| {
             self.sources
@@ -357,7 +330,6 @@ impl Board {
         })
     }
 
-    /// A histogram's columns, oldest first, each with its count once that has arrived.
     pub fn buckets(&self, panel: usize) -> Vec<Bucket> {
         self.panels.get(panel).map_or_else(Vec::new, |panel| {
             self.bucket_sources(panel)
@@ -367,7 +339,6 @@ impl Board {
         })
     }
 
-    /// Why a listed workflow closed, once that has been asked and answered.
     pub fn reason(&self, row: &WorkflowRow) -> Option<&str> {
         let wanted = Self::closing(row)?;
         let at = self.sources.iter().position(|s| *s == wanted)?;
@@ -381,8 +352,6 @@ impl Board {
         }
     }
 
-    /// A tally over one page of a longer list names what is there but miscounts it. Give
-    /// each name the count on record for it, and add a request for the ones that have none.
     fn sync_tallies(&mut self) {
         let Self {
             panels,
@@ -485,8 +454,6 @@ impl Board {
         }
     }
 
-    /// Give each listed queue the health on record for it, and add a request for the ones
-    /// that have none yet.
     fn sync_queues(&mut self) {
         let Self {
             panels,
@@ -595,14 +562,11 @@ impl Board {
         self.data.get(self.panels.get(panel)?.source)
     }
 
-    /// Why the panel is not current: the load that failed, or the refresh that failed while
-    /// an older answer is still on screen.
     pub fn fault(&self, panel: usize) -> Option<&Fault> {
         let source = self.panels.get(panel)?.source;
         self.faults[source].as_ref().or(self.data[source].error())
     }
 
-    /// How many rows a tally or a list was drawn from, when the server had more than that.
     pub fn sampled(&self, panel: usize) -> Option<usize> {
         match self.state(panel)?.value()? {
             SourceData::Workflows { rows, more: true } => Some(rows.len()),
@@ -615,8 +579,6 @@ impl Board {
         }
     }
 
-    /// How many rows a tally found its names in, once every number beside them is a count.
-    /// The counts are then true, but a name the sample missed is still missing.
     pub fn discovered(&self, panel: usize) -> Option<usize> {
         let sampled = self.sampled(panel)?;
         let panel = self.panels.get(panel)?;
@@ -638,7 +600,6 @@ impl Board {
         }
     }
 
-    /// Take a reply. A failure does not blank an answer already on screen.
     pub fn apply(&mut self, source: usize, result: Result<SourceData, Fault>) {
         let Some(slot) = self.data.get_mut(source) else {
             return;
@@ -672,12 +633,10 @@ impl Board {
         self.len() == 0
     }
 
-    /// The cursor position of a panel's first item.
     pub fn first_of(&self, panel: usize) -> usize {
         self.panels.iter().take(panel).map(|p| p.items.len()).sum()
     }
 
-    /// The panel a cursor position is in, and the item within it.
     pub fn locate(&self, cursor: usize) -> Option<(usize, usize)> {
         let mut before = 0;
         for (i, panel) in self.panels.iter().enumerate() {
@@ -694,7 +653,6 @@ impl Board {
         self.panels[panel].items.get(index)
     }
 
-    /// Whether a panel's items run left to right, as statuses and columns do, not down.
     fn across(&self, panel: usize) -> bool {
         match self.panels[panel].spec.kind {
             PanelKind::Counts { .. } | PanelKind::Histogram { .. } => true,
@@ -706,7 +664,6 @@ impl Board {
         }
     }
 
-    /// Each row's first panel and how many it has.
     fn row_spans(&self) -> Vec<(usize, usize)> {
         self.layout
             .rows
@@ -719,7 +676,6 @@ impl Board {
             .collect()
     }
 
-    /// The nearest panel with items in the same row, to the right or to the left.
     fn beside(&self, panel: usize, forward: bool) -> Option<usize> {
         let (first, len) = self
             .row_spans()
@@ -733,14 +689,11 @@ impl Board {
         }
     }
 
-    /// The panel with items under or over this one: in the nearest row that has any, the
-    /// one standing closest to this panel's middle.
     fn beyond(&self, panel: usize, forward: bool) -> Option<usize> {
         let rows = self.row_spans();
         let row = rows
             .iter()
             .position(|(first, len)| (*first..first + len).contains(&panel))?;
-        // Where a panel's middle is across its row, from 0 to 1, by the widths it shares.
         let middle = |(first, len): (usize, usize), of: usize| -> f64 {
             let width = |i: usize| f64::from(self.panels[i].spec.width.max(1));
             let total: f64 = (first..first + len).map(width).sum();
@@ -767,11 +720,6 @@ impl Board {
         None
     }
 
-    /// Where the cursor goes from `cursor` one step that way, as the panels sit on screen.
-    ///
-    /// Along a panel it moves through the items: down a list, across a strip of statuses
-    /// or columns. Against it, or past its end, it leaves for the panel on that side. It
-    /// stays put when there is nothing that way.
     pub fn step(&self, cursor: usize, direction: Heading) -> usize {
         let Some((panel, index)) = self.locate(cursor) else {
             return cursor;
@@ -798,7 +746,6 @@ impl Board {
         };
         let last = self.panels[target].items.len() - 1;
         let at = match (sideways, self.across(target)) {
-            // Into a strip from its side: the near end.
             (true, true) => {
                 if forward {
                     0
@@ -806,7 +753,6 @@ impl Board {
                     last
                 }
             }
-            // Into a list from its side: the line the cursor was on, when it came from one.
             (true, false) => {
                 if across {
                     0
@@ -814,13 +760,10 @@ impl Board {
                     index.min(last)
                 }
             }
-            // Into a strip from above or below: the newest column of a chart, the first
-            // status of a count.
             (false, true) => match self.panels[target].spec.kind {
                 PanelKind::Histogram { .. } => last,
                 _ => 0,
             },
-            // Into a list from above or below: the near end.
             (false, false) => {
                 if forward {
                     0
@@ -832,8 +775,6 @@ impl Board {
         self.first_of(target) + at
     }
 
-    /// The first item of the next panel that has any, or of the previous one. The cursor
-    /// stays put when there is none that way.
     pub fn panel_step(&self, cursor: usize, forward: bool) -> usize {
         let Some((here, _)) = self.locate(cursor) else {
             return cursor;
@@ -857,10 +798,7 @@ impl Board {
         })
     }
 
-    /// Where the anchored item is now. When it is gone the cursor keeps its place in the
-    /// panel, so a refresh never throws it across the screen.
     pub fn reanchor(&self, anchor: &Anchor) -> usize {
-        // By what the panel is, since an adaptive layout moves panels as they fill.
         let panel = self
             .panels
             .iter()
@@ -874,8 +812,6 @@ impl Board {
         (self.first_of(panel) + index).min(self.len().saturating_sub(1))
     }
 
-    /// `None` when there is nothing under the cursor, or when the item's name cannot go
-    /// inside a quoted literal.
     pub fn drill(&self, cursor: usize, now_ms: i64) -> Option<Drill> {
         let (panel, index) = self.locate(cursor)?;
         let panel = &self.panels[panel];
@@ -940,7 +876,6 @@ mod tests {
     use crate::timerange::to_rfc3339;
     use crate::workflow::{StatusCounts, WorkflowStatus};
 
-    /// The builtin board with counts, three failures and two schedules loaded.
     fn loaded() -> Board {
         let mut board = Board::new(Layout::builtin(), &scope());
         board.apply(
@@ -1023,7 +958,6 @@ mod tests {
     #[test]
     fn the_cursor_runs_through_the_panels_in_order() {
         let board = loaded();
-        // counts 2, failures 3, types 2, queues 0 (not loaded), schedules 2
         assert_eq!(board.len(), 9);
         assert_eq!(board.locate(0), Some((0, 0)));
         assert_eq!(board.locate(2), Some((1, 0)));
@@ -1098,7 +1032,6 @@ mod tests {
         assert!(board.state(3).unwrap().is_loading());
     }
 
-    /// The builtin board whose failures came back as one page of more.
     fn sampled() -> Board {
         let mut board = loaded();
         board.apply(
@@ -1333,8 +1266,6 @@ mod tests {
 
     #[test]
     fn the_cursor_goes_the_way_the_key_points() {
-        // Status over failures (wide) and types, over queues (empty) and schedules.
-        // 0 1: statuses. 2 3 4: failures. 5 6: types. 7 8: schedules.
         let board = loaded();
         let go = |from: usize, path: &[Heading]| path.iter().fold(from, |at, h| board.step(at, *h));
         use Heading::{Down, Left, Right, Up};
@@ -1493,7 +1424,6 @@ mod tests {
         for back in [3, 1, 0] {
             board.apply(column(&board, hour - back * HOUR), total(4));
         }
-        // 0: the status. 1 2 3: the columns with something in them, oldest first.
         assert_eq!(board.len(), 4);
         assert_eq!(board.step(0, Heading::Down), 3, "the newest column");
         assert_eq!(board.step(3, Heading::Left), 2);
@@ -1502,7 +1432,6 @@ mod tests {
         assert_eq!(board.step(2, Heading::Up), 0);
     }
 
-    /// One histogram of what closed in the last three hours, told it is twenty past.
     fn charted() -> (Board, i64) {
         let layout = parse_dashboard(
             "[[row]]\n[[row.panel]]\nkind = \"histogram\"\nquery = \"A = 'b'\"\n\

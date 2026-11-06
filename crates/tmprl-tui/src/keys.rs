@@ -1,7 +1,4 @@
 //! Converting crossterm key events into `tmprl-core` chords.
-//!
-//! This is the only place in the program that knows crossterm's key types. Everything above
-//! works in `tmprl_core::Chord`, which is what lets the keymap be tested without a terminal.
 
 use crossterm::event::{
     KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
@@ -10,8 +7,6 @@ use tmprl_core::key::{Chord, Key, Mods};
 
 use crate::app::Mouse;
 
-/// The wheel and a left press. A terminal reporting the mouse also reports every cell the
-/// pointer crosses, and those must not reach the reducer: each one would be a redraw.
 pub fn to_mouse(ev: MouseEvent) -> Option<Mouse> {
     let (column, row) = (ev.column, ev.row);
     match ev.kind {
@@ -33,8 +28,7 @@ pub fn to_mouse(ev: MouseEvent) -> Option<Mouse> {
 }
 
 pub fn to_chord(ev: KeyEvent) -> Option<Chord> {
-    // Terminals with the kitty keyboard protocol send press *and* release; acting on both
-    // would run every command twice.
+    // The kitty keyboard protocol sends release events too.
     if ev.kind == KeyEventKind::Release {
         return None;
     }
@@ -66,9 +60,6 @@ pub fn to_chord(ev: KeyEvent) -> Option<Chord> {
         shift: m.contains(KeyModifiers::SHIFT),
     };
 
-    // For a character, shift is already expressed by the character itself: `G` arrives as
-    // Char('G'), often with SHIFT also set. Keeping the flag would stop it matching a
-    // binding parsed from the string "G", which carries no modifiers.
     if matches!(key, Key::Char(_)) {
         mods.shift = false;
     }
@@ -92,8 +83,6 @@ mod tests {
 
     #[test]
     fn shifted_characters_match_bindings_written_as_uppercase() {
-        // This is the bug this conversion exists to prevent: `G` with SHIFT set must still
-        // equal the chord parsed from the string "G".
         let c = to_chord(ev(KeyCode::Char('G'), KeyModifiers::SHIFT)).unwrap();
         assert_eq!(c, Chord::ch('G'));
     }

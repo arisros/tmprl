@@ -55,7 +55,7 @@ fn yanking_a_history_row_takes_something_useful() {
 #[test]
 fn yanking_the_result_unwraps_it() {
     let mut app = viewing_payloads();
-    app.run("motion.down", None); // the Charge group
+    app.run("motion.down", None);
     app.run("yank.payload-result", None);
     let (note, level) = app.note.clone().expect("a yank should report");
     assert!(note.contains("yanked"), "{note}");
@@ -65,13 +65,12 @@ fn yanking_the_result_unwraps_it() {
 #[test]
 fn yanking_the_input_skips_the_result() {
     let mut app = viewing_payloads();
-    app.run("motion.down", None); // the Charge group
+    app.run("motion.down", None);
     let all = app.payloads_under_cursor();
     assert!(
         all.iter().any(|(l, _)| l == "input") && all.iter().any(|(l, _)| l == "result"),
         "fixture should carry both"
     );
-    // The filter is what separates them; the clipboard itself is not reachable in a test.
     app.run("yank.payload-input", None);
     assert!(app.note.as_ref().unwrap().0.contains("yanked"));
 }
@@ -88,7 +87,6 @@ fn yanking_a_payload_off_a_history_is_refused() {
 #[test]
 fn yanking_an_absent_part_says_so() {
     let mut app = viewing_payloads();
-    // Row 0 is the opening group, which carries no payloads at all.
     app.run("motion.top", None);
     app.run("yank.payload-result", None);
     let (note, level) = app.note.clone().unwrap();

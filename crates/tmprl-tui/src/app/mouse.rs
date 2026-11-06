@@ -3,30 +3,15 @@
 use super::*;
 use crate::view::TextSelection;
 
-/// How far one notch of the wheel goes. Three is what terminals and editors scroll by.
 const WHEEL: isize = 3;
 
-/// Two clicks on one row within this long are a double click, which opens it.
 const DOUBLE_CLICK: std::time::Duration = std::time::Duration::from_millis(400);
 
-/// The mouse events tmprl acts on. Everything else a terminal reports, movement and the
-/// other buttons, is dropped before it gets here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mouse {
-    Wheel {
-        down: bool,
-        column: u16,
-        row: u16,
-    },
-    Click {
-        column: u16,
-        row: u16,
-    },
-    /// The pointer moved with the button held.
-    Drag {
-        column: u16,
-        row: u16,
-    },
+    Wheel { down: bool, column: u16, row: u16 },
+    Click { column: u16, row: u16 },
+    Drag { column: u16, row: u16 },
     Release,
 }
 
@@ -37,8 +22,6 @@ impl App {
             self.copy_selection();
             return;
         }
-        // Whatever owns the keyboard owns the screen too. Acting on a window behind a
-        // confirmation would be acting on something that cannot be seen.
         if self.confirm.is_some()
             || self.prompt.is_some()
             || self.picker.is_some()
@@ -91,8 +74,6 @@ impl App {
                 self.view.detail_focus = on_payload && self.view.detail_max_scroll > 0;
                 self.text_selection = None;
                 if on_payload {
-                    // The top rule is the pane's handle: held, it resizes the pane. Below
-                    // it, a press starts selecting the text, the way a terminal would.
                     self.dragging = row == self.view.detail_area.y;
                     if !self.dragging && holds(self.view.detail_text.borrow().area, column, row) {
                         self.text_selection = Some(TextSelection {
@@ -116,8 +97,6 @@ impl App {
         }
     }
 
-    /// Copy what a drag over the payload pane covered. A press let go where it started is a
-    /// click, which copies nothing.
     fn copy_selection(&mut self) {
         let Some(selection) = self.text_selection.take() else {
             return;
@@ -131,7 +110,6 @@ impl App {
         }
     }
 
-    /// Put the cursor on the row clicked, and open it when that is the second click there.
     fn click_row(&mut self, column: u16, row: u16) {
         let Some(at) = self
             .view

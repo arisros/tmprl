@@ -1,11 +1,6 @@
 //! Application state and the reducer.
 //!
-//! The one rule: [`App::handle`] is synchronous and never awaits. When it needs data it
-//! spawns a task, which reports back as another [`Msg`]. Nothing on the keystroke path can
-//! block on the network. See `docs/ARCHITECTURE.md`.
-//!
-//! This file holds the state, [`App::handle`] (every message: keys, server replies, ticks)
-//! and [`App::run`] (every command, dispatched). What each command does lives beside the others of its kind:
+//! [`App::handle`] never awaits: it spawns a task, which reports back as another [`Msg`].
 //!
 //! | File | |
 //! |---|---|
@@ -80,37 +75,20 @@ pub use messages::Logged;
 pub(crate) use payload::cut_for_pane;
 use tmprl_ui::{Axis, Direction, Rect as UiRect, Tabs, ViewId};
 
-/// Rows fetched per namespace per page. Large enough that scrolling rarely waits, small
-/// enough that the first screen arrives promptly on a slow link.
 const PAGE_SIZE: i32 = 50;
 
-/// History events per page while a search is paging the rest of a run in. Larger than a
-/// scrolled page because nobody is reading these rows, they are only being matched, and
-/// each round trip is a round trip.
 const SCAN_PAGE_SIZE: i32 = 1000;
 
-/// How long a picker prompt must sit still before a search for it goes out, and the
-/// shortest prompt worth sending. Both exist to keep an id typed one character at a time
-/// from becoming one visibility query per character.
 const PICKER_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(300);
 const PICKER_SEARCH_MIN: usize = 6;
-/// Rows a picker search asks for. It is a lookup, not a listing.
 const PICKER_SEARCH_LIMIT: i32 = 20;
 
-/// History events per page. Larger than the workflow page because events are small and a
-/// history is read top to bottom, so the first screen wants plenty behind it.
 const HISTORY_PAGE_SIZE: i32 = 500;
 
-/// How often a followed run is re-described. A retry's backoff starts at a second and
-/// grows, so this catches every attempt of a slow retry and most of a fast one.
 const PENDING_POLL: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// Continuation tokens, one per namespace that still has pages. The client owns the shape;
-/// this is an alias so the reducer reads the same way.
 use tmprl_client::Continuation as Tokens;
 
-/// Which list is on screen. Temporal's objects form a hierarchy and `-` walks up it, so
-/// this is a level rather than a tab.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
     Profiles,
@@ -121,7 +99,6 @@ pub enum Screen {
     Dashboard,
 }
 
-/// Which mutation a key asked for, before it is turned into a `Mutation` with a target.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MutationKind {
     PauseSchedule,
@@ -136,12 +113,6 @@ pub enum MutationKind {
     Update,
 }
 
-/// Wall-clock now, epoch millis.
-///
-/// A backfill window is resolved against it, and a clock before the epoch would make the
-/// window nonsense rather than merely wrong, so it saturates at zero.
-/// Wall-clock now, epoch millis: what every age, countdown and "running until now" is
-/// measured against. One definition, so the list, the schedules and the timeline agree.
 pub(crate) fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -149,77 +120,38 @@ pub(crate) fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-/// Somewhere the cursor has been, in enough detail to get back to it.
-///
-/// Held by value rather than as an index, because every index a pane has is into a list that
-/// a refresh can replace. A jump back to "row 12 of the workflow list" would land on a
-/// different workflow ten seconds later; a jump back to a run id lands on the workflow.
-///
-/// The history itself is not stored, only which workflow it was. Coming back re-fetches,
-/// which is a round trip, but the alternative is keeping every history ever visited in
-/// memory for the length of the session.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Jump {
     pub screen: Screen,
     pub scope: Vec<String>,
     pub query: String,
     pub viewing: Option<WorkflowRow>,
-    /// Which row, by index. Only a fallback: on the workflow list `cursor_key` is what
-    /// actually gets you back, and this is what is used where there is no identity to use,
-    /// the namespace list and a history outline.
     pub cursor: usize,
-    /// Which row, by identity, on the workflow list. A live list grows at the top, so an
-    /// index alone would return you to a different workflow than the one you left.
     pub cursor_key: Option<(String, String)>,
 }
 
-/// A payload written to disk, waiting for `$EDITOR` to be run over it.
-///
-/// `App` cannot open an editor itself: the editor wants the terminal, and the terminal
-/// belongs to the event loop. So the reducer does the part it can do, choosing the payload
-/// and writing the file, and leaves this behind for the loop to act on. That keeps `App`
-/// free of terminal types and keeps the whole thing testable, the test asserts a file was
-/// written and never spawns anything.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EditRequest {
     pub path: std::path::PathBuf,
-    /// The private directory holding `path`, removed once the editor exits. Decoded
-    /// payloads should not outlive the moment they were being read.
     pub dir: std::path::PathBuf,
-    /// What was written, for the message afterwards.
     pub what: String,
 }
 
-/// A place in a source file, waiting for `$EDITOR` to be run on it: what a resolver
-/// answered `gf` with. Left for the event loop for the reason an [`EditRequest`] is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceRequest {
     pub path: std::path::PathBuf,
     pub line: Option<u32>,
-    /// The directory to run the editor in, when the resolver named the project's root.
     pub root: Option<std::path::PathBuf>,
 }
 
-/// What a prompt at the bottom of the screen is collecting.
-///
-/// Both prompts edit identically, the same keys, the same backspace-on-empty-closes rule,
-/// and differ only in what Enter does with the text. Sharing the editing is what keeps them
-/// from drifting apart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PromptKind {
-    /// `:`, a command id, with completions.
     Command,
-    /// `!`, a shell command to filter the focused payloads through.
     Pipe,
-    /// `/`, a pattern to find within the rows already on screen.
     Search,
-    /// The name of a signal to send.
     Signal,
-    /// The name of an update to send.
     Update,
-    /// The window a schedule backfill covers, and optionally its overlap policy.
     Backfill,
-    /// The name of a query handler, when the workflow could not list its own.
     Query,
     Reason,
 }
@@ -231,7 +163,6 @@ pub struct Prompt {
 }
 
 impl Prompt {
-    /// What is drawn to the left of the text.
     pub fn sigil(&self) -> &'static str {
         match self.kind {
             PromptKind::Command => ":",
@@ -252,18 +183,11 @@ pub struct ShownText {
     pub hidden: usize,
 }
 
-/// Where an encrypted payload has got to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DecodeState {
-    /// No codec server is configured, so it cannot be read at all.
     NoCodec,
-    /// A decode is out.
     InFlight,
-    /// A codec is configured but nothing has been asked yet.
     Idle,
-    /// The codec server was asked and refused. Kept per payload rather than shown as a
-    /// passing note: a note is gone by the next keystroke, and the badge left behind is
-    /// identical to one that was never asked about, so the reader is told nothing.
     Failed(String),
 }
 
@@ -273,17 +197,12 @@ pub enum History {
     Query,
 }
 
-/// What Insert mode is editing.
-///
-/// On the workflow list, Insert mode edits the visibility query: the only text
-/// field on the screen, so making `i` mean anything else would be a wasted key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InsertTarget {
     Scratch,
     Query,
 }
 
-/// Everything that can change the application state.
 #[derive(Debug)]
 pub enum Msg {
     Key(Chord),
@@ -294,24 +213,18 @@ pub enum Msg {
     Quit,
     Namespaces(Result<Vec<NamespaceInfo>, Fault>),
     Profiles(Result<Vec<ProfileSummary>, Fault>),
-    /// A connection to the profile a switch asked for. `seq` names the switch, so only the
-    /// last one asked for is taken.
     Connected {
         seq: u64,
         result: Result<Box<Conn>, String>,
     },
-    /// A reply from a spawned task, stamped with the connection it was sent on.
     Reply {
         epoch: u64,
         msg: Box<Msg>,
     },
-    /// What the cluster lets you filter on, for the namespace named.
     SearchAttributes {
         namespace: String,
         result: Result<Vec<SearchAttribute>, Fault>,
     },
-    /// A page of the workflow list. `generation` is the query this was issued for; a reply
-    /// for a superseded query is dropped rather than pasted over the current one.
     Workflows {
         generation: u64,
         append: bool,
@@ -325,33 +238,22 @@ pub enum Msg {
         generation: u64,
         result: Result<Vec<ScheduleRow>, Fault>,
     },
-    /// Output of an external command a `!` filter ran.
     Piped(Result<String, String>),
-    /// What the source resolver printed, or why it could not say.
     Source(Result<String, String>),
-    /// A mutation finished, one way or the other.
     Mutated {
         mutation: Box<Mutation>,
-        /// The profile and address it was sent to, which a switch since may have changed.
         sent_to: (String, String),
         result: Result<(), Fault>,
-        /// `Some((done, total))` when this is one row of a batch, so the status line can
-        /// count up rather than flashing each row's name in turn.
         batch: Option<(usize, usize)>,
     },
-    /// Payloads a codec server decoded, paired with the hash of what was sent.
     Decoded(Result<Vec<(u64, Payload)>, Fault>),
-    /// A page of a workflow's history, already normalised by the client.
     History {
         generation: u64,
         result: Result<(Vec<NormalizedEvent>, Vec<u8>), Fault>,
     },
-    /// A picker's debounce expired: search the server for this prompt if it is still the
-    /// one on screen and the loaded rows still do not match it.
     PickerDebounce {
         search: u64,
     },
-    /// Workflows fetched for a picker prompt.
     PickerFound {
         search: u64,
         result: Result<Vec<WorkflowRow>, Fault>,
@@ -361,23 +263,18 @@ pub enum Msg {
         id: String,
         result: Result<Vec<WorkflowRow>, Fault>,
     },
-    /// What the server has for the id `-w` named at startup.
     StartupWorkflow {
         generation: u64,
         id: String,
         result: Result<Vec<WorkflowRow>, Fault>,
     },
-    /// What one of a dashboard's requests came back with. It names its pane, because a
-    /// dashboard is what gets left in a split while the focus is elsewhere.
     Dashboard {
         view: ViewId,
         generation: u64,
         source: usize,
-        /// Asked for by the refresh timer rather than by a key.
         timed: bool,
         result: Result<SourceData, Fault>,
     },
-    /// The open activities of the run on screen, from describe.
     Pending {
         generation: u64,
         result: Result<Vec<PendingActivity>, Fault>,
@@ -387,12 +284,10 @@ pub enum Msg {
         error: Fault,
         wait: std::time::Duration,
     },
-    /// What `__temporal_workflow_metadata` answered, already through the codec.
     QueryHandlers {
         generation: u64,
         result: Result<Vec<Payload>, Fault>,
     },
-    /// A query's answer, already through the codec.
     Queried {
         generation: u64,
         name: String,
@@ -407,10 +302,6 @@ fn audit_outcome(result: &Result<(), Fault>) -> String {
     }
 }
 
-/// The sender every spawned task reports through.
-///
-/// Each reply is stamped with the connection it was asked on, so one that lands after a
-/// profile switch is dropped instead of showing another cluster's rows.
 #[derive(Clone)]
 pub struct Outbox {
     tx: UnboundedSender<Msg>,
@@ -418,7 +309,6 @@ pub struct Outbox {
 }
 
 impl Outbox {
-    /// Fails only once the event loop has gone, when nobody is left to tell.
     pub fn send(&self, msg: Msg) -> Result<(), ()> {
         self.tx
             .send(Msg::Reply {
@@ -429,17 +319,12 @@ impl Outbox {
     }
 }
 
-/// A `/` still looking, one page of history at a time.
 #[derive(Debug, Clone, Copy)]
 struct Scan {
-    /// Where the search started, re-searched from after every page: a match on a page that
-    /// lands *above* the cursor is still the match, and forgetting the origin would skip it.
     from: usize,
     forward: bool,
     inclusive: bool,
-    /// The history this belongs to. A pane that has moved on must not keep paging.
     generation: u64,
-    /// Events loaded when it started, so the report can say how far it went.
     started_with: usize,
 }
 
@@ -450,8 +335,6 @@ pub enum Note {
     Error,
 }
 
-/// Where audit lines go. Tests capture them, so a test run never lands in the user's real
-/// log under a profile like `prod`.
 pub(super) enum AuditSink {
     File,
     #[cfg(test)]
@@ -459,157 +342,82 @@ pub(super) enum AuditSink {
 }
 
 pub struct App {
-    /// The focused pane's state, held directly rather than looked up.
-    ///
-    /// Every command in the reducer acts on the focused window, so keeping it here means
-    /// the whole reducer reads `self.view` without a lookup that could fail. The other
-    /// panes wait in `parked`, and focus changes swap between the two.
     pub view: View,
-    /// The panes that are not focused, by id.
     parked: std::collections::HashMap<ViewId, View>,
-    /// The window tree: which panes exist, where they sit, which is focused.
     pub tabs: Tabs,
-    /// Ids are handed out and never reused, so a stale reference cannot silently resolve
-    /// to a different pane.
     next_view_id: u64,
-    /// The body area the panes were last laid out in, so focus movement is geometric
-    /// against what is actually on screen.
     frame: UiRect,
 
     pub mode: Mode,
     pub pending: Pending,
     pub registry: Registry,
     pub keymap: Keymap,
-    /// Payloads a codec server has already decoded, keyed by the hash of the encrypted
-    /// bytes. Decoding is a network hop per payload, and scrolling back over a row that has
-    /// already been decoded should cost nothing.
     decoded: HashMap<u64, Payload>,
-    /// Requests in flight, so a cursor resting on a row does not ask repeatedly.
     decoding: HashSet<u64>,
-    /// Why a decode failed, by payload. Cleared by `R`, which is the retry.
     decode_failed: HashMap<u64, String>,
     shown: std::cell::RefCell<HashMap<u64, Arc<ShownText>>>,
     codec: Option<Arc<Codec>>,
     pub views: Vec<SavedView>,
-    /// The layout `dashboard.toml` asks for. `None` leaves the dashboard to the builtin one.
     dashboard_layout: Option<Layout>,
-    /// `[refresh] dashboard` from `config.toml`.
     dashboard_refresh: tmprl_core::config::Refresh,
-    /// What this cluster lets you filter on, fetched once per namespace the first time the
-    /// filter picker is opened. Session-level rather than per-pane: it is a property of the
-    /// cluster, and every pane is on the same one.
     pub search_attributes: Loadable<Vec<SearchAttribute>>,
-    /// The offers under the query bar while Insert mode owns it, `<Tab>` to accept.
     pub completion: Option<Completion>,
-    /// The namespace `search_attributes` was fetched for, so switching namespace refetches
-    /// rather than offering the previous one's custom attributes.
     attributes_for: Option<String>,
 
     pub which_key: Vec<PendingEntry>,
     pub show_help: bool,
-    /// `:messages`. Only one of this and the help overlay is open at a time.
     pub show_messages: bool,
-    /// First visible line of whichever overlay is open, and the largest useful value for
-    /// it. Both are taller than most terminals, so they scroll with the ordinary motions
-    /// rather than silently clipping what is below the fold.
     pub overlay_scroll: usize,
     pub overlay_max_scroll: usize,
-    /// `Some` while a `:` or `!` prompt is open.
     pub prompt: Option<Prompt>,
-    /// `Some` while a destructive action is waiting to be confirmed. Nothing has happened to
-    /// the cluster while this is set.
     pub confirm: Option<Confirm>,
-    /// `Some` while a multi-field form is open, for the inputs a single line cannot carry.
     pub form: Option<Form>,
     pub insert_buf: LineEdit,
     histories: HashMap<History, LineHistory>,
     awaiting_reason: Vec<Mutation>,
     cmdline_cycle: Option<(String, usize)>,
     pub insert_target: InsertTarget,
-    /// `Some` while a `<leader>f` picker is open. It owns the keyboard while it is, the
-    /// way a prompt does.
     pub picker: Option<Picker>,
-    /// Rows a picker search fetched. They are not in any pane's list, so opening one has
-    /// to find it here rather than in the table behind the picker.
     picker_found: Vec<WorkflowRow>,
-    /// Bumped on every keystroke in a picker. A search is only issued for the prompt that
-    /// is still there when its debounce expires, and only the reply for the prompt still
-    /// on screen is used.
     picker_search: u64,
-    /// Set when `<leader>e` has written a payload out; the event loop takes it, drops
-    /// the terminal, runs the editor and puts the terminal back.
     pub editing: Option<EditRequest>,
-    /// A source file to open, set by `gf` once its resolver has answered.
     pub opening: Option<SourceRequest>,
-    /// `[source] command`: the program asked where the code behind an event is.
     source_command: Option<String>,
-    /// `<C-o>` / `<C-i>`. Session-level, not per-pane: the jumps you want to retrace
-    /// are the ones *you* made, and they cross panes as readily as they cross screens.
     pub jumps: Jumplist<Jump>,
-    /// A search that ran out of loaded history and is paging the rest of the run in to
-    /// keep looking. `<Esc>` ends it, and so does anything that replaces the history.
     scan: Option<Scan>,
-    /// The last pattern searched for, vim's `/` register.
-    ///
-    /// Session-level rather than per-pane, and deliberately so: the pattern is something
-    /// *you* are looking for, not a property of a window. Splitting a pane and pressing `n`
-    /// should keep looking for the same thing, and typing a query you have already typed
-    /// once into the other half is exactly the friction this is avoiding.
     pub search: Search,
 
-    /// Whether time columns read as an age or as a wall clock, `<leader>T`. Session-level:
-    /// it is how *you* are reading the screen, so it holds across panes and tabs.
     pub times: TimeFormat,
-    /// The zone wall-clock times are rendered in, from `config.toml`.
     pub clock: Clock,
-    /// The palette every frame is drawn with. Built once, by [`App::apply_theme`]: what the
-    /// terminal can show does not change while tmprl runs.
     pub theme: Theme,
     theme_overrides: ThemeOverrides,
 
     pub note: Option<(String, Note)>,
-    /// Every note this session, newest last, because the note line forgets on the next key.
     pub messages: VecDeque<Logged>,
-    /// The failure behind the note being set, so the log can keep its code and operation.
     note_fault: Option<Fault>,
-    /// Cleared by a key that reaches the keymap: the note has been read, let it go.
     keep_note: bool,
     pub should_quit: bool,
     pub dirty: bool,
 
     profile: String,
     address: String,
-    /// Colour for the profile name, from `config.toml`. `None` renders as it always did.
     accent: Option<tmprl_core::config::Accent>,
-    /// Refuse every mutation on this profile.
     readonly: bool,
-    /// Refuse every mutation for this run, `--readonly`. Kept apart from the profile's
-    /// setting so the refusal can name the cause the reader is able to change.
     readonly_flag: bool,
     audit_sink: AuditSink,
-    /// Where `K` opens, from `config.toml`'s `[layout]`.
     payload_pane: tmprl_core::config::PayloadPane,
-    /// The payload pane's share of the history in percent, `[layout] payload_size` until
-    /// it is resized. One for the session, so every window opens it at the same size.
     payload_size: u16,
-    /// A press on the payload pane's top rule, held: the moves that follow resize it.
     dragging: bool,
-    /// A press inside the payload pane, held: the moves that follow select its text, and
-    /// letting go copies it.
     text_selection: Option<crate::view::TextSelection>,
-    /// Where and when the last click landed, so a second one on the same row opens it.
     last_click: Option<(std::time::Instant, u16, u16)>,
     mouse: bool,
     yank_max: usize,
     namespace: String,
     conn: Option<Arc<Conn>>,
-    /// `config.toml` as parsed at startup, re-resolved for each profile switched to.
     config: Option<tmprl_core::config::Config>,
-    /// `--temporal-config`, which every profile is read from.
     temporal_config: Option<String>,
     switching: Option<profile::Switch>,
     switch_seq: u64,
-    /// The profile picker was asked for before the list had loaded.
     profile_picker_pending: bool,
     tx: Outbox,
 }
@@ -624,9 +432,6 @@ impl App {
         Self::build(Some(Arc::new(conn)), profile, address, namespace, tx)
     }
 
-    /// An app with no connection, for tests. Every command except the ones that fetch
-    /// behaves identically, which is what makes the interface testable without a Temporal
-    /// server.
     #[cfg(test)]
     pub fn detached(profile: &str, namespace: &str, tx: UnboundedSender<Msg>) -> Self {
         let mut app = Self::build(
@@ -724,8 +529,6 @@ impl App {
         }
     }
 
-    /// Install the user's `keys.toml` and `views.toml`. Called once at startup, before the
-    /// first frame, so the help overlay and which-key describe the keymap actually in use.
     pub fn apply_config(&mut self, keys: Option<&str>, views: Option<&str>, config: Option<&str>) {
         if let Some(src) = config {
             match tmprl_core::config::parse_config(src) {
@@ -739,8 +542,6 @@ impl App {
                     if let Some(depth) = cfg.colors {
                         self.theme = Theme::new(depth, &self.theme_overrides);
                     }
-                    // Already validated by `parse_config`, so this cannot be the zone
-                    // failing; unwrapping to the system zone here would be unreachable.
                     if let Ok(clock) = Clock::from_config(cfg.timezone.as_deref()) {
                         self.clock = clock;
                     }
@@ -762,8 +563,6 @@ impl App {
                 Err(e) => self.note = Some((e.to_string(), Note::Error)),
             }
         }
-        // Keys are applied after views so that a user binding can override a view's
-        // default `<leader>N` slot.
         if let Some(src) = keys
             && let Err(e) = tmprl_core::config::apply_keys(src, &self.registry, &mut self.keymap)
         {
@@ -771,9 +570,6 @@ impl App {
         }
     }
 
-    /// Build the palette for the terminal's colour depth and the user's `theme.toml`.
-    /// Called once at startup. A theme that does not parse is reported and the defaults
-    /// are used whole: half a theme applied would look like a rendering bug.
     pub fn apply_theme(&mut self, depth: ColorDepth, theme: Option<&str>) {
         let overrides = match theme.map(tmprl_core::theme::parse_theme) {
             None => ThemeOverrides::default(),
@@ -787,8 +583,6 @@ impl App {
         self.theme_overrides = overrides;
     }
 
-    /// Install the user's `dashboard.toml`. A file that does not parse is reported and set
-    /// aside whole, and one with no rows is the same as no file.
     pub fn apply_dashboard(&mut self, dashboard: Option<&str>) {
         match dashboard.map(tmprl_core::dashboard::parse_dashboard) {
             None => {}
@@ -827,15 +621,12 @@ impl App {
         self.view.row_count()
     }
 
-    /// The inclusive row range selected in the focused pane, if a visual mode is active.
     pub fn selection(&self) -> Option<(usize, usize)> {
         self.view.selection()
     }
 
     pub fn handle(&mut self, msg: Msg) {
         self.dirty = true;
-        // Taken out for the duration, so that a note present afterwards is known to have
-        // been set by this message: that is the one moment it can be logged exactly once.
         let before = self.note.take();
         self.keep_note = true;
         self.apply(msg);
@@ -854,8 +645,6 @@ impl App {
             Msg::Tick => self.tick_dashboards(now_ms()),
             Msg::Redraw => {}
             Msg::Reply { epoch, msg } if epoch == self.epoch() => self.apply(*msg),
-            // The connection it was asked on is gone. A mutation it reports still happened
-            // over there, and the audit log must say so.
             Msg::Reply { msg, .. } => {
                 if let Msg::Mutated {
                     mutation,
@@ -889,10 +678,7 @@ impl App {
                             },
                             Note::Info,
                         ));
-                        // ListSchedules is eventually consistent, so the refresh below can
-                        // still return the old state. The server has accepted the change, so
-                        // reflect it locally rather than showing a screen that contradicts
-                        // the message next to it.
+                        // ListSchedules is eventually consistent, so the refresh can still return the old state.
                         if let Mutation::PauseSchedule {
                             schedule_id,
                             paused,
@@ -904,7 +690,6 @@ impl App {
                         {
                             row.paused = *paused;
                         }
-                        // The list is now out of date about the thing just changed.
                         self.refresh();
                     }
                     Err(e) => self.fail(e, Note::Error),
@@ -924,25 +709,17 @@ impl App {
                 self.apply_decoded();
             }
             Msg::Decoded(Err(e)) => {
-                // Record the reason against the payloads that were out, so the badge can say
-                // why instead of looking exactly like one nothing was ever asked about. The
-                // in-flight set is still emptied, which is what lets a retry happen at all.
                 for key in std::mem::take(&mut self.decoding) {
                     self.decode_failed.insert(key, e.to_string());
                 }
                 self.fail(e, Note::Error);
             }
             Msg::SearchAttributes { namespace, result } => {
-                // Checked against the namespace on screen, not against the one the fetch
-                // was issued for: what matters is whether these attributes describe what
-                // is being filtered now, and a reply from a namespace since left does not.
                 if namespace != self.namespace() {
                     return;
                 }
                 match result {
                     Ok(attrs) => self.search_attributes = Loadable::loaded(attrs),
-                    // Not a note: nothing asked for this out loud, and the rest of the
-                    // catalogue works without it. The picker says so in its own list.
                     Err(e) => self.search_attributes = Loadable::Failed(e),
                 }
             }
@@ -951,11 +728,7 @@ impl App {
                 self.clamp_cursor();
             }
             Msg::Namespaces(Err(e)) => {
-                // A Temporal Cloud API key is scoped to one namespace, and listing every
-                // namespace on the account is an admin operation it is correctly refused.
-                // Failing here would strand the reader on the opening screen with a key that
-                // can do everything they actually came for, so fall back to the namespace
-                // the profile already names.
+                // A Temporal Cloud key scoped to one namespace is refused ListNamespaces.
                 if e.is_refusal() {
                     self.view.namespaces = Loadable::loaded(vec![NamespaceInfo {
                         name: self.namespace.clone(),
@@ -982,7 +755,7 @@ impl App {
                 result,
             } => {
                 if generation != self.view.generation {
-                    return; // a reply for a query the user has already replaced
+                    return;
                 }
                 self.view.loading_more = false;
                 match result {
@@ -995,15 +768,11 @@ impl App {
                                 self.view.workflows = Loadable::loaded(list);
                             }
                         }
-                        // A later page can carry a payload already decoded from an
-                        // earlier one; swap it in rather than asking the server again.
                         self.apply_decoded();
                         self.restore_cursor();
                     }
                     Err(e) => {
                         self.fail(e.clone(), Note::Error);
-                        // Keep whatever is already on screen when a *further* page fails;
-                        // only a failed first page leaves the list with nothing to show.
                         if !append {
                             self.view.workflows = Loadable::Failed(e);
                         }
@@ -1021,21 +790,13 @@ impl App {
                         if !token.is_empty() {
                             self.view.history_resume = token.clone();
                         } else if self.view.following {
-                            // Follow only ever sees an empty token when the workflow has
-                            // closed. There is nothing further to tail, so stop rather than
-                            // spin on a call that now returns instantly.
                             self.stop_following();
                             self.view.pending.clear();
                             self.note =
                                 Some(("workflow closed, follow stopped".into(), Note::Info));
                         }
                         self.view.history_token = token;
-                        // Merged, not appended: a resumed follow replays the page its token
-                        // sat in, and listing those events twice would inflate every group.
                         merge_events(&mut self.view.history_events, events);
-                        // Re-group the whole accumulated history rather than patching: a
-                        // page boundary can land in the middle of a group, so the last
-                        // group of a page is routinely completed by the next one.
                         let groups = group_events(&self.view.history_events);
                         let events = self.view.history_events.clone();
                         match self.view.history.value_mut() {
@@ -1101,8 +862,6 @@ impl App {
                 }
                 match result {
                     Ok(pending) => self.view.pending = pending,
-                    // The history is still right without this, so a failed describe
-                    // warns and keeps whatever was known rather than clearing it.
                     Err(e) => self.fail_as(format!("pending activities: {e}"), e, Note::Warn),
                 }
             }
@@ -1149,8 +908,6 @@ impl App {
     }
 
     fn on_key(&mut self, chord: Chord) {
-        // A pending destructive action owns every key, so nothing bound elsewhere can
-        // fire while one is waiting.
         if self.confirm.is_some() {
             self.confirm_key(chord);
             return;
@@ -1183,15 +940,12 @@ impl App {
             Resolution::Unbound { flushed } => {
                 self.which_key.clear();
                 if self.mode == Mode::Insert {
-                    // Keys held for an incomplete sequence are literal input after all.
                     self.insert_keys(flushed);
                 }
             }
         }
     }
 
-    /// Run a command by id. This is the single dispatch point: keys, the command line, and
-    /// (later) macros and `--exec` all arrive here.
     pub fn run(&mut self, id: &str, count: Option<u32>) {
         let Some(cmd) = self.registry.get(id) else {
             self.note = Some((format!("no such command: {id}"), Note::Error));
@@ -1209,7 +963,6 @@ impl App {
             Action::ToggleMessages => {
                 self.show_messages = !self.show_messages;
                 self.show_help = false;
-                // Opened at the end: the newest message is the one that was just missed.
                 self.overlay_scroll = usize::MAX;
             }
             Action::OpenCommandLine => {
@@ -1243,8 +996,6 @@ impl App {
                 ));
             }
 
-            // While an overlay is open the motions scroll it. It is the frontmost thing on
-            // screen, so moving a cursor hidden behind it would be surprising.
             Action::MoveDown if self.overlay_open() => self.scroll_overlay(n as isize),
             Action::MoveUp if self.overlay_open() => self.scroll_overlay(-(n as isize)),
             Action::MoveTop if self.overlay_open() => self.overlay_scroll = 0,
@@ -1264,8 +1015,6 @@ impl App {
                 self.scroll_overlay(-(self.view.page.max(1) as isize))
             }
 
-            // The payload pane takes the motions while it has the focus. A half page is
-            // half of the pane, which is rarely the height of the list beside it.
             Action::MoveDown if self.detail_focused() => self.scroll_detail(n as isize),
             Action::MoveUp if self.detail_focused() => self.scroll_detail(-(n as isize)),
             Action::MoveTop if self.detail_focused() => self.view.detail_scroll = 0,
@@ -1285,8 +1034,6 @@ impl App {
                 self.scroll_detail(-(self.view.detail_page.max(1) as isize))
             }
 
-            // A dashboard is panels side by side and one over another, so the motions go
-            // where they point there. Everywhere else there is one list, and no sideways.
             Action::MoveDown if self.on_dashboard() => self.step_dashboard(Heading::Down, n),
             Action::MoveUp if self.on_dashboard() => self.step_dashboard(Heading::Up, n),
             Action::MoveLeft if self.on_dashboard() && !self.overlay_open() => {
@@ -1298,8 +1045,6 @@ impl App {
             Action::MoveLeft | Action::MoveRight => {}
             Action::MoveDown => self.move_cursor(n as isize),
             Action::MoveUp => self.move_cursor(-(n as isize)),
-            // `gg` and `G` are jumps, as they are in vim: they are how you leave where
-            // you were, which is exactly what `<C-o>` is for getting back from.
             Action::MoveTop => {
                 self.mark_jump();
                 self.set_cursor(0)
@@ -1331,9 +1076,6 @@ impl App {
 
             Action::EnterInsert => {
                 self.mode = Mode::Insert;
-                // On the workflow list the only text field is the query bar, so that is
-                // what Insert mode edits. It is seeded with the applied query so `i` is an
-                // edit, not a retype.
                 if self.view.screen == Screen::Workflows {
                     self.insert_target = InsertTarget::Query;
                     self.insert_buf.set(self.view.query.clone());
@@ -1343,13 +1085,9 @@ impl App {
                 }
             }
             Action::LeaveInsert => {
-                // With offers on screen Esc dismisses those and leaves the edit alone: the
-                // list was not asked for, so closing it must not cost the line being typed.
                 if self.completion.take().is_some() {
                     return;
                 }
-                // Esc abandons the edit; the applied query is unchanged. Enter applies,
-                // see `insert_keys`.
                 self.mode = Mode::Normal;
                 self.insert_target = InsertTarget::Scratch;
                 self.insert_buf.clear();
@@ -1497,7 +1235,6 @@ impl App {
         self.accent
     }
 
-    /// Whether mutations are refused, by the profile or by `--readonly`.
     pub fn readonly(&self) -> bool {
         self.readonly || self.readonly_flag
     }
@@ -1523,11 +1260,6 @@ impl App {
     }
 }
 
-/// Run `command` in a shell with `input` on stdin, and collect what it says.
-///
-/// A shell rather than a bare exec, so that `jq .result | head -20` works, `!` is a filter,
-/// and filters are pipelines. On a non-zero exit the stderr is what is worth showing: when a
-/// jq expression is wrong, jq's own message is the entire diagnosis.
 async fn pipe_through(command: &str, input: Vec<u8>) -> Result<String, String> {
     use tokio::io::AsyncWriteExt;
     use tokio::process::Command;
@@ -1542,8 +1274,6 @@ async fn pipe_through(command: &str, input: Vec<u8>) -> Result<String, String> {
         .map_err(|e| format!("could not run `{command}`: {e}"))?;
 
     if let Some(mut stdin) = child.stdin.take() {
-        // A filter that does not read its input (`!wc -l` after an early exit) closes the
-        // pipe, and writing to a closed pipe is not an error worth reporting.
         let _ = stdin.write_all(&input).await;
         let _ = stdin.shutdown().await;
     }
@@ -1566,10 +1296,6 @@ async fn pipe_through(command: &str, input: Vec<u8>) -> Result<String, String> {
     }
 }
 
-/// Run a source resolver with `input` on stdin and collect what it prints.
-///
-/// The program and its arguments are run as they are, with no shell: what goes in is on
-/// stdin, so nothing a server sent is ever part of a command line.
 async fn run_resolver(program: &str, args: &[String], input: Vec<u8>) -> Result<String, String> {
     use tokio::io::AsyncWriteExt;
     use tokio::process::Command;

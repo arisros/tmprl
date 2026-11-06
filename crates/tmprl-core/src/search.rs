@@ -1,42 +1,18 @@
 //! Searching what is already on screen.
-//!
-//! Deliberately not the same thing as the visibility query, and the difference is worth
-//! stating because the two look similar from the outside. The query is a filter the
-//! *server* applies: it decides which workflows exist as far as this pane is concerned, it
-//! costs a round trip, and it is written in Temporal's list-filter dialect. A search costs
-//! nothing and changes nothing, it moves the cursor to the next row whose text matches, and
-//! it works on screens the query cannot reach at all, the history outline most of all,
-//! where there is no server-side filter to ask for.
-//!
-//! Neither substitutes for the other. You narrow to a few hundred workflows with the query
-//! and then find the one you want with `/`.
-//!
-//! Pure: this module never learns what a row *is*, only the text one renders to. Deciding
-//! that text is the view's job, which keeps this crate free of screens and keeps the
-//! matching unit-testable without building an application.
 
-/// A pattern, with its case sensitivity already decided.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Search {
-    /// As typed. Kept verbatim so the statusline can echo the search back, the way vim's
-    /// last-search register does.
     pattern: String,
     case_sensitive: bool,
 }
 
-/// Where a search landed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Hit {
     pub row: usize,
-    /// The search ran off the end and resumed from the other one. Reported rather than
-    /// silent: vim says "search hit BOTTOM, continuing at TOP", and without it a wrap looks
-    /// like the cursor jumped at random.
     pub wrapped: bool,
 }
 
 impl Search {
-    /// Compile a pattern. Empty is legal and matches nothing, which is what makes `n` with
-    /// no previous search a no-op rather than a jump to row 0.
     pub fn new(pattern: impl Into<String>) -> Self {
         let pattern = pattern.into();
         let case_sensitive = smartcase(&pattern);
@@ -54,12 +30,6 @@ impl Search {
         self.pattern.is_empty()
     }
 
-    /// The part of the pattern the payload pane can show.
-    ///
-    /// `/customer.id=8812` matches the flattened `path=value` form, which is never on
-    /// screen: the pane shows the JSON, `"id": "8812"`. The value is in both, so that is
-    /// what the pane paints. Case sensitivity stays as the whole pattern decided it, since
-    /// that is what the reader typed.
     pub fn for_pane(&self) -> Search {
         match self.pattern.rsplit_once('=') {
             Some((_, value)) if !value.is_empty() => Search {
@@ -70,7 +40,6 @@ impl Search {
         }
     }
 
-    /// Whether this text contains the pattern anywhere.
     pub fn matches(&self, haystack: &str) -> bool {
         if self.pattern.is_empty() {
             return false;
@@ -80,13 +49,7 @@ impl Search {
             .any(|(at, _)| self.match_at(haystack, at).is_some())
     }
 
-    /// Byte ranges of every match, for highlighting.
-    ///
-    /// Offsets are into `haystack` exactly as given, not into a lowercased copy. Case
-    /// folding can change a string's byte length, `İ` lowercases to two chars, so folding
-    /// first and reusing the resulting offsets would slice the original in the wrong place
-    /// and eventually panic on a char boundary. Scanning char by char costs more and is
-    /// always right, and this only ever runs over the rows actually on screen.
+    // Case folding can change byte length, so offsets are into the original string.
     pub fn spans(&self, haystack: &str) -> Vec<(usize, usize)> {
         let mut out = Vec::new();
         if self.pattern.is_empty() {
@@ -98,8 +61,6 @@ impl Search {
             match self.match_at(haystack, starts[i]) {
                 Some(end) => {
                     out.push((starts[i], end));
-                    // Resume past the match. Overlapping spans would double-paint the
-                    // overlap, which renders as a differently-coloured sliver.
                     while i < starts.len() && starts[i] < end {
                         i += 1;
                     }
@@ -110,7 +71,6 @@ impl Search {
         out
     }
 
-    /// If `haystack` from `at` begins with the pattern, the byte offset just past it.
     fn match_at(&self, haystack: &str, at: usize) -> Option<usize> {
         let mut rest = haystack[at..].chars();
         for want in self.pattern.chars() {
@@ -128,32 +88,10 @@ impl Search {
     }
 }
 
-/// Vim's `smartcase`: an all-lowercase pattern ignores case, one with any uppercase in it
-/// does not.
-///
-/// This is the behaviour people have in their fingers, and it is the right default for the
-/// data as well: workflow types and activity names are camel case, so typing `charge`
-/// should find `ChargeCard`, while typing `ChargeCard` means you know what you are after.
 fn smartcase(pattern: &str) -> bool {
     pattern.chars().any(char::is_uppercase)
 }
 
-/// The next matching row from `from`, wrapping once.
-///
-/// `inclusive` decides whether the row the cursor is on is a candidate. `n` excludes it, so
-/// repeated presses walk the results; a freshly typed `/` includes it, because you have just
-/// typed the pattern while looking at the screen and skipping a match that is right there
-/// reads as not having found it.
-///
-/// Wrapping is unconditional, unlike `]f`, which stops at the end. A failure jump is
-/// "where did this go wrong", asked once; a search is "show me the next one", asked
-/// repeatedly, and a `n` that silently stops at the last match reads as a broken key.
-///
-/// The `inclusive` flag exists rather than letting the caller pass `from - 1`, which is the
-/// obvious trick and is wrong: at `from == 0` it underflows to the last row, and every
-/// subsequent hit then looks like it wrapped. Since 0 is where a freshly loaded pane puts
-/// the cursor, that made essentially every first search claim to have wrapped, which is the
-/// one signal meant to explain a cursor that jumped backwards.
 pub fn find(
     search: &Search,
     labels: &[String],
@@ -167,9 +105,6 @@ pub fn find(
     let n = labels.len();
     let offset = if inclusive { 0 } else { 1 };
 
-    // `step` counts how far from the cursor a candidate is, which is what decides both the
-    // row and whether getting to it went round the end. Both directions use the same rule:
-    // a wrap is a step that runs past the edge of the list.
     (0..n).find_map(|i| {
         let step = i + offset;
         let (row, wrapped) = if forward {
@@ -181,7 +116,6 @@ pub fn find(
     })
 }
 
-/// Every matching row, for the count in the statusline.
 pub fn count(search: &Search, labels: &[String]) -> usize {
     if search.is_empty() {
         return 0;
@@ -201,7 +135,6 @@ mod tests {
     fn the_pane_is_searched_for_the_value_of_a_path_pattern() {
         assert_eq!(Search::new("customer.id=8812").for_pane().pattern(), "8812");
         assert_eq!(Search::new("8812").for_pane().pattern(), "8812");
-        // Nothing after the `=` to look for: keep the pattern whole rather than match all.
         assert_eq!(Search::new("status=").for_pane().pattern(), "status=");
     }
 
@@ -231,8 +164,6 @@ mod tests {
 
     #[test]
     fn an_empty_pattern_matches_nothing() {
-        // Otherwise `n` with no previous search jumps to row 0, which reads as the key
-        // being bound to something else entirely.
         let s = Search::new("");
         assert!(!s.matches("anything"));
         assert_eq!(find(&s, &labels(&["a", "b"]), 0, true, false), None);
@@ -244,7 +175,6 @@ mod tests {
         let hay = "xxabyyab";
         assert_eq!(s.spans(hay), vec![(2, 4), (6, 8)]);
         for (a, b) in s.spans(hay) {
-            // The whole point of the byte offsets: they must be sliceable.
             assert_eq!(&hay[a..b], "ab");
         }
     }
@@ -261,7 +191,6 @@ mod tests {
 
     #[test]
     fn overlapping_matches_are_reported_once() {
-        // "aa" in "aaa" starts at 0 and at 1; painting both would double-draw byte 1.
         let s = Search::new("aa");
         assert_eq!(s.spans("aaa"), vec![(0, 2)]);
     }
@@ -293,8 +222,6 @@ mod tests {
 
     #[test]
     fn a_sole_match_is_found_from_itself_by_wrapping() {
-        // `n` on the only match stays put, and reports the wrap rather than "not found",
-        // which is what vim does.
         let rows = labels(&["charge", "ship"]);
         let s = Search::new("charge");
         let hit = find(&s, &rows, 0, true, false).unwrap();
@@ -310,8 +237,6 @@ mod tests {
 
     #[test]
     fn an_inclusive_search_from_row_zero_does_not_claim_to_have_wrapped() {
-        // The regression this flag exists for. Row 0 is where a freshly loaded pane puts
-        // the cursor, so getting this wrong made almost every first search say "wrapped".
         let rows = labels(&["charge", "ship", "refund"]);
         let hit = find(&Search::new("charge"), &rows, 0, true, true).unwrap();
         assert_eq!(hit.row, 0);

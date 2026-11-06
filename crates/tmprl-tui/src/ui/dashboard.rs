@@ -1,7 +1,4 @@
 //! The dashboard: a board's panels, each a titled box of the items the cursor runs through.
-//!
-//! When the panels do not all fit, the ones that are drawn are the ones around the cursor,
-//! so moving through the items scrolls the dashboard the way it scrolls a list.
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
@@ -23,17 +20,11 @@ const MIN_WIDTH: u16 = 24;
 const MIN_HEIGHT: u16 = 3;
 const TYPE: usize = 20;
 const AGE: usize = 4;
-/// A workflow id beside a reason: wide enough for a UUID.
 const ID: usize = 36;
-/// The least room worth giving a reason.
 const REASON: usize = 12;
-/// An attempt count, `12/∞`.
 const TRIES: usize = 7;
-/// When the next try is, `next 45s`, or the state the activity is in.
 const NEXT: usize = 10;
-/// The lines a histogram is worth: four of columns and the axis under them.
 const CHART: usize = 5;
-/// The lines kept for a panel with nothing in it, whose message may wrap.
 const EMPTY: usize = 2;
 
 pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme, focused: bool) {
@@ -45,7 +36,6 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme, 
     };
     let (cursor_panel, cursor_item) = board.locate(view.cursor).unwrap_or((0, 0));
 
-    // Too small for one bordered panel: the panel under the cursor, without its box.
     if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
         let panel = Panel {
             board,
@@ -127,11 +117,6 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme, 
     }
 }
 
-/// A queue's health in a few words, and how loudly to say it: a backlog nothing is polling
-/// is the one state the panel exists to make impossible to miss.
-///
-/// `room` is what the line can spare. The age of the backlog is the first thing to go:
-/// that there is one, and whether anything polls, matter more than how old it is.
 fn queue_health(queue: &QueueRef, room: usize, t: &Theme) -> (String, Style) {
     let Some(health) = &queue.health else {
         return (String::new(), t.faint);
@@ -163,8 +148,6 @@ fn queue_health(queue: &QueueRef, room: usize, t: &Theme) -> (String, Style) {
     (text, style)
 }
 
-/// Cut `area` into as many of `list` as fit, starting far enough along that `must` is one
-/// of them.
 fn window(
     area: tmprl_ui::Rect,
     axis: Axis,
@@ -181,9 +164,6 @@ fn window(
     (must, tracks(area, axis, &list[must.min(list.len())..], min))
 }
 
-/// The lines the tallest of a row's panels has to show, so the row can leave the rest to
-/// rows with more. `None` until every panel has its answer: a row is not resized around a
-/// panel that is still loading, or one that has an error to spell out.
 fn content(board: &Board, first: usize, panels: usize) -> Option<u16> {
     (first..first + panels)
         .map(|panel| {
@@ -205,7 +185,6 @@ fn content(board: &Board, first: usize, panels: usize) -> Option<u16> {
 struct Panel<'a> {
     board: &'a Board,
     index: usize,
-    /// The item the cursor is on, when it is in this panel.
     cursor: Option<usize>,
 }
 
@@ -289,8 +268,6 @@ impl Panel<'_> {
             }
         };
 
-        // Counts read across, like the header of the workflow list, so the row they are
-        // given can be three lines tall.
         if let Some(PanelKind::Counts { .. }) = self.board.spec(self.index).map(|s| &s.kind) {
             let mut spans = vec![Span::raw(" ")];
             for (i, item) in items.iter().enumerate() {
@@ -330,7 +307,6 @@ impl Panel<'_> {
             .max()
             .unwrap_or(0)
             .min(TYPE + 8);
-        // A column that says the same thing on every line says nothing.
         let mut types = items.iter().filter_map(|item| match item {
             Item::Workflow(w) => Some(w.workflow_type.as_str()),
             _ => None,
@@ -378,7 +354,6 @@ impl Panel<'_> {
                         let show_type = !one_type && width >= 2 + 16 + TYPE + AGE + 2;
                         let fixed = 2 + AGE + 1 + if show_type { TYPE + 1 } else { 0 };
                         let room = width.saturating_sub(fixed).max(4);
-                        // A reason takes what an id does not need, when that is worth having.
                         let reason = self
                             .board
                             .reason(w)
@@ -428,7 +403,6 @@ impl Panel<'_> {
                         ));
                     }
                     Item::Queue(q) => {
-                        // The count and its gap, two before the health, eight for a name.
                         let (health, health_style) =
                             queue_health(q, width.saturating_sub(num + 2 + 2 + 8), t);
                         let name_width = width.saturating_sub(num + 2 + health.chars().count() + 2);
@@ -478,8 +452,6 @@ impl Panel<'_> {
                             .as_ref()
                             .map(|failure| failure.root().headline())
                             .unwrap_or_default();
-                        // The id, the activity and its tries always. The failure takes what
-                        // is left, and when to expect the next try closes the line.
                         let fixed = 2 + TRIES + 1 + NEXT;
                         let room = width.saturating_sub(fixed).max(8);
                         let id_width = room.min(ID).max(room / 3).min(room);
@@ -507,7 +479,6 @@ impl Panel<'_> {
                             style(i, t.faint),
                         ));
                     }
-                    // Drawn as columns by `chart`, never as a line.
                     Item::Bucket { .. } => {}
                 }
                 highlight(Line::from(spans), &app.search, match_style())
@@ -516,8 +487,6 @@ impl Panel<'_> {
         frame.render_widget(Paragraph::new(lines), area);
     }
 
-    /// A histogram: one column for each stretch of time, tall as its count against the
-    /// tallest, the newest on the right. When they do not all fit the oldest are left off.
     fn chart(&self, frame: &mut Frame, area: Rect, buckets: &[Bucket], app: &App, t: &Theme) {
         const LEVELS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
         let width = (area.width as usize).saturating_sub(2);
@@ -530,7 +499,6 @@ impl Panel<'_> {
         let axis = area.height >= 3;
         let rows = area.height as usize - usize::from(axis);
         let peak = shown.iter().filter_map(|b| b.count).max().unwrap_or(0);
-        // In eighths of a line, rounded up, so that one workflow still shows.
         let height = |count: i64| -> usize {
             if count <= 0 || peak <= 0 {
                 return 0;
@@ -573,7 +541,6 @@ impl Panel<'_> {
 
         if axis && let (Some(first), Some(last)) = (shown.first(), shown.last()) {
             let label = |ms: i64| -> String {
-                // A time of day says nothing on an axis that runs over several days.
                 if last.to_ms - first.from_ms > 2 * 86_400_000 {
                     app.clock.stamp(Some(ms)).chars().take(5).collect()
                 } else {
@@ -610,8 +577,6 @@ impl Panel<'_> {
         frame.render_widget(Paragraph::new(lines), area);
     }
 
-    /// What a panel with no items says: that it is waiting, why it failed, or what it
-    /// would have shown.
     fn empty(&self) -> String {
         match self.board.state(self.index) {
             Some(Loadable::Loading) => "loading…".to_string(),

@@ -1,21 +1,8 @@
 //! Visibility query strings.
-//!
-//! The raw query is the interface. tmprl never holds a structured filter that it renders
-//! down to a string the user cannot see, every filter the interface offers compiles *into*
-//! this text, and the text stays editable. A lossy abstraction over the query is the thing
-//! that makes the web UI's filter bar frustrating, and it is not worth reproducing.
-//!
-//! So the only query manipulation here is what the RPCs actually require: adapting a
-//! user-authored filter for `CountWorkflowExecutions`, which does not accept `ORDER BY` and
-//! needs its own `GROUP BY`.
 
-/// The clause the header counts group on.
 const GROUP_BY_STATUS: &str = "GROUP BY ExecutionStatus";
 
-/// Turn a user's list query into the one that produces the header counts.
-///
-/// `CountWorkflowExecutions` rejects `ORDER BY`, so it is stripped; any `GROUP BY` the user
-/// wrote is replaced, because the header renders per-status counts and nothing else.
+// CountWorkflowExecutions rejects ORDER BY.
 pub fn count_query(filter: &str) -> String {
     let filter = strip_clause(filter, "group by");
     let filter = strip_clause(&filter, "order by");
@@ -27,14 +14,6 @@ pub fn count_query(filter: &str) -> String {
     }
 }
 
-/// The query that finds the execution someone typed the id of.
-///
-/// Both fields, because the id pasted out of a log line is as often a run id as a workflow
-/// id and there is no telling them apart by shape: both are usually UUIDs.
-///
-/// `None` when the text cannot go inside a quoted literal. Temporal's grammar has no
-/// escape for a single quote, so a prompt containing one is not a query this can build,
-/// and guessing would send the server something that means something else.
 pub fn by_id(text: &str) -> Option<String> {
     let text = quotable(text)?;
     Some(format!("WorkflowId = '{text}' OR RunId = '{text}'"))
@@ -51,11 +30,7 @@ pub fn by_execution(workflow_id: &str, run_id: Option<&str>) -> Option<String> {
     })
 }
 
-/// The same, for a prefix of a workflow id.
-///
-/// Separate from [`by_id`] rather than an `OR` with it: `STARTS_WITH` needs advanced
-/// visibility, so a store that lacks it must reject only this query, leaving the exact
-/// lookup above to work everywhere.
+// STARTS_WITH needs advanced visibility, so it is kept out of the exact lookup.
 pub fn by_prefix(text: &str) -> Option<String> {
     let text = quotable(text)?;
     Some(format!("WorkflowId STARTS_WITH '{text}'"))
@@ -66,16 +41,12 @@ pub(crate) fn quotable(text: &str) -> Option<&str> {
     (!text.is_empty() && !text.contains('\'')).then_some(text)
 }
 
-/// Anything that ended badly: the filter the dashboard's failure panels start from.
 pub const PROBLEMS: &str = "ExecutionStatus IN ('Failed', 'TimedOut', 'Terminated')";
 
-/// Whether the query carries its own `ORDER BY`.
 pub fn orders(query: &str) -> bool {
     find_clause(query, "order by").is_some()
 }
 
-/// `filter AND clause`, with the filter parenthesised when an `OR` in it would otherwise
-/// capture the clause.
 pub fn and(filter: &str, clause: &str) -> String {
     let filter = filter.trim();
     if filter.is_empty() {
@@ -87,11 +58,6 @@ pub fn and(filter: &str, clause: &str) -> String {
     }
 }
 
-/// Remove a trailing `<keyword> ...` clause, if the query has one.
-///
-/// Matching is case-insensitive and skips anything inside single quotes, so a workflow id
-/// like `'daily order by region'` is not mistaken for a clause. Only the last occurrence is
-/// cut, which is what a trailing clause is.
 fn strip_clause(query: &str, keyword: &str) -> String {
     match find_clause(query, keyword) {
         Some(at) => query[..at].trim_end().to_string(),
@@ -99,9 +65,6 @@ fn strip_clause(query: &str, keyword: &str) -> String {
     }
 }
 
-/// Byte offset of the last unquoted occurrence of `keyword`, which the caller passes in
-/// lowercase. Whitespace inside the keyword is matched flexibly so that `ORDER   BY` and
-/// `order by` both count.
 fn find_clause(query: &str, keyword: &str) -> Option<usize> {
     let words: Vec<&str> = keyword.split_whitespace().collect();
     let bytes = query.as_bytes();
@@ -119,7 +82,6 @@ fn find_clause(query: &str, keyword: &str) -> Option<usize> {
             i += 1;
             continue;
         }
-        // A clause keyword must start at a word boundary, or `reorder by` would match.
         let at_boundary = i == 0 || !is_word_byte(bytes[i - 1]);
         if at_boundary && let Some(end) = match_words(bytes, i, &words) {
             found = Some(i);
@@ -131,7 +93,6 @@ fn find_clause(query: &str, keyword: &str) -> Option<usize> {
     found
 }
 
-/// If `words` match at `start` separated by whitespace, the offset just past them.
 fn match_words(bytes: &[u8], start: usize, words: &[&str]) -> Option<usize> {
     let mut i = start;
     for (n, word) in words.iter().enumerate() {
@@ -150,7 +111,6 @@ fn match_words(bytes: &[u8], start: usize, words: &[&str]) -> Option<usize> {
         }
         i = end;
     }
-    // The keyword must end at a word boundary too.
     if i < bytes.len() && is_word_byte(bytes[i]) {
         return None;
     }
@@ -187,7 +147,6 @@ mod tests {
 
     #[test]
     fn an_id_is_looked_up_as_either_kind_of_id() {
-        // Pasting a UUID out of a log says nothing about which one it is.
         let q = by_id("20e3bca5-b066").expect("plain text is quotable");
         assert!(q.contains("WorkflowId = '20e3bca5-b066'"), "{q}");
         assert!(q.contains("RunId = '20e3bca5-b066'"), "{q}");
@@ -209,7 +168,6 @@ mod tests {
 
     #[test]
     fn a_quote_in_the_prompt_builds_no_query() {
-        // Temporal's grammar has no escape for it, so there is no safe query to send.
         assert_eq!(by_id("o'brien"), None);
         assert_eq!(by_prefix("o'brien"), None);
         assert_eq!(by_id("   "), None);
@@ -217,8 +175,6 @@ mod tests {
 
     #[test]
     fn a_prefix_query_is_kept_apart_from_the_exact_one() {
-        // STARTS_WITH needs advanced visibility; a store without it must be able to reject
-        // this one while the exact lookup still works.
         let q = by_prefix("order-").expect("quotable");
         assert_eq!(q, "WorkflowId STARTS_WITH 'order-'");
     }
@@ -243,7 +199,6 @@ mod tests {
             count_query("WorkflowType = 'Foo' ORDER BY StartTime DESC"),
             "WorkflowType = 'Foo' GROUP BY ExecutionStatus"
         );
-        // Case and spacing vary in hand-written queries.
         assert_eq!(
             count_query("WorkflowType = 'Foo' order   by StartTime"),
             "WorkflowType = 'Foo' GROUP BY ExecutionStatus"
@@ -268,8 +223,6 @@ mod tests {
 
     #[test]
     fn a_quoted_value_is_not_mistaken_for_a_clause() {
-        // This is the bug a naive `find("order by")` would ship: a workflow id that
-        // happens to contain the words would truncate the user's filter.
         assert_eq!(
             count_query("WorkflowId = 'daily order by region'"),
             "WorkflowId = 'daily order by region' GROUP BY ExecutionStatus"

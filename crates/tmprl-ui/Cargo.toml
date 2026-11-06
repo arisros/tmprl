@@ -10,6 +10,5 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
-# No dependencies, deliberately. This crate is a tree and some arithmetic; keeping ratatui
-# out of it is what lets the layout rules be tested without a terminal.
+# No dependencies, so the layout rules are tested without a terminal.
 [dependencies]

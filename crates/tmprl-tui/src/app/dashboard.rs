@@ -6,8 +6,6 @@ use tmprl_core::history::close_reason;
 use tmprl_core::taskqueue::TaskQueueKind;
 
 impl App {
-    /// `gd`. From the namespace list it takes the namespaces under the cursor as its scope,
-    /// the way `<CR>` does, so the dashboard is one key from the opening screen.
     pub(super) fn open_dashboard(&mut self) {
         match self.view.screen {
             Screen::Dashboard => return,
@@ -39,8 +37,6 @@ impl App {
         self.load_dashboard();
     }
 
-    /// Ask for everything the panels read from. What is already on screen stays there
-    /// until its replacement arrives.
     pub fn load_dashboard(&mut self) {
         self.view.generation = self.view.generation.wrapping_add(1);
         self.view.stop_dashboard();
@@ -70,10 +66,6 @@ impl App {
         );
     }
 
-    /// The refresh timer, once a second: ask again for whatever is due on every dashboard
-    /// in the tab being looked at, focused or not.
-    ///
-    /// The generation is left alone, so an answer slower than the interval still lands.
     pub(super) fn tick_dashboards(&mut self, now: i64) {
         let Some(interval) = self.dashboard_refresh.interval_ms() else {
             return;
@@ -94,13 +86,10 @@ impl App {
             else {
                 continue;
             };
-            // A histogram's newest column is a stretch of time that may only just have begun.
             board.advance(now);
             let mut due = view
                 .dashboard_pacer
                 .take_due(board.sources().len(), now, interval);
-            // A source nothing reads any more is marked as answered, not asked: it costs
-            // nothing while it sleeps, and is due again the moment something wants it.
             due.retain(|source| {
                 let dormant = board.dormant(*source);
                 if dormant {
@@ -115,8 +104,6 @@ impl App {
         }
     }
 
-    /// How long a dashboard request may take. No request has a deadline of its own, and
-    /// one that never answered would never be asked again.
     fn dashboard_deadline(&self) -> std::time::Duration {
         let interval = self.dashboard_refresh.interval_ms().unwrap_or(0);
         std::time::Duration::from_millis(interval.max(10_000) as u64)
@@ -148,8 +135,6 @@ impl App {
         let fault = result.as_ref().err().cloned();
         let asked = board.sources().get(source);
         let settles = asked.is_some_and(|s| s.settles(now_ms()));
-        // One row's reason or one column's count going missing is not worth a note: the
-        // panel they belong to says when its own request fails.
         let minor = asked.is_some_and(|s| {
             matches!(
                 s,
@@ -168,8 +153,6 @@ impl App {
             Some(_) => Outcome::Failed,
         };
         let news = view.dashboard_pacer.answered(source, outcome, now_ms());
-        // A cursor still at the top has not been put anywhere, and should not be carried
-        // down the screen by panels filling in above the item it happened to be on.
         let anchor = (view.cursor > 0)
             .then(|| board.anchor(view.cursor))
             .flatten();
@@ -179,15 +162,12 @@ impl App {
         {
             view.cursor = board.reanchor(&anchor);
         }
-        // The rows that just arrived may name task queues nobody has described yet.
         let found = view.dashboard_pacer.take_new(board.sources().len());
         if !found.is_empty() {
             ask(view, id, found, conn, &tx, timed, deadline);
         }
         if focused {
             self.clamp_cursor();
-            // The timer says a source went bad once, not every interval it stays bad. The
-            // panel's title carries it from then on.
             if let Some(fault) = fault.filter(|_| !minor && (!timed || news)) {
                 self.fail(fault, Note::Error);
             }
@@ -198,7 +178,6 @@ impl App {
         self.view.screen == Screen::Dashboard && self.view.dashboard.is_some()
     }
 
-    /// `h` `j` `k` `l` on the dashboard: `count` steps the way the key points.
     pub(super) fn step_dashboard(&mut self, direction: Heading, count: usize) {
         let Some(board) = self.view.dashboard.as_ref() else {
             return;
@@ -221,7 +200,6 @@ impl App {
         self.set_cursor(at);
     }
 
-    /// `<CR>` on a dashboard item: the workflows, the history or the schedule it stands for.
     pub(super) fn drill(&mut self) {
         let Some(board) = self.view.dashboard.as_ref() else {
             return;
@@ -273,7 +251,6 @@ impl App {
     }
 }
 
-/// Send the requests for `sources` of the dashboard in `view`, which is pane `id`.
 fn ask(
     view: &mut View,
     id: ViewId,

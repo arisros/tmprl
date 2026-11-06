@@ -1,8 +1,5 @@
 name: Prepare release
 
-# Step one of a release, from the Actions tab: bump the version, write the changelog
-# section, open a PR. Merging that PR is what makes the version real; step two is the
-# Release workflow, which takes the tag.
 on:
   workflow_dispatch:
     inputs:
@@ -29,7 +26,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          # Tags decide the next rc number, and the changelog reads the log since the last one.
           fetch-depth: 0
 
       - uses: dtolnay/rust-toolchain@stable
@@ -48,14 +44,10 @@ jobs:
           branch="release/v$VERSION"
           git switch -c "$branch"
           git commit -am "chore(release): v$VERSION"
-          # Re-running this job after it failed later on must replace its own half-finished
-          # branch rather than be rejected as a non-fast-forward. The fetch is what makes
-          # --force-with-lease meaningful: without a remote-tracking ref it has no lease to
-          # check, and would refuse on stale info.
+          # A re-run must replace its own half-pushed branch; the fetch gives the lease a ref.
           git fetch origin "$branch" || true
           git push --force-with-lease -u origin "$branch"
 
-          # The section this bump just wrote: from its heading to the one before it.
           {
             echo "Prepared by the Prepare release workflow."
             echo
@@ -64,7 +56,6 @@ jobs:
             awk '/^## /{n++} n==1' CHANGELOG.md
           } > /tmp/pr-body.md
 
-          # A re-run finds the PR the earlier attempt opened; creating a second one fails.
           if [ -n "$(gh pr list --head "$branch" --state open --json number --jq '.[].number')" ]; then
             gh pr edit "$branch" --body-file /tmp/pr-body.md
           else

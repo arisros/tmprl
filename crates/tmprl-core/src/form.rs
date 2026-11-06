@@ -1,19 +1,9 @@
 //! A small multi-field editor, for the things that need more than one value.
-//!
-//! Every other input in tmprl is one value, and the one-line prompt covers those. Creating a
-//! schedule needs six, which as a positional line would be unreadable to type and silent to
-//! mistype: a task queue and a cron string are both strings, so a swapped pair only surfaces
-//! as a server error much later.
-//!
-//! Editing lives here rather than in the renderer so that field movement, validation and the
-//! rendered command are all testable without a terminal.
 
-/// One labelled line of a [`Form`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Field {
     pub label: &'static str,
     pub value: String,
-    /// Shown in place of an empty value, to say what belongs there.
     pub hint: &'static str,
     pub required: bool,
 }
@@ -22,16 +12,10 @@ pub struct Field {
 pub struct Form {
     pub title: &'static str,
     pub fields: Vec<Field>,
-    /// Which field the caret is on.
     pub cursor: usize,
 }
 
 impl Form {
-    /// The fields `temporal schedule create` needs.
-    ///
-    /// `workflow id` is the id given to the workflows the schedule starts, not the schedule's
-    /// own id; the server appends the scheduled time to it, so the two are different things
-    /// and naming both avoids the guess.
     pub fn new_schedule() -> Self {
         let f = |label, hint, required| Field {
             label,
@@ -53,7 +37,6 @@ impl Form {
         }
     }
 
-    /// Move down a field, wrapping. Tab in a form goes forward and stops nowhere.
     pub fn next(&mut self) {
         if !self.fields.is_empty() {
             self.cursor = (self.cursor + 1) % self.fields.len();
@@ -72,8 +55,6 @@ impl Form {
         }
     }
 
-    /// Delete backwards. Reports whether anything was there, so the caller can decide what an
-    /// empty backspace means.
     pub fn backspace(&mut self) -> bool {
         self.fields
             .get_mut(self.cursor)
@@ -81,7 +62,6 @@ impl Form {
             .is_some()
     }
 
-    /// The value of a field by label, trimmed. Empty when absent.
     pub fn get(&self, label: &str) -> &str {
         self.fields
             .iter()
@@ -90,10 +70,6 @@ impl Form {
             .unwrap_or("")
     }
 
-    /// The first required field still empty, if any.
-    ///
-    /// Checked before the confirmation rather than after, so the reader is sent back to the
-    /// field that is missing instead of reading a command with a hole in it.
     pub fn missing(&self) -> Option<&'static str> {
         self.fields
             .iter()
@@ -101,7 +77,6 @@ impl Form {
             .map(|f| f.label)
     }
 
-    /// Put the caret on a named field, for jumping to the one that failed validation.
     pub fn focus(&mut self, label: &str) {
         if let Some(i) = self.fields.iter().position(|f| f.label == label) {
             self.cursor = i;
@@ -115,9 +90,6 @@ mod tests {
 
     #[test]
     fn a_new_schedule_asks_for_everything_the_server_requires() {
-        // schedule-id, workflow-id, task-queue and type are all required by
-        // `temporal schedule create`, and a spec with none of cron/interval/calendar
-        // creates a schedule that never fires.
         let f = Form::new_schedule();
         let required: Vec<&str> = f
             .fields
@@ -172,7 +144,6 @@ mod tests {
 
     #[test]
     fn a_missing_required_field_is_named_rather_than_merely_counted() {
-        // The reader is sent back to the field, so the answer has to be which one.
         let mut f = Form::new_schedule();
         assert_eq!(f.missing(), Some("schedule id"));
         for (label, v) in [

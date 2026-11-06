@@ -9,19 +9,14 @@ use crate::query;
 use crate::schedule::ScheduleRow;
 use crate::workflow::WorkflowRow;
 
-/// Workflows the builtin retrying panel describes each refresh, the longest running first.
-/// Lower than a written panel's default: nobody asked for this one.
 const BUILTIN_SCAN: usize = 10;
 
-/// A panel the adaptive layout may or may not show.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Slot {
-    /// When the failures happened, hour by hour.
     Trend,
     Failures,
     Types,
     Running,
-    /// Running workflows with an activity failing between tries, which no status shows.
     Retrying,
     Queues,
     Paused,
@@ -95,7 +90,6 @@ impl Slot {
     }
 }
 
-/// What the probes have said so far. `None` is "not known yet", which is not "none".
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Facts<'a> {
     pub failures: Option<&'a [WorkflowRow]>,
@@ -103,13 +97,6 @@ pub struct Facts<'a> {
     pub schedules: Option<&'a [ScheduleRow]>,
 }
 
-/// The layout for a namespace nobody wrote a `dashboard.toml` for: the builtin one, less
-/// the panels known to have nothing in them.
-///
-/// A panel still waiting, or whose request failed, is shown, so the screen says what it is
-/// waiting for and what went wrong. A panel in `kept` is shown even when empty: it had
-/// items a moment ago, and a layout that reshuffles while it is being read is worse than
-/// an empty box.
 pub fn compose(facts: &Facts, kept: &[Slot]) -> Layout {
     let distinct_types = |rows: &[WorkflowRow]| tally_types(rows).len();
     let wanted = |slot: Slot| -> bool {
@@ -117,12 +104,10 @@ pub fn compose(facts: &Facts, kept: &[Slot]) -> Layout {
             return true;
         }
         match slot {
-            // Worth its 25 counts only once something is known to have failed.
             Slot::Trend => facts.failures.is_some_and(|rows| !rows.is_empty()),
             Slot::Failures => facts.failures.is_none_or(|rows| !rows.is_empty()),
             Slot::Types => facts.failures.is_none_or(|rows| distinct_types(rows) > 1),
             Slot::Running => false,
-            // Only once something is known to run: each refresh describes what it lists.
             Slot::Retrying => facts.running.is_some_and(|rows| !rows.is_empty()),
             Slot::Queues => facts.running.is_none_or(|rows| !rows.is_empty()),
             Slot::Paused => facts
@@ -139,8 +124,6 @@ pub fn compose(facts: &Facts, kept: &[Slot]) -> Layout {
         .into_iter()
         .filter(|s| wanted(*s))
         .collect();
-    // Nothing failed, so the room goes to what is running: a dashboard that is only a
-    // header says less than the list it is one key from.
     if !middle.contains(&Slot::Failures)
         && (kept.contains(&Slot::Running) || facts.running.is_some_and(|rows| !rows.is_empty()))
     {
@@ -150,7 +133,6 @@ pub fn compose(facts: &Facts, kept: &[Slot]) -> Layout {
         .into_iter()
         .filter(|s| wanted(*s))
         .collect();
-    // Schedules that are neither paused nor due still exist, and are worth one panel.
     if facts.schedules.is_some_and(|rows| !rows.is_empty())
         && !bottom
             .iter()
@@ -174,15 +156,11 @@ pub fn compose(facts: &Facts, kept: &[Slot]) -> Layout {
         })],
     }];
     if wanted(Slot::Trend) {
-        // A share, not a fixed height: the renderer caps it at what a chart needs, and a
-        // small pane can still squeeze it to make room for the list under it.
         rows.push(row(Size::Weight(1), vec![Slot::Trend]));
     }
     if !middle.is_empty() {
         rows.push(row(Size::Weight(3), middle));
     }
-    // A row of its own, under the failures: each line is an id, an activity and the
-    // failure it last ended on, which needs the width more than the height.
     if wanted(Slot::Retrying) {
         rows.push(row(Size::Weight(1), vec![Slot::Retrying]));
     }

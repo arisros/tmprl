@@ -1,6 +1,5 @@
 //! Task queues: whether anything is polling one, and how far behind it is.
 
-/// The two kinds of task a queue carries. The server describes them separately.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaskQueueKind {
     Workflow,
@@ -9,19 +8,13 @@ pub enum TaskQueueKind {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct QueueHealth {
-    /// Tasks waiting. Approximate, and `None` when the server reports no stats at all,
-    /// which must not read as an empty queue.
     pub backlog: Option<i64>,
-    /// How long the oldest waiting task has waited.
     pub backlog_age_ms: Option<i64>,
-    /// Workers that polled recently. The server forgets one after a few minutes.
     pub pollers: usize,
     pub last_poll_ms: Option<i64>,
 }
 
 impl QueueHealth {
-    /// A queue's workflow tasks and its activity tasks as one answer: the backlogs add up,
-    /// and the oldest task and the latest poll are the ones worth knowing.
     pub fn merge(self, other: QueueHealth) -> QueueHealth {
         let sum = |a: Option<i64>, b: Option<i64>| match (a, b) {
             (None, None) => None,
@@ -35,7 +28,6 @@ impl QueueHealth {
         }
     }
 
-    /// Work is waiting and nothing is taking it: the state this exists to make visible.
     pub fn stuck(&self) -> bool {
         self.pollers == 0 && self.backlog.is_some_and(|n| n > 0)
     }

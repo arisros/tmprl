@@ -81,8 +81,6 @@ def promote(version: str) -> None:
     preamble, sections = read()
     today = f"{datetime.date.today():%Y-%m-%d}"
 
-    # Oldest candidate first, then whatever is still Unreleased: chronological, which is how
-    # the entry was written even though the file runs newest-first.
     fold = [s for s in reversed(sections) if s.is_candidate and s.version == version]
     fold += [s for s in sections if s.title == "Unreleased"]
     body = merge([s.body for s in fold])

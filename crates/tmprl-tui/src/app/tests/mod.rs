@@ -1,5 +1,4 @@
 //! Tests for `App`, one file per `app/` file they exercise. The fixtures every file
-//! shares are here.
 
 use super::yank::{json_string, write_yank_file};
 use super::*;
@@ -55,19 +54,12 @@ fn type_chars(app: &mut App, s: &str) {
     }
 }
 
-/// Type a pattern into an open `/` prompt and submit it.
 fn search_for(app: &mut App, pattern: &str) {
     app.run("search.open", None);
     type_chars(app, pattern);
     app.handle(Msg::Key(Chord::plain(Key::Enter)));
 }
 
-/// Four workflows, two of them `Refund`.
-///
-/// The list renders newest first, so the display order is the reverse of the order
-/// written here: **r4, r3, r2, r1**, which puts the two Refunds on rows 0 and 2. The
-/// assertions below name run ids rather than indices wherever they can, because that
-/// reversal is exactly the kind of thing a reader gets wrong.
 fn four(app: &mut App) {
     let mut rows = vec![
         wf("default", "r1", 100),
@@ -80,12 +72,10 @@ fn four(app: &mut App) {
     loaded(app, rows, vec![]);
 }
 
-/// The run id under the cursor, which is what the search assertions are really about.
 fn at_cursor(app: &App) -> String {
     app.workflow_rows()[app.view.cursor].run_id.clone()
 }
 
-/// Row index of a run id in display order.
 fn row_of(app: &App, run: &str) -> usize {
     app.workflow_rows()
         .iter()
@@ -117,8 +107,6 @@ fn hev(
     NormalizedEvent::new(id, "E", cat, group, role).with_time(Some(id * 1000))
 }
 
-/// A workflow, a workflow task (plumbing) and two activities, the second of which
-/// failed.
 fn history_events() -> Vec<NormalizedEvent> {
     use tmprl_core::history::{Category as C, GroupRef as G, Role as R};
     vec![
@@ -135,7 +123,6 @@ fn history_events() -> Vec<NormalizedEvent> {
     ]
 }
 
-/// A history with a page still outstanding, as a long run has while you read the top.
 fn half_read_history() -> App {
     let mut app = app();
     loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
@@ -159,7 +146,6 @@ fn viewing_history() -> App {
     app
 }
 
-/// A history whose workflow has *not* closed: no terminal event.
 fn running_history() -> Vec<NormalizedEvent> {
     use tmprl_core::history::{Category as C, GroupRef as G, Role as R};
     vec![
@@ -174,13 +160,11 @@ fn viewing_running() -> App {
     app.run("nav.open", None);
     app.handle(Msg::History {
         generation: app.view.generation,
-        // A non-empty token is what a running workflow returns.
         result: Ok((running_history(), vec![9])),
     });
     app
 }
 
-/// A history whose activity carries a JSON input and result.
 fn viewing_payloads() -> App {
     use tmprl_core::history::{Category as C, GroupRef as G, Outcome as O, Role as R};
 
@@ -224,7 +208,6 @@ fn on_a_workflow() -> App {
     app
 }
 
-/// Four running workflows, cursor on the first.
 fn on_four_workflows() -> App {
     let mut app = app();
     loaded(
@@ -240,7 +223,6 @@ fn on_four_workflows() -> App {
     app
 }
 
-/// Select `count` rows downwards from the cursor with `V` and `j`.
 fn select(app: &mut App, count: usize) {
     app.run("mode.visual-line", None);
     for _ in 1..count {

@@ -1,9 +1,4 @@
 //! The completion list under the query bar.
-//!
-//! Docked directly beneath the bar and over the top of the rows, the way a completion popup
-//! sits under the line being typed in an editor. It is only ever on screen while Insert mode
-//! owns the bar and something has been typed, so the rows it covers are rows nobody is
-//! reading at that moment.
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
@@ -15,7 +10,6 @@ use tmprl_core::complete::Completion;
 use super::truncate;
 use crate::theme::Theme;
 
-/// Room for the border either side, plus a gap between clause and note.
 const CHROME: usize = 6;
 
 pub fn render(frame: &mut Frame, below: Rect, pane: Rect, c: &Completion, t: &Theme) {
@@ -30,8 +24,6 @@ pub fn render(frame: &mut Frame, below: Rect, pane: Rect, c: &Completion, t: &Th
         .max()
         .unwrap_or(0);
     let width = (widest + CHROME).min(pane.width as usize) as u16;
-    // Never taller than the space under the bar: a list that ran off the pane would be
-    // clipped by the frame rather than by anything that knows what it is doing.
     let rows = (items.len() as u16 + 2).min(below.height.max(2));
     let area = Rect {
         x: below.x,
@@ -71,7 +63,6 @@ pub fn render(frame: &mut Frame, below: Rect, pane: Rect, c: &Completion, t: &Th
         })
         .collect();
 
-    // The rows underneath would otherwise show through the gaps.
     frame.render_widget(Clear, area);
     frame.render_widget(block, area);
     frame.render_widget(Paragraph::new(lines), inner);

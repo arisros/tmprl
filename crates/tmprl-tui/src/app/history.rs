@@ -3,8 +3,6 @@
 use super::*;
 
 impl App {
-    /// The group the cursor is on, whether it sits on the group's own line or on one of its
-    /// events. Folding from inside an expanded group is what a reader expects.
     pub(super) fn group_under_cursor(&self) -> Option<usize> {
         match self.view.history.value()?.row_at(self.view.cursor)? {
             Row::Group { group, .. } | Row::Event { group, .. } => Some(group),
@@ -15,8 +13,6 @@ impl App {
         let Some(group) = self.group_under_cursor() else {
             return;
         };
-        // Folding shut from inside a group would otherwise strand the cursor past the end;
-        // `toggle` hands back where the group's own line is now, so it moves there.
         if let Some(outline) = self.view.history.value_mut()
             && let Some(row) = outline.toggle(group)
         {
@@ -25,9 +21,6 @@ impl App {
         self.clamp_cursor();
     }
 
-    /// Apply a shape change, then put the cursor back on the group it was on. Expanding or
-    /// collapsing everything moves every row, so an unadjusted cursor lands somewhere
-    /// arbitrary.
     pub(super) fn with_outline(&mut self, f: impl FnOnce(&mut Outline)) {
         let was = self.group_under_cursor();
         let Some(outline) = self.view.history.value_mut() else {
@@ -60,8 +53,6 @@ impl App {
             self.note = Some(("follow stopped".into(), Note::Info));
             return;
         }
-        // Following a workflow that has already finished would poll forever for events that
-        // can never arrive, so say so instead.
         if self.view.history_token.is_empty() && self.workflow_is_closed() {
             self.note = Some((
                 "this workflow has closed, nothing to follow".into(),
@@ -72,7 +63,6 @@ impl App {
         self.start_following();
     }
 
-    /// Whether the run itself has ended, as opposed to merely being caught up.
     pub(super) fn workflow_is_closed(&self) -> bool {
         self.view
             .history
@@ -81,11 +71,6 @@ impl App {
             .is_some_and(|s| s.outcome != tmprl_core::history::Outcome::Pending)
     }
 
-    /// Spawn the long-poll loop.
-    ///
-    /// The loop lives entirely in the task: the reducer never awaits it, and every batch of
-    /// events comes back as an ordinary `Msg`. That is the whole reason a sixty-second long
-    /// poll cannot freeze a keystroke.
     pub(super) fn start_following(&mut self) {
         let Some(row) = self.view.viewing.clone() else {
             return;
@@ -118,10 +103,10 @@ impl App {
                             })
                             .is_err()
                         {
-                            return; // the application is gone
+                            return;
                         }
                         if done {
-                            return; // the workflow closed
+                            return;
                         }
                     }
                     Err(e) if e.is_transient() => {
@@ -151,8 +136,6 @@ impl App {
         }));
     }
 
-    /// Stop tailing. Aborting matters: the task is parked inside a long poll and would
-    /// otherwise keep a request open and keep pushing events into a screen that has moved on.
     pub(super) fn stop_following(&mut self) {
         self.view.stop_following();
     }

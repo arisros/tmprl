@@ -1,13 +1,4 @@
 //! The operations that change a cluster.
-//!
-//! Everything else in this crate reads. These write, and deleting a workflow or a schedule
-//! cannot be undone, so nothing here decides *whether* to act, the confirmation in
-//! `tmprl-core` does that, and the reducer only reaches this module once the reader has said
-//! yes.
-//!
-//! Every request carries an `identity`. Temporal records it on the resulting history event,
-//! so a workflow terminated from tmprl says so in its own history rather than appearing to
-//! have stopped on its own.
 
 use temporalio_client::tonic::Request;
 use temporalio_common::protos::temporal::api::{
@@ -32,7 +23,6 @@ use tmprl_core::mutation::Mutation;
 use super::OpError;
 use crate::Conn;
 
-/// What tmprl calls itself on the events it causes.
 fn identity() -> String {
     format!(
         "tmprl@{}",
@@ -40,16 +30,11 @@ fn identity() -> String {
     )
 }
 
-/// A fresh request id.
-///
-/// `ResetWorkflowExecution` rejects a request without one ("RequestId is not set on request").
-/// The others accept one, where it makes a retried call idempotent rather than doubling the
-/// effect.
+// ResetWorkflowExecution rejects a request without a request id.
 fn request_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
-/// Epoch millis as a protobuf timestamp.
 fn timestamp(ms: i64) -> prost_wkt_types::Timestamp {
     prost_wkt_types::Timestamp {
         seconds: ms.div_euclid(1_000),
@@ -65,10 +50,6 @@ fn execution(workflow_id: &str, run_id: &str) -> Option<WorkflowExecution> {
 }
 
 impl Conn {
-    /// Carry out a confirmed mutation.
-    ///
-    /// One entry point rather than four, so the reducer has exactly one place that writes and
-    /// the audit log has exactly one thing to wrap.
     pub async fn mutate(&self, m: &Mutation) -> Result<(), OpError> {
         match m {
             Mutation::Cancel {
@@ -155,11 +136,7 @@ impl Conn {
                         namespace: namespace.clone(),
                         workflow_execution: execution(workflow_id, run_id),
                         reason: reason.clone(),
-                        // Already resolved to a completed workflow task; the server rejects
-                        // anything else.
                         workflow_task_finish_event_id: *event_id,
-                        // Excluding nothing keeps signals sent after the reset point.
-                        // Replaces the deprecated `reset_reapply_type`.
                         reset_reapply_exclude_types: Vec::new(),
                         identity: identity(),
                         request_id: request_id(),
@@ -181,8 +158,6 @@ impl Conn {
                     .update_workflow_execution(Request::new(UpdateWorkflowExecutionRequest {
                         namespace: namespace.clone(),
                         workflow_execution: execution(workflow_id, run_id),
-                        // Wait for the outcome rather than for acceptance, so the reported
-                        // result is the workflow's answer and not just "it was allowed in".
                         wait_policy: Some(WaitPolicy {
                             lifecycle_stage: UpdateWorkflowExecutionLifecycleStage::Completed
                                 as i32,
@@ -207,9 +182,6 @@ impl Conn {
                     .map_err(|s| super::rpc("UpdateWorkflowExecution", s))?
                     .into_inner();
 
-                // An update can be *accepted* and then rejected by the workflow itself. That
-                // is a failure of the thing the user asked for, so it is reported as one
-                // rather than as a success that quietly did nothing.
                 if let Some(outcome) = resp.outcome
                     && let Some(
                         temporalio_common::protos::temporal::api::update::v1::outcome::Value::Failure(f),
@@ -228,8 +200,6 @@ impl Conn {
                 schedule_id,
                 paused,
             } => {
-                // The reason lands in the schedule's own notes, so a paused schedule says
-                // why it is paused rather than merely that it is.
                 let note = format!("{} from tmprl", if *paused { "paused" } else { "resumed" });
                 self.wf()
                     .patch_schedule(Request::new(PatchScheduleRequest {
@@ -257,10 +227,7 @@ impl Conn {
                         schedule_id: schedule_id.clone(),
                         patch: Some(SchedulePatch {
                             trigger_immediately: Some(TriggerImmediatelyRequest {
-                                // Unspecified leaves the schedule's own overlap policy in
-                                // charge, which is what the reader configured.
                                 overlap_policy: 0,
-                                // None means now, which is what "trigger" asks for.
                                 scheduled_time: None,
                             }),
                             ..Default::default()
@@ -286,9 +253,6 @@ impl Conn {
                         namespace: namespace.clone(),
                         schedule_id: schedule_id.clone(),
                         schedule: Some(Schedule {
-                            // The cron string is sent as typed. The server parses it, and it
-                            // accepts `@every 1h` as well as five-field cron, so validating
-                            // here would only reject specs the server would have taken.
                             spec: Some(ScheduleSpec {
                                 cron_string: vec![spec.clone()],
                                 ..Default::default()
@@ -362,10 +326,6 @@ impl Conn {
     }
 }
 
-/// A signal argument, encoded the way an SDK would send it.
-///
-/// `json/plain` with the text as typed. The confirmation shows the same string next to
-/// `--input`, so what the CLI would send and what tmprl sends are the same bytes.
 fn json_payload(input: &str) -> Payloads {
     Payloads {
         payloads: vec![ProtoPayload {
@@ -395,8 +355,6 @@ mod tests {
 
     #[test]
     fn tmprl_names_itself_on_what_it_causes() {
-        // A workflow terminated from here should say so in its own history rather than
-        // appearing to have stopped on its own.
         assert!(identity().starts_with("tmprl@"));
     }
 

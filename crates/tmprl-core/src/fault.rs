@@ -1,14 +1,7 @@
 //! A failed request, kept in enough detail to say what went wrong and what to try.
-//!
-//! The client produces these and the interface renders them, so the type lives here, below
-//! both. What makes it worth a type rather than a sentence is the [`Code`]: "the server did
-//! not answer" and "the server said no" call for different things from the reader, and a
-//! flattened message cannot tell them apart without guessing at its wording.
 
 use std::fmt;
 
-/// Why a request failed. The gRPC status codes, plus the two failures that never reach a
-/// Temporal server.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Code {
     Cancelled,
@@ -27,17 +20,12 @@ pub enum Code {
     Unavailable,
     DataLoss,
     Unauthenticated,
-    /// An update the server accepted and the workflow then refused. Not a gRPC status: the
-    /// call itself succeeded.
     Rejected,
-    /// The codec server, which is HTTP and has no status code of this kind.
     Codec,
-    /// Raised on this side of the wire, with nothing but a message to go on.
     Local,
 }
 
 impl Code {
-    /// The name as gRPC spells it, which is what a server log or a bug report will use.
     pub fn name(self) -> &'static str {
         match self {
             Code::Cancelled => "Cancelled",
@@ -62,7 +50,6 @@ impl Code {
         }
     }
 
-    /// The same thing in words, for a line a person reads.
     pub fn label(self) -> &'static str {
         match self {
             Code::Cancelled => "cancelled",
@@ -87,10 +74,6 @@ impl Code {
         }
     }
 
-    /// What to try, where there is something to try.
-    ///
-    /// Only codes with an action the reader can take get one. A hint that restates the
-    /// failure is a second line saying the same thing as the first.
     pub fn hint(self) -> Option<&'static str> {
         match self {
             Code::Unavailable => Some("the server did not answer; check the connection, R retries"),
@@ -120,10 +103,8 @@ impl Code {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Fault {
-    /// The RPC that failed, as Temporal names it. Empty when no RPC was involved.
     pub operation: &'static str,
     pub code: Code,
-    /// What the other side said, verbatim.
     pub message: String,
 }
 
@@ -148,11 +129,7 @@ impl Fault {
         self.code.hint()
     }
 
-    /// Whether the server refused the operation rather than the call going wrong.
-    ///
-    /// The code is the answer where there is one. The two sentences are Temporal Cloud's,
-    /// kept because which status it sends them under has not been confirmed, and missing
-    /// the refusal strands a namespace-scoped key on the opening screen.
+    // Temporal Cloud's refusal wording, since its status code is not confirmed.
     pub fn is_transient(&self) -> bool {
         matches!(
             self.code,
@@ -231,8 +208,6 @@ mod tests {
 
     #[test]
     fn a_failure_with_no_rpc_behind_it_is_only_its_message() {
-        // A codec refusal already says what it is; prefixing an empty operation would
-        // print " failed (codec): ...".
         assert_eq!(Fault::codec("returned 502").to_string(), "returned 502");
         assert_eq!(Fault::from("boom").to_string(), "boom");
         assert_eq!(Fault::from("boom").code, Code::Local);
@@ -241,15 +216,12 @@ mod tests {
     #[test]
     fn a_refusal_is_recognised_by_code_before_wording() {
         assert!(Fault::rpc("ListNamespaces", Code::PermissionDenied, "no").is_refusal());
-        // Temporal Cloud's sentence, under whatever status it arrives with.
         assert!(Fault::rpc("ListNamespaces", Code::Unknown, "Request unauthorized.").is_refusal());
         assert!(!Fault::rpc("ListNamespaces", Code::Unavailable, "transport error").is_refusal());
     }
 
     #[test]
     fn a_bad_credential_is_not_dressed_up_as_a_scoped_key() {
-        // Unauthenticated means the key itself was refused. Treating it as a refusal would
-        // show one namespace from the profile and then fail on everything inside it.
         assert!(!Fault::rpc("ListNamespaces", Code::Unauthenticated, "bad key").is_refusal());
     }
 
@@ -283,8 +255,6 @@ mod tests {
 
     #[test]
     fn every_code_reads_as_words_on_the_note_line() {
-        // The label is what lands between the brackets of a failure, so it is lowercase
-        // prose, never the gRPC spelling.
         for code in ALL {
             let label = code.label();
             assert!(!label.is_empty(), "{code:?}");
@@ -310,8 +280,6 @@ mod tests {
                 Code::Unauthenticated,
             ]
         );
-        // A server fault or a workflow's own refusal leaves the reader nothing to do, and a
-        // hint there would only restate the failure.
         assert!(Code::Internal.hint().is_none());
         assert!(Code::Rejected.hint().is_none());
     }

@@ -1,5 +1,4 @@
-// The sample's seeder: starts shipments with a fixed mix of fates, the same ones for the
-// same seed.
+// The sample's seeder: a fixed mix of fates, the same for the same seed.
 package main
 
 import (
@@ -121,7 +120,6 @@ func main() {
 		ids = append(ids, s.ID)
 	}
 
-	// A few are ended by hand, as someone on call would.
 	for i, id := range ids {
 		switch {
 		case i%47 == 11:

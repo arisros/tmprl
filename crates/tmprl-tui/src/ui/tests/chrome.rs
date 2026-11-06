@@ -4,17 +4,13 @@ use super::*;
 
 #[test]
 fn each_pane_draws_its_own_view_not_the_focused_one_twice() {
-    // The bug this guards: a render loop that falls back to the focused view paints the
-    // same pane twice, and a split looks like it worked while showing nothing new.
-    let mut app = app_with_rows(); // namespaces loaded
+    let mut app = app_with_rows();
     app.run("window.split-right", None);
     assert_eq!(app.tabs.current().len(), 2);
 
     let out = draw(&mut app, 120, 16);
     let body: Vec<&str> = out.lines().skip(1).collect();
 
-    // The focused (new) pane is empty; the parked one still lists namespaces. So exactly
-    // one side of each row should carry a namespace name.
     let with_default = body.iter().filter(|l| l.contains("default")).count();
     assert!(
         with_default > 0,
@@ -30,7 +26,6 @@ fn each_pane_draws_its_own_view_not_the_focused_one_twice() {
 fn truncation_respects_character_boundaries() {
     assert_eq!(truncate("short", 10), "short");
     assert_eq!(truncate("abcdefghij", 5), "abcd…");
-    // Multi-byte input must not be sliced mid-character.
     assert_eq!(truncate("日本語テスト", 3), "日本…");
 }
 
@@ -56,8 +51,6 @@ fn header_shows_profile_and_namespace() {
 
 #[test]
 fn a_readonly_profile_says_so_in_the_header() {
-    // Colour alone is not the signal: this has to read on a 16-colour terminal and for
-    // a colour-blind reader, so the marker is text.
     let mut app = app_with_rows();
     app.apply_config(None, None, Some("[profile.prod]\nreadonly = true"));
     let out = draw(&mut app, 90, 12);
@@ -105,7 +98,6 @@ fn rows_are_listed_with_a_hybrid_relative_gutter() {
     let out = draw(&mut app, 90, 12);
     assert!(out.contains("payments"), "rows missing:\n{out}");
 
-    // Skip the header, which also mentions the namespace by name.
     let body: Vec<&str> = out.lines().skip(1).collect();
     let gutter = |needle: &str| -> String {
         body.iter()
@@ -116,7 +108,6 @@ fn rows_are_listed_with_a_hybrid_relative_gutter() {
             .take_while(|c| c.is_ascii_digit())
             .collect()
     };
-    // The cursor row shows its own 1-based index; the others show distance.
     assert_eq!(
         gutter("payments"),
         "2",
@@ -149,23 +140,17 @@ fn which_key_popup_appears_after_the_leader() {
 fn help_overlay_lists_command_groups() {
     let mut app = app_with_rows();
     app.run("app.help", None);
-    // Tall enough to reach the Mode group without scrolling: this is a test about ids
-    // being rendered whole, not about where the fold falls. Scrolling has its own.
     let out = draw(&mut app, 90, 40);
     assert!(out.contains("Motion"), "group heading missing:\n{out}");
     assert!(out.contains("Quit"), "command title missing:\n{out}");
-    // Bindings are rendered from the keymap, not written by hand.
     assert!(out.contains("<Space>q"), "leader binding missing:\n{out}");
     assert!(out.contains("jk"), "insert-escape binding missing:\n{out}");
-    // Ids must not be truncated, they are what `:` and keys.toml consume.
     assert!(out.contains("app.command-line"), "id truncated:\n{out}");
     assert!(out.contains("mode.visual-line"), "id truncated:\n{out}");
 }
 
 #[test]
 fn the_help_overlay_scrolls_instead_of_clipping_silently() {
-    // Adding commands must never push a group off the bottom with no sign of it,
-    // that is how a reader concludes a command does not exist.
     let mut app = app_with_rows();
     app.run("app.help", None);
 
@@ -180,8 +165,6 @@ fn the_help_overlay_scrolls_instead_of_clipping_silently() {
     );
     assert!(out.contains("Application"), "first group missing:\n{out}");
 
-    // The last group is reachable by scrolling. Whatever group is registered last, the
-    // point is that adding commands must not push one off the bottom unreachably.
     app.run("motion.bottom", None);
     let out = draw(&mut app, 90, 16);
     let last_group = app.registry.groups().last().copied().unwrap();
@@ -200,7 +183,6 @@ fn the_help_overlay_scrolls_instead_of_clipping_silently() {
 
 #[test]
 fn a_long_binding_list_never_runs_into_the_title_column() {
-    // Three bindings on one command is ordinary once keys.toml adds to the defaults.
     let mut app = app_with_rows();
     app.apply_config(Some("[normal]\n\"ZZ\" = \"app.quit\"\n"), None, None);
     app.run("app.help", None);
@@ -224,8 +206,6 @@ fn a_long_binding_list_never_runs_into_the_title_column() {
 fn a_help_overlay_that_fits_says_nothing_about_scrolling() {
     let mut app = app_with_rows();
     app.run("app.help", None);
-    // Tall enough that the whole registry fits, the overlay has grown with every
-    // milestone, so the height here is "definitely more than enough", not a magic number.
     let out = draw(&mut app, 90, 200);
     assert_eq!(app.overlay_max_scroll, 0);
     assert!(!out.contains("j/k to scroll"), "{out}");
@@ -273,7 +253,6 @@ fn empty_state_renders_without_panicking() {
 
 #[test]
 fn renders_at_a_cramped_terminal_size() {
-    // A layout that assumes room is a layout that panics on someone's split pane.
     let mut app = app_with_rows();
     app.show_help = true;
     let _ = draw(&mut app, 20, 4);
@@ -284,8 +263,6 @@ fn renders_at_a_cramped_terminal_size() {
 
 #[test]
 fn a_list_longer_than_the_pane_grows_a_scrollbar() {
-    // The thumb is the only thing that says "there is more below" on a list whose rows all
-    // look alike.
     let mut app = app_with_workflows(&["default"]);
     let start = 1_789_628_602_431;
     let mut list = WorkflowList::default();
@@ -313,7 +290,6 @@ fn a_list_longer_than_the_pane_grows_a_scrollbar() {
 
 #[test]
 fn a_list_that_fits_draws_no_scrollbar() {
-    // A pane with nothing to scroll must look exactly as it did before.
     let mut app = app_with_workflows(&["default"]);
     let out = draw(&mut app, 110, 20);
     assert!(
@@ -324,8 +300,6 @@ fn a_list_that_fits_draws_no_scrollbar() {
 
 #[test]
 fn the_scrollbar_does_not_eat_the_column_beside_it() {
-    // The bar takes its own column rather than painting over the rightmost one, which on
-    // the workflow list is the age.
     let mut app = app_with_workflows(&["default"]);
     let start = 1_789_628_602_431;
     let mut list = WorkflowList::default();

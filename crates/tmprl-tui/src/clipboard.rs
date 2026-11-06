@@ -1,14 +1,4 @@
 //! Yanking to the clipboard over OSC 52.
-//!
-//! Deliberately *not* xclip/xsel/wl-copy. The common deployment is SSH into a remote,
-//! often headless host, where those either fail or copy into a clipboard on the server,
-//! which helps nobody, silently. OSC 52 hands the text back over the terminal connection to
-//! the machine the human is actually sitting at.
-//!
-//! Inside tmux the text goes through `tmux load-buffer -w` instead of a raw OSC 52. tmux
-//! drops OSC 52 from applications unless `set-clipboard` is `on` (the default is
-//! `external`), while `-w` has tmux emit the sequence to the client terminal itself. That
-//! still crosses SSH, since the client is where the human sits.
 
 use std::io::{self, Write, stdout};
 use std::process::{Command, Stdio};
@@ -25,8 +15,6 @@ pub enum YankError {
     Tmux(String),
 }
 
-/// `max` is `[yank] max_bytes`. A silently truncated clipboard is worse than a refusal, so
-/// the caller is expected to have sent anything longer to a file already.
 pub fn yank(text: &str, max: usize) -> Result<(), YankError> {
     if text.len() > max {
         return Err(YankError::TooLarge {
@@ -34,7 +22,6 @@ pub fn yank(text: &str, max: usize) -> Result<(), YankError> {
             max,
         });
     }
-    // Tests run inside the developer's tmux, where a real yank would clobber their clipboard.
     if cfg!(test) {
         return Ok(());
     }

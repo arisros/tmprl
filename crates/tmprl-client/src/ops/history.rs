@@ -1,22 +1,4 @@
 //! Reading a workflow history, and flattening it into normalised events.
-//!
-//! The match over the attributes `oneof` is **exhaustive on purpose**, per design rule 4.
-//! Temporal adds event types regularly: Nexus, worker versioning and workflow pausing are
-//! all recent. With a `_ => {}` arm a new event type renders as a blank row and nobody
-//! notices for a release or two; exhaustive, it is a compile error the moment the protos
-//! are bumped, which is exactly when we want to hear about it.
-//!
-//! Grouping keys come straight from the protocol's back-references. Which field to follow
-//! is not uniform, so it is spelled out per arm rather than guessed:
-//!
-//! * activities, workflow tasks and Nexus operations → `scheduled_event_id`
-//! * child and external workflows → `initiated_event_id`
-//! * timers → `started_event_id` (the id of the `TimerStarted` event)
-//! * updates → `accepted_event_id`
-//!
-//! `workflow_task_completed_event_id` appears on many of these too, but it points at the
-//! workflow task that *caused* the command, not at the thing's own group, following it
-//! would file every activity under the task that scheduled it.
 
 use std::collections::HashMap;
 
@@ -37,11 +19,9 @@ use tmprl_core::payload::Payload;
 use super::OpError;
 use crate::Conn;
 
-/// One page of a workflow's history.
 #[derive(Debug, Clone, Default)]
 pub struct HistoryPage {
     pub events: Vec<NormalizedEvent>,
-    /// Empty on the last page.
     pub next_page_token: Vec<u8>,
 }
 
@@ -51,8 +31,6 @@ impl HistoryPage {
     }
 }
 
-/// How a history is being read: a page of it, the long poll for what comes next, or only
-/// the event it closed on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Read {
     Page,
@@ -61,29 +39,6 @@ enum Read {
 }
 
 impl Conn {
-    /// One long-poll step of follow mode.
-    ///
-    /// This is [`Conn::get_history`] with `wait_new_event: true`, which makes the call
-    /// **block until the workflow does something**, up to about a minute, then it returns
-    /// empty-handed and you call again. Never reach for this outside a task dedicated to
-    /// following; anything else it is on will simply stop.
-    ///
-    /// The behaviour of the continuation token differs from paging, and follow mode is built
-    /// on the difference. Measured against a dev server:
-    ///
-    /// | | `wait_new_event: false` | `wait_new_event: true` |
-    /// |---|---|---|
-    /// | running workflow, caught up | returns 0 events, **empty** token | blocks, then returns new events, token stays non-empty |
-    /// | closed workflow | empty token | empty token, terminal event last |
-    ///
-    /// So an **empty token here means the workflow has closed** and there is nothing further
-    /// to follow: the loop's termination condition, and it is authoritative in a way
-    /// that inspecting the last event's type is not.
-    ///
-    /// Passing an empty token restarts from event 1, so a caller resuming a follow should
-    /// hand back the last non-empty token it saw. The page that token sits in is replayed,
-    /// which is why events are merged rather than appended, see
-    /// `tmprl_core::history::merge_events`.
     pub async fn follow_history(
         &self,
         namespace: &str,
@@ -102,10 +57,6 @@ impl Conn {
         .await
     }
 
-    /// The event a workflow closed on, and nothing else: `None` while it is still running.
-    ///
-    /// One small page however long the history is, which is what makes it affordable to
-    /// ask of every row in a list.
     pub async fn close_event(
         &self,
         namespace: &str,
@@ -128,12 +79,6 @@ impl Conn {
             .find(|e| e.group == GroupRef::Workflow && e.role == Role::Closes))
     }
 
-    /// One page of history, normalised.
-    ///
-    /// `wait_new_event` is false here. Setting it true turns this into a long poll that does
-    /// not return until something happens, which is correct for follow mode and a hang
-    /// everywhere else, so follow mode gets [`Conn::follow_history`] rather than a flag on
-    /// this one that is easy to pass by accident.
     pub async fn get_history(
         &self,
         namespace: &str,
@@ -196,8 +141,6 @@ impl Conn {
     }
 }
 
-/// What the match over the attributes produces. Assembled into a [`NormalizedEvent`] with
-/// the id and timestamp, which every event has regardless of its type.
 struct Mapped {
     category: Category,
     group: GroupRef,
@@ -210,11 +153,6 @@ struct Mapped {
     payloads: Vec<(String, Payload)>,
 }
 
-/// Keep the whole failure, not its outermost sentence.
-///
-/// A worker that raises `PaymentDeclined("card declined")` inside an activity produces an
-/// activity failure wrapping an application failure: three fields of the chain say what
-/// went wrong, and `message` alone is usually the one that does not.
 pub(crate) fn normalize_failure(f: Failure) -> CoreFailure {
     let application = match &f.failure_info {
         Some(FailureInfo::ApplicationFailureInfo(a)) => Some(a),
@@ -228,17 +166,10 @@ pub(crate) fn normalize_failure(f: Failure) -> CoreFailure {
         source: Some(f.source).filter(|s| !s.is_empty()),
         stack_trace: Some(f.stack_trace).filter(|s| !s.is_empty()),
         non_retryable: application.is_some_and(|a| a.non_retryable),
-        // Recursion is bounded by the message the server sent, which it built from a
-        // bounded chain; a cycle is not representable in the protobuf.
         cause: f.cause.map(|c| Box::new(normalize_failure(*c))),
     }
 }
 
-/// The update handler being called, and the arguments it was called with.
-///
-/// The name is what a reader recognises: `data-forward-cancel`, the handler the caller asked
-/// for. It sits two levels down on the request, beside the arguments, on every one of the
-/// three update events that echo a request back.
 fn handler_and_input(request: Option<UpdateRequest>) -> (String, Option<Payloads>) {
     match request.and_then(|r| r.input) {
         Some(input) => (input.name, input.args),
@@ -246,8 +177,6 @@ fn handler_and_input(request: Option<UpdateRequest>) -> (String, Option<Payloads
     }
 }
 
-/// The id, when the request carried no name. A row has to say something, and the id is the
-/// only other thing that identifies this update.
 fn or_id(name: String, id: &str) -> String {
     if name.is_empty() {
         id.to_string()
@@ -256,7 +185,6 @@ fn or_id(name: String, id: &str) -> String {
     }
 }
 
-/// Start an arm. `group` is the group this event joins; `role` is what it does to it.
 fn at(category: Category, group: GroupRef, role: Role) -> Mapped {
     Mapped {
         category,
@@ -296,8 +224,6 @@ impl Mapped {
         self
     }
 
-    /// Attach an argument list. A single value is labelled plainly; several are indexed,
-    /// because an activity's third argument is not interchangeable with its first.
     fn args(mut self, label: &str, p: Option<Payloads>) -> Self {
         let Some(list) = p else { return self };
         let n = list.payloads.len();
@@ -312,10 +238,6 @@ impl Mapped {
         self
     }
 
-    /// Attach a keyed set of argument lists, as a marker records.
-    ///
-    /// The map has no order on the wire, so the keys are sorted: a detail pane that reshuffles
-    /// between refreshes cannot be read.
     fn keyed_args(mut self, map: HashMap<String, Payloads>) -> Self {
         let mut keys: Vec<String> = map.keys().cloned().collect();
         keys.sort();
@@ -326,7 +248,6 @@ impl Mapped {
         self
     }
 
-    /// Attach a single payload.
     fn arg(mut self, label: &str, p: Option<ProtoPayload>) -> Self {
         if let Some(raw) = p {
             self.payloads.push((label.to_string(), convert(raw)));
@@ -335,8 +256,6 @@ impl Mapped {
     }
 }
 
-/// Protobuf payload to domain payload. The metadata values are bytes on the wire; the two
-/// keys tmprl reads are ASCII.
 pub(crate) fn convert(p: ProtoPayload) -> Payload {
     let meta = |k: &str| {
         p.metadata
@@ -351,18 +270,14 @@ pub(crate) fn convert(p: ProtoPayload) -> Payload {
     }
 }
 
-/// Flatten one protobuf event.
 pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
     let id = e.event_id;
     let time = e
         .event_time
         .map(|t| t.seconds * 1000 + i64::from(t.nanos) / 1_000_000);
-    // `event_type()` borrows, so read the name before the attributes are moved out.
     let name = event_name(e.event_type().as_str_name());
 
     let m = match e.attributes {
-        // An event with no attributes is representable on the wire but meaningless. It is
-        // rendered as itself rather than dropped, so a history never silently loses a row.
         None => at(Category::Workflow, GroupRef::Workflow, Role::Continues),
 
         Some(Attributes::WorkflowExecutionStartedEventAttributes(a)) => {
@@ -502,8 +417,6 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
             GroupRef::Opened(a.scheduled_event_id),
             Role::Continues,
         )
-        // A retry does not schedule again; this is where the attempt count lives, and
-        // `last_failure` is why the previous attempt did not stick.
         .attempt(a.attempt)
         .failed(a.last_failure)
         .field("identity", a.identity),
@@ -686,18 +599,13 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
                 .args("input", input)
         }
         Some(Attributes::WorkflowExecutionUpdateAcceptedEventAttributes(a)) => {
-            // Both live two levels down, on the request the acceptance echoes back.
             let (name, input) = handler_and_input(a.accepted_request);
             at(Category::Update, GroupRef::Opened(id), Role::Opens)
-                // The handler's name, not `protocol_instance_id`: that is a UUID, and a
-                // list of UUIDs is a list you cannot read or search. The id is a field.
                 .subject(or_id(name, &a.protocol_instance_id))
                 .field("updateId", a.protocol_instance_id)
                 .args("input", input)
         }
         Some(Attributes::WorkflowExecutionUpdateCompletedEventAttributes(a)) => {
-            // An update can be accepted and then fail, and the outcome is where that shows.
-            // Reading only the event type would report every such update as completed.
             let m = at(
                 Category::Update,
                 GroupRef::Opened(a.accepted_event_id),
@@ -712,8 +620,6 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
             }
         }
         Some(Attributes::WorkflowExecutionUpdateRejectedEventAttributes(a)) => {
-            // Rejected before acceptance, so there is no accepted event to hang it on. The
-            // request is still echoed back, so the handler that was asked for is known.
             let (name, input) = handler_and_input(a.rejected_request);
             at(Category::Update, GroupRef::Opened(id), Role::Opens)
                 .subject(or_id(name, &a.protocol_instance_id))
@@ -806,16 +712,7 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
     }
 }
 
-/// `EVENT_TYPE_ACTIVITY_TASK_SCHEDULED` → `ActivityTaskScheduled`.
-///
-/// Returns a `&'static str` by matching the protobuf's own `as_str_name()` output, which is
-/// itself `&'static`. Building the name at runtime would mean leaking or allocating for
-/// every event in a history that can run to millions.
 fn event_name(proto: &'static str) -> &'static str {
-    // Trim the prefix and rebuild the CamelCase name is not possible without allocating, so
-    // the raw protobuf name is kept when it is not one we recognise. Unknown names only
-    // appear for event types added after this was written, which the exhaustive match above
-    // will have already flagged at compile time.
     proto.strip_prefix("EVENT_TYPE_").unwrap_or(proto)
 }
 
@@ -864,8 +761,6 @@ mod tests {
                     activity_type: Some(ActivityType {
                         name: "ChargeCard".into(),
                     }),
-                    // Points at the workflow task that scheduled this. Following it would
-                    // file the activity under that task instead of giving it its own group.
                     workflow_task_completed_event_id: 4,
                     ..Default::default()
                 },
@@ -943,9 +838,6 @@ mod tests {
 
     #[test]
     fn a_failure_keeps_its_type_stack_trace_and_every_cause_under_it() {
-        // What a worker actually sends: an activity failure wrapping the application
-        // failure it raised, wrapping the exception that one came from. Keeping only the
-        // outermost message keeps the one sentence that says nothing.
         let root = Failure {
             message: "Read timed out".into(),
             source: "JavaSDK".into(),
@@ -1006,8 +898,6 @@ mod tests {
 
     #[test]
     fn an_absent_field_on_a_failure_stays_absent_rather_than_becoming_empty_text() {
-        // Empty protobuf strings are the wire's "unset". Carrying them through as
-        // `Some("")` would print a blank source line under every failure on screen.
         let n = normalize(event(
             7,
             EventType::ActivityTaskFailed,
@@ -1033,8 +923,6 @@ mod tests {
 
     #[test]
     fn a_timer_is_grouped_by_its_started_event_not_a_scheduled_one() {
-        // Timers are the one family that back-references `started_event_id`. Reaching for
-        // `scheduled_event_id` out of habit would leave every fired timer orphaned.
         let started = normalize(event(
             10,
             EventType::TimerStarted,
@@ -1134,8 +1022,6 @@ mod tests {
 
     #[test]
     fn several_arguments_are_indexed() {
-        // An activity's third argument is not interchangeable with its first, so an
-        // unlabelled list would lose which is which.
         let n = normalize(event(
             5,
             EventType::ActivityTaskScheduled,
@@ -1168,8 +1054,6 @@ mod tests {
 
     #[test]
     fn payload_metadata_is_decoded_from_bytes() {
-        // Metadata values are bytes on the wire; the encoding is what decides how the value
-        // is shown, so getting it out wrongly would make every payload opaque.
         let mut raw = json_payload("{}");
         raw.metadata.insert("type".to_string(), b"Keyword".to_vec());
         let p = convert(raw);
@@ -1179,8 +1063,6 @@ mod tests {
 
     #[test]
     fn a_workflow_carries_its_own_input() {
-        // The first thing anyone opens a history to see. Reading only the activity events
-        // leaves the workflow's own arguments invisible.
         let n = normalize(event(
             1,
             EventType::WorkflowExecutionStarted,
@@ -1244,8 +1126,6 @@ mod tests {
 
     #[test]
     fn a_marker_details_map_is_ordered_by_key() {
-        // The map has no order on the wire, and a detail pane that reshuffles between
-        // refreshes cannot be read.
         let details = HashMap::from([
             (
                 "side-effect-id".to_string(),
@@ -1276,9 +1156,6 @@ mod tests {
 
     #[test]
     fn an_accepted_update_is_named_by_its_handler_not_by_its_uuid() {
-        // A real one: `data-forward-cancel` is what the caller asked for and what a reader
-        // is looking for. `protocol_instance_id` is a UUID, and a list of those is a list
-        // nobody can read or search.
         let n = normalize(event(
             699,
             EventType::WorkflowExecutionUpdateAccepted,
@@ -1302,7 +1179,6 @@ mod tests {
 
         assert_eq!(n.subject, "data-forward-cancel");
         assert_eq!(n.category, Category::Update);
-        // The id is still on the event: it is what correlates this with the caller.
         assert!(
             n.fields
                 .iter()
@@ -1386,8 +1262,6 @@ mod tests {
 
     #[test]
     fn an_update_that_the_workflow_rejected_is_not_reported_as_completed() {
-        // The event type says Completed either way; only the outcome oneof distinguishes a
-        // successful update from one the workflow refused.
         let n = normalize(event(
             12,
             EventType::WorkflowExecutionUpdateCompleted,

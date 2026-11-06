@@ -1,8 +1,4 @@
 //! The search attributes a cluster has registered.
-//!
-//! What can be filtered on is a property of the cluster, not of this build: whoever runs it
-//! registers the attributes their workflows carry. Asking the server is the only way to
-//! offer `CustomerId` in a filter without having been told about it.
 
 use temporalio_client::tonic::Request;
 use temporalio_common::protos::temporal::api::enums::v1::IndexedValueType;
@@ -13,10 +9,6 @@ use super::OpError;
 use crate::Conn;
 
 impl Conn {
-    /// Every search attribute registered for `namespace`, custom ones first.
-    ///
-    /// On the operator service rather than the workflow service, which is why this is the
-    /// only caller of [`Conn::operator`].
     pub async fn list_search_attributes(
         &self,
         namespace: &str,
@@ -49,18 +41,11 @@ impl Conn {
             )
             .collect();
 
-        // The wire form is a map, so the order it arrives in is not stable between calls.
-        // Sorting here keeps the filter list from reshuffling itself on a refresh.
         out.sort_by(|a, b| a.system.cmp(&b.system).then_with(|| a.name.cmp(&b.name)));
         Ok(out)
     }
 }
 
-/// The protobuf enum, as the thing the catalogue reasons about.
-///
-/// An unrecognised value maps to `Unspecified` rather than being dropped: a cluster running
-/// a newer server than this build still has attributes worth filtering on, and a name you
-/// can edit beats no offer at all.
 fn attribute_type(raw: i32) -> AttributeType {
     match IndexedValueType::try_from(raw) {
         Ok(IndexedValueType::Text) => AttributeType::Text,

@@ -6,7 +6,6 @@ import (
 	"go.temporal.io/sdk/workflow"
 )
 
-// Versions live at once, the way a deploy leaves the last one running beside the new.
 var Versions = []string{"v2", "v3"}
 
 // Register wires the automated workflow and its activities to a worker.

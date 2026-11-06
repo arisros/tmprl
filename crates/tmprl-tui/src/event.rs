@@ -1,8 +1,4 @@
 //! The event loop.
-//!
-//! One `select!` over three sources: the terminal, the backend channel, and a tick. The
-//! reducer it calls is synchronous, so a slow RPC can never delay a keystroke, the RPC is
-//! on a spawned task and returns through the channel like any other message.
 
 use std::time::Duration;
 
@@ -15,8 +11,6 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use crate::app::{App, Msg};
 use crate::{keys, ui};
 
-/// Redraw cadence while idle. Only needed so relative timestamps stay honest; input and
-/// backend messages drive their own redraws immediately.
 const TICK: Duration = Duration::from_secs(1);
 
 pub async fn run(
@@ -29,8 +23,6 @@ pub async fn run(
     let mut tick = tokio::time::interval(TICK);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-    // A terminated process should still restore the terminal. The panic hook that
-    // `ratatui::init` installs covers panics; this covers SIGTERM.
     #[cfg(unix)]
     {
         let tx = tx.clone();
@@ -46,12 +38,7 @@ pub async fn run(
     let _ = &tx;
 
     loop {
-        // Before drawing, because the editor wants the screen this draw would paint over.
         if let Some(request) = app.take_edit_request() {
-            // Put the terminal back the way we found it, run the editor with stdin, stdout
-            // and stderr inherited so it is a normal interactive program, then take the
-            // terminal again. `ratatui::init` reinstalls the panic hook, so a panic after
-            // this still restores.
             release_terminal(app.mouse());
             let outcome = run_editor(&request.path, None, None);
             terminal = retake_terminal(app.mouse())?;
@@ -87,7 +74,6 @@ pub async fn run(
                 Some(Ok(Event::Resize(_, _))) => app.handle(Msg::Redraw),
                 Some(Ok(_)) => {}
                 Some(Err(e)) => return Err(e.into()),
-                // stdin closed, nothing more can arrive.
                 None => return Ok(()),
             },
             Some(msg) = rx.recv() => app.handle(msg),
@@ -96,12 +82,7 @@ pub async fn run(
     }
 }
 
-/// Take the terminal back after an editor has had it.
-///
-/// Not `Terminal::clear`: that asks the terminal where its cursor is and waits for the
-/// answer on stdin, which the key reader is reading too. When the answer went to the
-/// reader, or came late, the wait timed out and took tmprl down with it. A screen can be
-/// cleared without asking it anything.
+// Not Terminal::clear: it asks the terminal for the cursor on stdin, which the key reader also reads.
 fn retake_terminal(mouse: bool) -> Result<DefaultTerminal> {
     let terminal = ratatui::init();
     crossterm::execute!(
@@ -116,8 +97,6 @@ fn retake_terminal(mouse: bool) -> Result<DefaultTerminal> {
     Ok(terminal)
 }
 
-/// Hand the terminal back, to an editor or to the shell. `ratatui::restore` does not know
-/// the mouse was being reported, and a shell left with it on prints every click as text.
 pub fn release_terminal(mouse: bool) {
     if mouse {
         let _ = capture_mouse(false);
@@ -144,13 +123,7 @@ pub fn capture_mouse(on: bool) -> std::io::Result<()> {
     }
 }
 
-/// Throw away what is waiting on stdin.
-///
-/// An editor asks the terminal things as it runs, its background colour, what it is, and
-/// does not always stay to hear the answer. The answer then arrives here and reads as
-/// typing: a colour report opened the command line and filled it with `1717/1717/1717`.
-/// Nothing that arrives in the moment an editor closes was meant for tmprl, so it is
-/// dropped: until the input has been quiet for a moment, and never for long.
+// An editor's queries to the terminal can be answered after it exits, and would read as typing.
 fn drop_pending_input() -> Result<()> {
     const QUIET: Duration = Duration::from_millis(60);
     const LONGEST: Duration = Duration::from_millis(400);
@@ -161,15 +134,6 @@ fn drop_pending_input() -> Result<()> {
     Ok(())
 }
 
-/// Run the user's editor over a file, blocking until it exits.
-///
-/// `$VISUAL` before `$EDITOR` before `vi`, which is the order every other terminal program
-/// uses and therefore the order people have already configured for.
-///
-/// The command is split on whitespace rather than run through a shell: `EDITOR="code -w"`
-/// is common and has to work, while a shell would also make `EDITOR` an injection point for
-/// a file name tmprl chose. Blocking is correct here, the TUI is not on screen and there is
-/// nothing else for this task to be doing.
 fn run_editor(
     path: &std::path::Path,
     line: Option<u32>,
@@ -185,14 +149,11 @@ fn run_editor(
     };
 
     let mut command = std::process::Command::new(program);
-    // In the project's own directory, so the editor's file tree, search and language
-    // server see the project the file belongs to and not wherever tmprl was started.
     if let Some(root) = root {
         command.current_dir(root);
     }
     let status = command
         .args(parts)
-        // `+N file`, the form vi, vim, nvim, emacs, nano and helix all take.
         .args(line.map(|n| format!("+{n}")))
         .arg(path)
         .status()
