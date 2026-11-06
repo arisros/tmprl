@@ -1,8 +1,4 @@
 //! Key representation and vim-style key-notation parsing.
-//!
-//! This is deliberately *not* crossterm's `KeyEvent`. Keeping our own type is what lets the
-//! keymap be tested without a terminal, and what stops a crossterm major bump from reaching
-//! into the keymap. `tmprl-tui` converts at the edge.
 
 use std::fmt;
 
@@ -73,7 +69,6 @@ impl Chord {
         }
     }
 
-    /// The character this chord would insert in Insert mode, if any.
     pub fn as_insertable(self) -> Option<char> {
         match self.key {
             Key::Char(c) if self.mods.is_none() => Some(c),
@@ -155,7 +150,6 @@ impl fmt::Display for Chord {
         if self.mods.alt {
             prefix.push_str("A-");
         }
-        // BackTab already renders as S-Tab; don't double the prefix.
         if self.mods.shift && self.key != Key::BackTab {
             prefix.push_str("S-");
         }
@@ -163,13 +157,10 @@ impl fmt::Display for Chord {
     }
 }
 
-/// A sequence of chords, e.g. `<leader>ff` is three chords.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
 pub struct ChordSeq(pub Vec<Chord>);
 
 impl ChordSeq {
-    /// Parse vim key notation. `<leader>` expands to the supplied chord, so the leader is a
-    /// configuration value rather than something baked into every binding.
     pub fn parse(s: &str, leader: Chord) -> Result<Self, KeyParseError> {
         let mut out = Vec::new();
         let chars: Vec<char> = s.chars().collect();
@@ -217,7 +208,6 @@ fn parse_token(token: &str, leader: Chord) -> Result<Chord, KeyParseError> {
         return Ok(Chord::plain(k));
     }
 
-    // Strip modifier prefixes in any order: <C-A-x>, <A-C-x>.
     let mut mods = Mods::NONE;
     let mut rest = token;
     loop {
@@ -235,7 +225,6 @@ fn parse_token(token: &str, leader: Chord) -> Result<Chord, KeyParseError> {
     }
 
     let lower_rest = rest.to_ascii_lowercase();
-    // `<S-Tab>` is BackTab, and its shift is already implied by the name.
     if mods.shift && lower_rest == "tab" {
         return Ok(Chord::plain(Key::BackTab));
     }
@@ -289,7 +278,6 @@ mod tests {
             seq("<leader>ff").0,
             vec![Chord::ch(' '), Chord::ch('f'), Chord::ch('f')]
         );
-        // A different leader changes every binding without editing them.
         let comma = ChordSeq::parse("<leader>x", Chord::ch(',')).unwrap();
         assert_eq!(comma.0[0], Chord::ch(','));
     }

@@ -8,9 +8,7 @@ import (
 // Encoding marks a payload this codec has wrapped.
 const Encoding = "binary/sample-xor"
 
-// Codec scrambles payloads so the cluster holds nothing readable, the way a real one
-// encrypts them. XOR with a fixed byte is not encryption and is not meant to be: the
-// point is that a client needs the codec server to read anything.
+// Codec XORs payloads so the cluster holds nothing readable. Not encryption, on purpose.
 type Codec struct{}
 
 const key = 0x5a

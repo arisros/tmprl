@@ -12,13 +12,10 @@ fn buffer(app: &mut App, w: u16, h: u16) -> Buffer {
     term.backend().buffer().clone()
 }
 
-/// The cells showing `text` on the first row that contains it.
 fn cells_of(buf: &Buffer, text: &str) -> Vec<Cell> {
     (0..buf.area.height)
         .find_map(|y| {
             let symbols: Vec<&str> = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
-            // One symbol per column, so a multi-byte glyph earlier on the row does not
-            // shift the match the way a byte offset into the joined line would.
             let wanted: Vec<String> = text.chars().map(String::from).collect();
             let at = symbols
                 .windows(wanted.len())
@@ -32,7 +29,6 @@ fn cells_of(buf: &Buffer, text: &str) -> Vec<Cell> {
         .unwrap_or_else(|| panic!("`{text}` is not on screen"))
 }
 
-/// Every screen and overlay a colour could leak from, drawn at `depth`.
 fn every_screen(depth: ColorDepth) -> Vec<Buffer> {
     let themed = |mut app: App| {
         app.apply_config(None, None, Some("[profile.prod]\naccent = \"red\""));
@@ -103,8 +99,6 @@ fn sixteen_colours_put_no_rgb_on_any_screen() {
 
 #[test]
 fn truecolor_still_draws_the_palette() {
-    // The guard on the two tests above: they would pass against a renderer that had
-    // stopped colouring anything at all.
     let rgb = every_screen(ColorDepth::TrueColor)
         .iter()
         .flat_map(|buf| buf.content())
@@ -171,8 +165,6 @@ fn without_colour_a_selection_is_marked_and_the_cursor_is_bolder() {
 fn without_colour_a_match_shows_on_the_cursor_row_and_off_it() {
     let mut app = app_with_workflows(&["default"]);
     app.apply_theme(ColorDepth::Mono, None);
-    // `r-1` is in the cursor row's id, `order-1001`, and nowhere else; `77` is only in
-    // the other row's.
     app.search = Search::new("r-1");
     let buf = buffer(&mut app, 120, 12);
     let id = cells_of(&buf, "order-1001");
@@ -204,7 +196,6 @@ fn without_colour_the_focused_pane_has_the_heavier_border() {
     app.run("window.split-right", None);
     let buf = buffer(&mut app, 120, 12);
 
-    // Row 1 is the top border of both panes; the new pane, on the right, has focus.
     let corners: Vec<&Cell> = (0..buf.area.width)
         .map(|x| &buf[(x, 1)])
         .filter(|c| c.symbol() == "┌")
@@ -225,7 +216,6 @@ fn a_frame_is_drawn_with_the_themes_colours() {
         fg_on_row(&mut app, 120, 12, "charge-77", "✗"),
         Some(Color::Rgb(1, 2, 3))
     );
-    // A slot the file did not name keeps its default.
     assert_eq!(
         fg_on_row(&mut app, 120, 12, "order-1001", "●"),
         Theme::default().accent.fg

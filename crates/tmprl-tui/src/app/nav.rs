@@ -1,5 +1,4 @@
 //! Moving around: opening what is under the cursor, going back up, the cursor itself,
-//! paging in more rows, and the jumplist.
 
 use super::*;
 
@@ -8,9 +7,6 @@ impl App {
         match self.view.screen {
             Screen::Profiles => self.open_focused_profile(),
             Screen::Namespaces => {
-                // A visual selection opens every namespace in it as one merged list. That
-                // is the whole multi-namespace fan-out: `V j j <CR>`, using the selection
-                // machinery that already exists rather than a separate picker.
                 let scope = self.selected_namespaces();
                 if scope.is_empty() {
                     self.note = Some(("nothing to open".into(), Note::Warn));
@@ -41,10 +37,7 @@ impl App {
                 self.view.cursor = 0;
                 self.load_history();
             }
-            // On the history screen, "open the focused item" is folding a group open.
             Screen::History => self.toggle_fold(),
-            // A schedule's runs are ordinary workflows, so there is nothing of its own to
-            // open. Saying so beats a key that appears broken.
             Screen::Schedules => {
                 self.note = Some((
                     "a schedule has no detail view; gw for its workflows".into(),
@@ -55,7 +48,6 @@ impl App {
         }
     }
 
-    /// The namespaces under the cursor or the visual selection.
     pub(super) fn selected_namespaces(&self) -> Vec<String> {
         let (lo, hi) = self
             .selection()
@@ -69,9 +61,7 @@ impl App {
     }
 
     pub(super) fn go_up(&mut self) {
-        // Recorded per arm, not once at the top: `Jumplist::push` truncates the forward
-        // entries, so marking a jump that then turns out to be refused would silently
-        // destroy the `<C-i>` list for a keystroke that did nothing.
+        // Marked per arm: Jumplist::push drops the forward entries, so a refused move must not mark.
         match self.view.screen {
             Screen::History => {
                 self.mark_jump();
@@ -80,8 +70,6 @@ impl App {
                 self.view.viewing = None;
                 self.reset_history();
                 self.restore_cursor();
-                // A history reached without its list behind it, from `-w` or in a split,
-                // would otherwise go up to a list nobody ever asked the server for.
                 if self.view.workflows.value().is_none() {
                     self.load_workflows(false);
                 }
@@ -108,11 +96,6 @@ impl App {
         }
     }
 
-    /// Point this pane at one namespace and show its workflows.
-    ///
-    /// The query is kept. Switching namespace is usually "the same question, over there",
-    /// and having to retype the filter every time would make the picker cost more than the
-    /// navigation it replaces. Any fan-out collapses to the one namespace chosen.
     pub(super) fn switch_namespace(&mut self, name: &str) {
         self.mark_jump();
         self.stop_following();
@@ -131,18 +114,12 @@ impl App {
         self.load_workflows(false);
     }
 
-    /// Jump straight to a workflow's history from the picker.
-    ///
-    /// The same landing as `Enter` on its row, reached without first putting the cursor
-    /// there, which is the entire reason a picker beats scrolling.
     pub(super) fn open_workflow(&mut self, namespace: &str, run_id: &str) {
         let matches = |w: &&WorkflowRow| w.namespace == namespace && w.run_id == run_id;
         let Some(row) = self
             .workflow_rows()
             .iter()
             .find(matches)
-            // A row the picker fetched is in no pane's table, and opening it is the whole
-            // point of having fetched it.
             .or_else(|| self.picker_found.iter().find(matches))
             .cloned()
         else {
@@ -152,7 +129,6 @@ impl App {
         self.open_row(row);
     }
 
-    /// Open the history of a workflow row, wherever the row came from.
     pub(super) fn open_row(&mut self, row: WorkflowRow) {
         self.mark_jump();
         self.view.workflow_cursor = self.view.cursor;
@@ -161,20 +137,10 @@ impl App {
         self.view.screen = Screen::History;
         self.view.viewing = Some(row);
         self.view.cursor = 0;
-        // Everything the *previous* history left behind has to go, because unlike `Enter`
-        // on the list this can be pressed while already inside a history. Left alone,
-        // `load_history` sees non-empty events and neither bumps the generation nor starts
-        // a refresh, sends the old run's continuation token to the new run, and merges
-        // whatever comes back into the old run's events, so one outline shows two
-        // workflows. A follow poll left running would keep feeding it too.
         self.reset_history();
         self.load_history();
     }
 
-    /// Drop everything belonging to the history currently on screen.
-    ///
-    /// Every path that changes which workflow is being looked at needs this, and the ones
-    /// that open-code it have drifted apart before, so it lives in one place.
     pub(super) fn reset_history(&mut self) {
         self.stop_following();
         self.scan = None;
@@ -186,7 +152,6 @@ impl App {
         self.view.queried = None;
     }
 
-    /// Where this pane is now, for the jumplist.
     pub(super) fn here(&self) -> Jump {
         Jump {
             screen: self.view.screen,
@@ -198,18 +163,11 @@ impl App {
         }
     }
 
-    /// Record the current position before a navigation that counts as a jump.
-    ///
-    /// Called by the handful of moves vim would also call jumps: changing screen, `gg` and
-    /// `G`, a search, taking something from a picker. Ordinary `j` and `k` are not jumps,
-    /// which is the entire point, a jumplist that recorded every line would be a scroll
-    /// history and `<C-o>` would be useless.
     pub(super) fn mark_jump(&mut self) {
         let here = self.here();
         self.jumps.push(here);
     }
 
-    /// `<C-o>` and `<C-i>`.
     pub(super) fn jump(&mut self, back: bool) {
         let here = self.here();
         let target = if back {
@@ -231,11 +189,6 @@ impl App {
         self.go_to_jump(target);
     }
 
-    /// Put the pane back where a jump says it was.
-    ///
-    /// A screen change re-fetches rather than restoring a cached list: what is there now is
-    /// what should be shown, and a jump that reinstated a ten-minute-old workflow table
-    /// would be showing history as if it were current.
     pub(super) fn go_to_jump(&mut self, to: Jump) {
         self.stop_following();
         self.mode = Mode::Normal;
@@ -245,9 +198,6 @@ impl App {
         self.view.screen = to.screen;
         self.view.viewing = to.viewing;
         self.view.cursor = to.cursor;
-        // Carried, not cleared: `restore_cursor` uses it to find the workflow again
-        // wherever the refetched list has put it, and falls back to the index when the row
-        // has genuinely gone.
         self.view.cursor_key = to.cursor_key;
 
         match to.screen {
@@ -266,8 +216,6 @@ impl App {
     }
 
     pub(super) fn refresh(&mut self) {
-        // `R` is the retry: a codec that was down, or a key that was wrong, is usually
-        // fixed outside tmprl, and nothing else would clear the recorded failures.
         self.decode_failed.clear();
         self.forget_search_attributes();
         match self.view.screen {
@@ -282,7 +230,6 @@ impl App {
             }
             Screen::Schedules => self.load_schedules(),
             Screen::Dashboard => {
-                // `R` asks for the layout afresh as well as the data.
                 if let Some(board) = self.view.dashboard.as_mut() {
                     board.forget();
                 }
@@ -292,7 +239,6 @@ impl App {
     }
 
     pub(super) fn scroll_overlay(&mut self, delta: isize) {
-        // Clamped first: an overlay opened at its end holds a sentinel until it is drawn.
         let at = self.overlay_scroll.min(self.overlay_max_scroll);
         let next = (at as isize + delta).clamp(0, self.overlay_max_scroll as isize);
         self.overlay_scroll = next as usize;
@@ -310,8 +256,6 @@ impl App {
 
     pub(super) fn set_cursor(&mut self, at: usize) {
         if at != self.view.cursor {
-            // The pane now shows a different row, so its offset and any filter result
-            // from the previous one no longer apply.
             self.view.detail_scroll = 0;
             self.view.piped = None;
             self.view.queried = None;
@@ -322,7 +266,6 @@ impl App {
         self.maybe_load_more();
     }
 
-    /// Record which row the cursor is on, by identity. This is what a refresh restores.
     pub(super) fn remember_cursor(&mut self) {
         if self.view.screen == Screen::Workflows {
             self.view.cursor_key = self
@@ -332,7 +275,6 @@ impl App {
         }
     }
 
-    /// Put the cursor back on the row it was on, wherever that row has moved to.
     pub(super) fn restore_cursor(&mut self) {
         let Some((ns, run)) = self.view.cursor_key.clone() else {
             self.clamp_cursor();
@@ -354,7 +296,6 @@ impl App {
         }
     }
 
-    /// Infinite scroll: fetch the next page once the cursor is within a screen of the end.
     pub(super) fn maybe_load_more(&mut self) {
         if self.view.loading_more {
             return;
@@ -384,7 +325,6 @@ impl App {
         }
     }
 
-    /// Load whatever the focused pane's screen needs. A fresh pane has asked for nothing.
     pub(super) fn load_for_screen(&mut self) {
         match self.view.screen {
             Screen::Profiles => self.load_profiles(),
@@ -396,10 +336,6 @@ impl App {
         }
     }
 
-    /// Switch between the two lists a namespace holds.
-    ///
-    /// Only from a list, and only within the same scope. From a history the reader is inside
-    /// one workflow, and jumping sideways from there would lose their place with no way back.
     pub(super) fn go_to(&mut self, screen: Screen) {
         match self.view.screen {
             Screen::Profiles | Screen::Namespaces => {

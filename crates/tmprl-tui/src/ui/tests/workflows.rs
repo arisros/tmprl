@@ -10,7 +10,6 @@ fn the_workflow_table_shows_status_id_type_and_age() {
     assert!(out.contains("CheckoutWorkflow"), "type missing:\n{out}");
     assert!(out.contains("Running"), "status missing:\n{out}");
     assert!(out.contains("Failed"), "status missing:\n{out}");
-    // Status is legible without colour: the glyph carries it too.
     assert!(
         out.contains(WorkflowStatus::Running.glyph()),
         "status glyph missing:\n{out}"
@@ -22,7 +21,6 @@ fn the_workflow_table_shows_status_id_type_and_age() {
 #[test]
 fn leader_t_swaps_the_age_column_for_a_clock_reading() {
     let mut app = app_with_workflows(&["default"]);
-    // Fix the zone so the assertion does not depend on where the test runs.
     app.clock = tmprl_core::Clock::named("UTC").unwrap();
     assert!(
         draw(&mut app, 110, 12).contains("45s"),
@@ -38,7 +36,6 @@ fn leader_t_swaps_the_age_column_for_a_clock_reading() {
         out.contains(&stamp),
         "clock reading {stamp} missing:\n{out}"
     );
-    // Toggling says which way it went, and in which zone.
     assert!(
         out.contains("absolute"),
         "the note should name the mode:\n{out}"
@@ -70,7 +67,6 @@ fn a_closed_workflow_shows_when_it_finished_not_only_when_it_started() {
 
 #[test]
 fn the_query_bar_is_always_on_screen() {
-    // The raw query is the interface; it is never behind a keystroke to reveal.
     let mut app = app_with_workflows(&["default"]);
     assert!(
         draw(&mut app, 110, 12).contains("query"),
@@ -132,7 +128,6 @@ fn the_header_shows_per_status_counts() {
 
 #[test]
 fn the_namespace_column_appears_only_in_a_fan_out() {
-    // On one namespace it would be the same value on every row.
     let mut single = app_with_workflows(&["default"]);
     let out = draw(&mut single, 110, 12);
     let body: String = out.lines().skip(2).collect::<Vec<_>>().join("\n");

@@ -2,18 +2,10 @@
 
 use std::fmt;
 
-/// How a backfill's runs behave when they collide with each other.
-///
-/// A schedule's own policy is usually `Skip`, which discards a run whenever the previous one
-/// is still going. A backfill replays many scheduled times at once, so under `Skip` almost
-/// every one is dropped and the backfill silently does nothing. Temporal's own documentation
-/// says to override it, which is why a backfill carries a policy of its own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Overlap {
-    /// Run them one after another, none discarded. The safe default for a backfill.
     #[default]
     BufferAll,
-    /// Run them all at once. Fastest, and only safe when the workflow tolerates it.
     AllowAll,
     Skip,
     BufferOne,
@@ -22,7 +14,6 @@ pub enum Overlap {
 }
 
 impl Overlap {
-    /// The proto enum value. Kept beside the names so the two cannot drift.
     pub fn code(self) -> i32 {
         match self {
             Overlap::Skip => 1,
@@ -34,7 +25,6 @@ impl Overlap {
         }
     }
 
-    /// The spelling `temporal schedule backfill --overlap-policy` takes.
     pub fn name(self) -> &'static str {
         match self {
             Overlap::Skip => "Skip",
@@ -46,7 +36,6 @@ impl Overlap {
         }
     }
 
-    /// Every policy, for parsing a name and for listing them in an error.
     pub const ALL: [Overlap; 6] = [
         Overlap::Skip,
         Overlap::BufferOne,
@@ -63,7 +52,6 @@ impl Overlap {
     }
 }
 
-/// A half-open window, epoch millis.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TimeRange {
     pub start_ms: i64,
@@ -91,10 +79,6 @@ impl fmt::Display for RangeError {
 
 impl std::error::Error for RangeError {}
 
-/// Read `START..END`, the form a backfill is asked for.
-///
-/// An empty end means now, so `-7d..` is the last week. Both sides accept an absolute
-/// `YYYY-MM-DD` or RFC 3339 instant, a negative offset like `-7d`, or `now`.
 pub fn parse_range(input: &str, now_ms: i64) -> Result<TimeRange, RangeError> {
     let (a, b) = input.split_once("..").ok_or(RangeError::NoSeparator)?;
     let start_ms = parse_instant(a.trim(), now_ms)?;
@@ -110,7 +94,6 @@ pub fn parse_range(input: &str, now_ms: i64) -> Result<TimeRange, RangeError> {
     Ok(TimeRange { start_ms, end_ms })
 }
 
-/// One end of a range: `now`, an offset such as `-36h`, or an absolute instant.
 pub fn parse_instant(s: &str, now_ms: i64) -> Result<i64, RangeError> {
     if s.eq_ignore_ascii_case("now") {
         return Ok(now_ms);
@@ -123,7 +106,6 @@ pub fn parse_instant(s: &str, now_ms: i64) -> Result<i64, RangeError> {
     parse_absolute(s).ok_or_else(|| RangeError::BadInstant(s.to_string()))
 }
 
-/// `90s`, `30m`, `36h`, `7d`, `2w`, as milliseconds.
 pub fn parse_offset(s: &str) -> Option<i64> {
     let (digits, unit) = s.split_at(s.find(|c: char| !c.is_ascii_digit())?);
     let n: i64 = digits.parse().ok()?;
@@ -138,10 +120,6 @@ pub fn parse_offset(s: &str) -> Option<i64> {
     n.checked_mul(scale)
 }
 
-/// `YYYY-MM-DD`, optionally `THH:MM[:SS]` and a trailing `Z`.
-///
-/// Always read as UTC. A backfill window is compared against scheduled times the server
-/// holds in UTC, so guessing a local zone would move the window by hours without saying so.
 fn parse_absolute(s: &str) -> Option<i64> {
     let s = s.strip_suffix('Z').unwrap_or(s);
     let (date, time) = match s.split_once(['T', ' ']) {
@@ -161,7 +139,6 @@ fn parse_absolute(s: &str) -> Option<i64> {
         h = num(t.next()?)?;
         min = num(t.next()?)?;
         if let Some(v) = t.next() {
-            // Drop a fractional part rather than refusing the whole instant over it.
             sec = num(v.split('.').next()?)?;
         }
         if t.next().is_some() || h > 23 || min > 59 || sec > 60 {
@@ -180,10 +157,6 @@ fn num(s: &str) -> Option<i64> {
     s.parse().ok()
 }
 
-/// Days since 1970-01-01 for a proleptic Gregorian date.
-///
-/// Howard Hinnant's `days_from_civil`, which is exact for every year in range and avoids
-/// taking a date library as a dependency for the one conversion tmprl needs.
 fn days_from_civil(y: i64, m: i64, d: i64) -> Option<i64> {
     if d > days_in_month(y, m)? {
         return None;
@@ -206,7 +179,6 @@ fn days_in_month(y: i64, m: i64) -> Option<i64> {
     })
 }
 
-/// An instant as RFC 3339, which is what `temporal schedule backfill` takes.
 pub fn to_rfc3339(ms: i64) -> String {
     let secs = ms.div_euclid(1_000);
     let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
@@ -215,7 +187,6 @@ pub fn to_rfc3339(ms: i64) -> String {
     format!("{y:04}-{m:02}-{d:02}T{h:02}:{min:02}:{s:02}Z")
 }
 
-/// The inverse of [`days_from_civil`].
 fn civil_from_days(z: i64) -> (i64, i64, i64) {
     let z = z + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
@@ -229,16 +200,9 @@ fn civil_from_days(z: i64) -> (i64, i64, i64) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
-/// Read what the backfill prompt collects: a range, and optionally a policy after it.
-///
-/// One line rather than a form, because a backfill is two values and a prompt already exists.
-/// Leaving the policy off gets [`Overlap::BufferAll`], which is what Temporal's own
-/// documentation tells you to use.
 pub fn parse_backfill(input: &str, now_ms: i64) -> Result<(TimeRange, Overlap), String> {
     let input = input.trim();
     let (range, policy) = match input.rsplit_once(char::is_whitespace) {
-        // Only a trailing word that names a policy is one; anything else is part of the
-        // range, so a typo is reported as a bad range rather than silently ignored.
         Some((head, tail)) => match Overlap::parse(tail) {
             Some(p) => (head.trim(), p),
             None => (input, Overlap::default()),
@@ -254,7 +218,6 @@ pub fn parse_backfill(input: &str, now_ms: i64) -> Result<(TimeRange, Overlap), 
 mod tests {
     use super::*;
 
-    /// 2026-09-06T00:00:00Z.
     const NOW: i64 = 1_788_652_800_000;
 
     #[test]
@@ -285,7 +248,6 @@ mod tests {
 
     #[test]
     fn an_omitted_end_means_now() {
-        // `-7d..` is the last week, which is the shape most backfills are asked for.
         let r = parse_range("-7d..", NOW).unwrap();
         assert_eq!(r.end_ms, NOW);
         assert_eq!(r.start_ms, NOW - 7 * 86_400_000);
@@ -300,7 +262,6 @@ mod tests {
 
     #[test]
     fn an_impossible_date_is_refused_rather_than_rolled_over() {
-        // Rolling 2026-02-30 into March would backfill a window nobody asked for.
         for s in ["2026-02-30", "2026-13-01", "2026-09-32", "2026-09", "hello"] {
             assert!(
                 matches!(parse_instant(s, NOW), Err(RangeError::BadInstant(_))),
@@ -337,8 +298,6 @@ mod tests {
 
     #[test]
     fn a_backfill_defaults_to_running_its_actions_in_order() {
-        // A schedule's own policy is usually Skip, under which a backfill discards almost
-        // every run it replays and appears to do nothing.
         assert_eq!(Overlap::default(), Overlap::BufferAll);
         assert_eq!(Overlap::default().code(), 3);
     }
@@ -363,8 +322,6 @@ mod tests {
 
     #[test]
     fn a_trailing_word_that_is_not_a_policy_is_not_silently_dropped() {
-        // Treating it as a policy typo and ignoring it would run the backfill under a
-        // policy the reader did not ask for.
         let e = parse_backfill("-1d..now BuffrAll", NOW).unwrap_err();
         assert!(e.contains("cannot read"), "{e}");
     }

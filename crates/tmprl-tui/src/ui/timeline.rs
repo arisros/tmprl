@@ -1,13 +1,4 @@
 //! The history as a timeline, `<leader>G`.
-//!
-//! Drawn after the timeline in Temporal's web UI so the two read the same way: each group
-//! is its events as dots on one shared time axis, joined by a line in the colour of how
-//! the group ended. The queue time before an activity started is the faded first stretch,
-//! a group still running trails a dashed line to the edge, and idle stretches are folded
-//! (`≀`) rather than drawn to scale.
-//!
-//! It is the same outline as the list view, row for row, so folding, search, `]f`, `K` and
-//! the cursor all behave the same; only the columns after the gutter differ.
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
@@ -25,8 +16,6 @@ use crate::app::{App, now_ms};
 use crate::theme::Theme;
 use crate::view::View;
 
-/// The web UI's colours, from `temporalio/ui`: `lines-and-dots/colors.ts` and the dark
-/// theme's `colorScales`. Kept as hex so a change there is a diff here.
 mod web {
     use ratatui::style::Color;
 
@@ -42,16 +31,10 @@ mod web {
     pub const PEACOCK_9: Color = Color::Rgb(0x35, 0x89, 0x89);
     pub const INDIGO_3: Color = Color::Rgb(0xed, 0xf2, 0xfe);
     pub const ZAFFRE_7: Color = Color::Rgb(0x84, 0xa7, 0xf0);
-    /// The web UI draws activities in dark-magenta 9 (`#8b008b`) and workflows in zaffre 9
-    /// (`#0014a8`). As a one-cell line on a dark terminal both all but vanish, so these are
-    /// the same hues from shade 7.
     pub const MAGENTA_7: Color = Color::Rgb(0xdb, 0x9c, 0xd7);
 }
 
-/// What the faded colours are blended towards. The terminal's own background is not
-/// knowable, so this is the dark it most likely is.
 const BACKGROUND: Color = Color::Rgb(0x16, 0x18, 0x1d);
-/// The web UI draws the queued stretch of a completed activity at this opacity.
 const QUEUED_OPACITY: f32 = 0.35;
 
 const LINE: char = '━';
@@ -62,7 +45,6 @@ const WORKFLOW_DOT: char = '◆';
 const GRID: char = '┊';
 const FOLD: char = '≀';
 
-/// Gutter (`{:>4} `) plus the fold marker.
 const PREFIX: usize = 7;
 
 pub fn render(frame: &mut Frame, area: Rect, outline: &Outline, view: &View, app: &App, t: &Theme) {
@@ -150,7 +132,6 @@ pub fn render(frame: &mut Frame, area: Rect, outline: &Outline, view: &View, app
     frame.render_widget(Paragraph::new(lines), area);
 }
 
-/// One row of cells, before anything is drawn on it.
 #[derive(Clone)]
 struct Canvas(Vec<(char, Style)>);
 
@@ -165,14 +146,12 @@ impl Canvas {
         }
     }
 
-    /// Write `text` from `column`, clipped at the right edge.
     fn text(&mut self, column: usize, text: &str, style: Style) {
         for (i, ch) in text.chars().enumerate() {
             self.put(column + i, ch, style);
         }
     }
 
-    /// Runs of one style become one span, so a row is a handful of spans, not a hundred.
     fn into_spans(self) -> Vec<Span<'static>> {
         let mut spans = Vec::new();
         let mut run = String::new();
@@ -194,7 +173,6 @@ impl Canvas {
     }
 }
 
-/// The empty row: grid lines under each tick and the fold marks, which every row shares.
 fn base_row(scale: &Scale, t: &Theme) -> Canvas {
     let mut c = Canvas(vec![(' ', Style::new()); scale.width()]);
     let grid = faded(t.faint, 0.5);
@@ -209,7 +187,6 @@ fn base_row(scale: &Scale, t: &Theme) -> Canvas {
     c
 }
 
-/// The axis: offsets from the start of the run, or clock times under `<leader>T`.
 fn axis(timeline: &Timeline, scale: &Scale, app: &App, t: &Theme) -> Line<'static> {
     let mut c = Canvas(vec![(' ', Style::new()); scale.width()]);
     let ticks = scale.ticks();
@@ -225,7 +202,6 @@ fn axis(timeline: &Timeline, scale: &Scale, app: &App, t: &Theme) -> Line<'stati
             })
             .collect()
     };
-    // Milliseconds only once whole seconds would print two neighbouring ticks the same.
     let mut text = labels(false);
     if text.windows(2).any(|w| w[0] == w[1]) {
         text = labels(true);
@@ -234,7 +210,6 @@ fn axis(timeline: &Timeline, scale: &Scale, app: &App, t: &Theme) -> Line<'stati
     let mut free_from = 0;
     for (tick, label) in ticks.iter().zip(text) {
         let len = label.chars().count();
-        // Centred on the tick, like the web axis, and dropped rather than overlapped.
         let from = tick.column.saturating_sub(len / 2);
         if from < free_from || from + len > c.width() {
             continue;
@@ -252,7 +227,6 @@ fn axis(timeline: &Timeline, scale: &Scale, app: &App, t: &Theme) -> Line<'stati
     Line::from(spans)
 }
 
-/// A group: its events as dots, joined, and its name beside them.
 fn draw_group(
     c: &mut Canvas,
     outline: &Outline,
@@ -285,8 +259,6 @@ fn draw_group(
             let (ch, style) = if queued {
                 (QUEUED, faded(t.paint(line), 1.0 - QUEUED_OPACITY))
             } else if gradient {
-                // A retried activity that got there in the end: the web UI fades each
-                // stretch from failure on the left to success on the right.
                 let at = if b > a {
                     (col - a) as f32 / (b - a) as f32
                 } else {
@@ -322,12 +294,9 @@ fn draw_group(
     };
     let len = label.chars().count();
     let at = label_column(&points, c.width(), pending, len);
-    // Padded with a space either side, the terminal's version of the web label's pill: it
-    // keeps the name from running into the line it sits on.
     c.text(at.saturating_sub(1), &format!(" {label} "), style);
 }
 
-/// One event of an expanded group: a single dot on the same axis, and its name.
 fn draw_event(c: &mut Canvas, g: &Group, e: &NormalizedEvent, scale: &Scale, t: &Theme) {
     let Some(time) = e.time else {
         return;
@@ -338,9 +307,6 @@ fn draw_event(c: &mut Canvas, g: &Group, e: &NormalizedEvent, scale: &Scale, t: 
     c.text(at.saturating_sub(1), &format!(" {} ", e.name), t.dim);
 }
 
-/// Where a label starts, by the web UI's rule (`timelineTextPosition`): before the dots
-/// when they are in the right half, after them when they end early enough, and otherwise
-/// on the line itself, after whichever of the first two stretches is shorter.
 fn label_column(points: &[usize], width: usize, pending: bool, len: usize) -> usize {
     let (first, last) = (points[0], points[points.len() - 1]);
     if first > width / 2 {
@@ -372,8 +338,6 @@ fn label(g: &Group) -> String {
     }
 }
 
-/// Whether the first stretch is time spent queued: scheduled, then started, then closed.
-/// That is the stretch the web UI fades, and only once the group completed.
 fn queue_is_first(g: &Group, events: &[&NormalizedEvent]) -> bool {
     matches!(
         g.category,
@@ -383,7 +347,6 @@ fn queue_is_first(g: &Group, events: &[&NormalizedEvent]) -> bool {
         && events[1].role == Role::Continues
 }
 
-/// The line: how the group ended, or what kind of thing it is while it has not.
 fn line_color(g: &Group) -> Color {
     match g.outcome {
         Outcome::Completed if g.category == Category::Timer => web::TANGERINE_9,
@@ -412,7 +375,6 @@ fn category_color(c: Category) -> Option<Color> {
     }
 }
 
-/// A dot is coloured by what its event did, the way the web UI classifies it.
 fn dot_color(g: &Group, e: &NormalizedEvent) -> Color {
     match e.role {
         Role::Closes => match e.outcome {
@@ -424,8 +386,6 @@ fn dot_color(g: &Group, e: &NormalizedEvent) -> Color {
             Outcome::Pending | Outcome::ContinuedAsNew => web::INDIGO_3,
         },
         _ if e.name.ends_with("Signaled") => web::PINK_9,
-        // Scheduled and initiated read as not yet started; everything else that opens or
-        // continues a group is a start.
         Role::Opens
             if matches!(
                 g.category,
@@ -438,8 +398,6 @@ fn dot_color(g: &Group, e: &NormalizedEvent) -> Color {
     }
 }
 
-/// `style` receding into the background, `amount` of the way. A truecolor foreground is
-/// blended; a named colour, or none, has nothing to blend and is dimmed instead.
 fn faded(style: Style, amount: f32) -> Style {
     match style.fg {
         Some(color @ Color::Rgb(..)) => style.fg(mix(color, BACKGROUND, amount)),
@@ -447,8 +405,6 @@ fn faded(style: Style, amount: f32) -> Style {
     }
 }
 
-/// `a` blended towards `b`, `amount` of the way. Only RGB blends; anything else is
-/// returned as is.
 fn mix(a: Color, b: Color, amount: f32) -> Color {
     let amount = amount.clamp(0.0, 1.0);
     match (a, b) {
@@ -476,11 +432,8 @@ mod tests {
 
     #[test]
     fn a_long_or_running_group_carries_its_label_on_the_line() {
-        // Ends past two thirds: written on the line after the first dot.
         assert_eq!(label_column(&[10, 90], 100, false, 10), 12);
-        // Running with a short first stretch: after the second dot.
         assert_eq!(label_column(&[10, 20], 100, true, 10), 22);
-        // Queued briefly, then ran long: the label sits after the start.
         assert_eq!(label_column(&[10, 12, 90], 100, false, 5), 14);
     }
 

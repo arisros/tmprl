@@ -1,23 +1,4 @@
 //! The codec-server round trip.
-//!
-//! When a cluster encrypts payloads, only a service the *user* runs can read them. Temporal's
-//! contract for that service is plain HTTP rather than gRPC:
-//!
-//! ```text
-//! POST {endpoint}/decode
-//! Content-Type: application/json
-//! X-Namespace: {namespace}
-//! Authorization: {auth}          (only when configured)
-//!
-//! {"payloads":[{"metadata":{"encoding":"<base64>"},"data":"<base64>"}]}
-//! ```
-//!
-//! The body is **proto3-JSON**, which is why every `bytes` field, the payload data *and*
-//! each metadata value, is base64. Sending `metadata.encoding` as the plain string
-//! `binary/encrypted` is the mistake this module exists to not make: a conforming server
-//! decodes it as base64, gets nonsense, and refuses the payload.
-//!
-//! The response is the same shape, with the payloads decoded.
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as B64;
@@ -28,7 +9,6 @@ use super::OpError;
 // reqwest sets no timeout by default.
 const CODEC_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// A configured codec server.
 #[derive(Debug, Clone)]
 pub struct Codec {
     endpoint: String,
@@ -57,15 +37,6 @@ impl Codec {
         }
     }
 
-    /// Decode a batch of payloads.
-    ///
-    /// Batched rather than one call per payload: a row carries several, and a codec server is
-    /// usually a network hop away.
-    ///
-    /// The server is required to return exactly as many payloads as it was given, in order,
-    /// that is what makes the result assignable back to what was sent. A server that returns
-    /// a different number is a protocol error rather than something to guess around, because
-    /// pairing them up wrongly would show one payload's plaintext under another's label.
     pub async fn decode(
         &self,
         namespace: &str,
@@ -94,8 +65,6 @@ impl Codec {
 
         let status = resp.status();
         if !status.is_success() {
-            // The server's own body is usually the diagnosis, a wrong path, a rejected
-            // credential, so it is shown rather than just the status code.
             let detail = resp.text().await.unwrap_or_default();
             let detail = detail.trim();
             return Err(OpError::codec(if detail.is_empty() {
@@ -124,8 +93,7 @@ impl Codec {
     }
 }
 
-/// Domain payload to proto3-JSON. Both `data` and every metadata value are `bytes`, so both
-/// are base64.
+// proto3-JSON: data and every metadata value are bytes, so base64.
 fn to_wire(p: &Payload) -> serde_json::Value {
     let mut metadata = serde_json::Map::new();
     metadata.insert(
@@ -144,10 +112,7 @@ fn to_wire(p: &Payload) -> serde_json::Value {
     })
 }
 
-/// proto3-JSON back to a domain payload.
-///
-/// A missing `data` is an empty payload, not an error: proto3-JSON omits fields at their
-/// default, so a decoded empty value legitimately arrives with no `data` key at all.
+// proto3-JSON omits default fields, so a missing data is an empty payload.
 fn from_wire(v: &serde_json::Value) -> Result<Payload, OpError> {
     let decode_b64 = |s: &str| -> Result<Vec<u8>, OpError> {
         B64.decode(s).map_err(|e| {
@@ -184,8 +149,6 @@ mod tests {
 
     #[test]
     fn a_payload_goes_out_as_proto3_json_with_base64_everywhere() {
-        // The mistake this pins: `encoding` is a bytes field, so it is base64 on the wire.
-        // Sent as a plain string, a conforming server base64-decodes it into nonsense.
         let p = Payload::new("binary/encrypted", b"cipher".to_vec());
         let wire = to_wire(&p);
 
@@ -218,8 +181,6 @@ mod tests {
 
     #[test]
     fn a_payload_with_no_data_field_is_empty_rather_than_an_error() {
-        // proto3-JSON omits fields at their default, so an empty decoded value arrives with
-        // no `data` key at all.
         let v = serde_json::json!({"metadata": {"encoding": B64.encode(b"binary/null")}});
         let p = from_wire(&v).unwrap();
         assert_eq!(p.encoding, "binary/null");
@@ -235,7 +196,6 @@ mod tests {
 
     #[test]
     fn decoding_nothing_does_not_call_the_server() {
-        // A round trip for an empty batch is a wasted network hop on every cursor move.
         let codec = Codec::new("http://127.0.0.1:1", None);
         let out = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -248,18 +208,11 @@ mod tests {
 
     #[test]
     fn the_endpoint_loses_a_trailing_slash() {
-        // `//decode` is not the same path to every server.
         let codec = Codec::new("http://localhost:8081/", None);
         assert_eq!(codec.endpoint, "http://localhost:8081");
     }
 }
 
-/// End-to-end against a real HTTP server.
-///
-/// The unit tests above assert the *shape* of the body; these assert that a server on the
-/// other end of a socket sees what Temporal's contract says it should. That distinction
-/// matters here because the base64-metadata rule is exactly the sort of thing a shape
-/// assertion can agree with while the wire is still wrong.
 #[cfg(test)]
 mod live {
     use super::*;
@@ -267,7 +220,6 @@ mod live {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
-    /// A one-shot HTTP server. Returns its address and a handle to the request it saw.
     async fn serve(status: &'static str, body: &'static str) -> (String, Arc<Mutex<String>>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -276,7 +228,6 @@ mod live {
 
         tokio::spawn(async move {
             let (mut sock, _) = listener.accept().await.unwrap();
-            // Read headers, then exactly Content-Length bytes of body.
             let mut buf = Vec::new();
             let mut tmp = [0u8; 4096];
             loop {
@@ -329,7 +280,6 @@ mod live {
             .await
             .expect("a decode");
 
-        // The decoded payload came back as plaintext JSON.
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].encoding, "json/plain");
         assert_eq!(out[0].data, br#"{"amount":100}"#);
@@ -347,8 +297,6 @@ mod live {
             request.contains("authorization: Bearer tok"),
             "auth missing:\n{request}"
         );
-        // The contract's whole trap: `encoding` is a bytes field, so it is base64 on the
-        // wire. A server that received the plain string would base64-decode it to nonsense.
         assert!(
             request.contains(&B64.encode(b"binary/encrypted")),
             "the encoding must be base64 on the wire:\n{request}"
@@ -361,8 +309,6 @@ mod live {
 
     #[tokio::test]
     async fn no_authorization_header_is_sent_when_none_is_configured() {
-        // A codec server is a service the user runs; forwarding a credential they did not
-        // configure would be a surprise.
         let (addr, seen) = serve("200 OK", r#"{"payloads":[{"metadata":{},"data":""}]}"#).await;
         let codec = Codec::new(addr, None);
         codec
@@ -394,8 +340,6 @@ mod live {
 
     #[tokio::test]
     async fn a_short_response_is_refused_rather_than_mispaired() {
-        // Pairing two sent payloads with one returned would show one value's plaintext
-        // under the other's label.
         let (addr, _) = serve("200 OK", r#"{"payloads":[{"metadata":{},"data":""}]}"#).await;
         let err = Codec::new(addr, None)
             .decode(
@@ -432,7 +376,6 @@ mod live {
 
     #[tokio::test]
     async fn an_unreachable_codec_server_names_the_url() {
-        // "connection refused" with no address is the least useful error there is.
         let err = Codec::new("http://127.0.0.1:1", None)
             .decode("default", &[Payload::new("binary/encrypted", vec![1])])
             .await

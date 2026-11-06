@@ -1,8 +1,4 @@
 //! The namespace list.
-//!
-//! The gutter is hybrid relative/absolute, matching `set relativenumber number`: the cursor
-//! row shows its own index, every other row shows its distance. That is what makes a count
-//! like `7j` something you read off the screen rather than estimate.
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
@@ -37,7 +33,6 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
         return;
     }
 
-    // Scroll so the cursor stays on screen.
     let height = area.height as usize;
     let area = super::list_scrollbar(frame, area, view.cursor, rows.len(), t);
     let first = app
@@ -70,8 +65,6 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
                 Span::styled(format!("{:>4}d", ns.retention_days), t.faint),
             ])
         })
-        // Repaint the search pattern last, over the finished row, so it survives
-        // whatever colouring and truncation the columns above applied.
         .map(|l| highlight(l, &app.search, match_style()))
         .collect();
 

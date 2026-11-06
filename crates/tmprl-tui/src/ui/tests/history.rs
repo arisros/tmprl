@@ -10,7 +10,6 @@ fn the_history_shows_one_row_per_group_not_per_event() {
     assert!(out.contains("ChargeCard"), "activity missing:\n{out}");
     assert!(out.contains("ShipOrder"), "activity missing:\n{out}");
     assert!(out.contains("activity"), "category missing:\n{out}");
-    // Three groups on screen, not eight events: the body rows below the header.
     let rows = out
         .lines()
         .filter(|l| l.contains("activity") || l.contains("workflow "))
@@ -33,8 +32,6 @@ fn a_retried_group_shows_its_attempt_count_and_failure() {
 fn k_shows_the_whole_failure_chain_the_row_had_no_room_for() {
     use tmprl_core::history::Failure;
 
-    // What a worker sends: a wrapper whose message says nothing, over the failure that
-    // names the class, over the exception it came from.
     let failure = Failure {
         message: "activity task failed".into(),
         cause: Some(Box::new(Failure {
@@ -70,11 +67,10 @@ fn k_shows_the_whole_failure_chain_the_row_had_no_room_for() {
 #[test]
 fn folding_a_group_open_reveals_its_events_indented() {
     let mut app = app_with_history();
-    app.run("motion.down", None); // the ChargeCard group
+    app.run("motion.down", None);
     app.run("history.fold", None);
     let out = draw(&mut app, 110, 14);
 
-    // Event ids appear only once the group is unfolded.
     assert!(out.contains("EVENT"), "event rows missing:\n{out}");
     assert!(out.contains('▾'), "an open fold marker is expected:\n{out}");
 }
@@ -108,8 +104,6 @@ fn a_history_of_nothing_but_plumbing_says_so() {
 
 #[test]
 fn a_long_scope_never_runs_into_the_header_summary() {
-    // A workflow id can be a UUID, and the history header shows it. Rendered at full
-    // length it overwrites the right-hand tallies with no separator.
     let mut app = app_with_history();
     app.view.viewing = Some(wf(
         "default",
@@ -133,8 +127,6 @@ fn a_long_scope_never_runs_into_the_header_summary() {
 
 #[test]
 fn following_is_announced_in_the_statusline() {
-    // A view that rewrites itself while you read it must say so, or a changing screen
-    // reads as a glitch.
     let mut app = app_with_history();
     assert!(!draw(&mut app, 110, 12).contains("FOLLOW"));
 

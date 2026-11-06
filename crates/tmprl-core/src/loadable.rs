@@ -1,8 +1,4 @@
 //! Four-state remote data.
-//!
-//! Every value fetched over the network is one of these. Views render all four, which is
-//! how the interface avoids ever having a code path that blocks waiting for data: there is
-//! no way to express "waiting", only "not here yet", which draws a skeleton.
 
 use std::time::Instant;
 
@@ -25,8 +21,6 @@ impl<T> Loadable<T> {
         }
     }
 
-    /// Mutable access to loaded data, for a list that grows a page at a time rather than
-    /// being replaced wholesale.
     pub fn value_mut(&mut self) -> Option<&mut T> {
         match self {
             Loadable::Loaded(v, _) => Some(v),
@@ -45,7 +39,6 @@ impl<T> Loadable<T> {
         }
     }
 
-    /// How stale the data is, for the statusline.
     pub fn age(&self) -> Option<std::time::Duration> {
         match self {
             Loadable::Loaded(_, at) => Some(at.elapsed()),
@@ -57,8 +50,6 @@ impl<T> Loadable<T> {
         Loadable::Loaded(value, Instant::now())
     }
 
-    /// Mark as loading while keeping any value already on screen, so a refresh does not
-    /// blank the view.
     pub fn begin_refresh(&mut self) {
         if !matches!(self, Loadable::Loaded(..)) {
             *self = Loadable::Loading;
@@ -85,8 +76,6 @@ mod tests {
 
     #[test]
     fn loaded_data_can_be_grown_in_place() {
-        // Infinite scroll appends to a list that is already on screen; replacing the
-        // Loadable would drop the fetch time the statusline reports staleness from.
         let mut l = Loadable::loaded(vec![1u8]);
         let at = l.age();
         l.value_mut().unwrap().push(2);

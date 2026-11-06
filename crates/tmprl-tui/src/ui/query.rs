@@ -1,9 +1,4 @@
 //! The visibility query bar.
-//!
-//! Always visible, always the raw query. Anything that filters the list, a saved view
-//! today, a filter builder later, writes into this string rather than replacing it with a
-//! structure you cannot see or edit. That the web UI hides the query behind a filter widget
-//! is the single most irritating thing about using it.
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
@@ -19,8 +14,6 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme, 
     if area.height == 0 {
         return;
     }
-    // Only the focused pane can be in Insert mode, so only it shows a live edit; the others
-    // show the query they have applied.
     let editing = focused && app.is_editing_query();
     let text = if focused {
         app.query_display()
@@ -35,8 +28,6 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme, 
     )];
 
     if text.is_empty() && !editing {
-        // An empty query means "everything", which is worth saying rather than leaving the
-        // bar blank and ambiguous.
         spans.push(Span::styled(" all workflows (i to filter)", t.faint));
     } else if editing {
         const HINT: &str = "  ⏎ apply   Esc cancel";

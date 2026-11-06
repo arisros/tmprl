@@ -1,19 +1,8 @@
 //! M0 spike: prove the RPC shapes the rest of tmprl is built on.
-//!
-//! Run against a local dev server:
-//!     temporal server start-dev
-//!     cargo run -p tmprl-client --example spike
-//!
-//! It deliberately exercises the four calls that M1 and M2 depend on:
-//!   - ListNamespaces          (namespace switcher)
-//!   - CountWorkflowExecutions (status counts in the list header)
-//!   - ListWorkflowExecutions  (the workflow table + its paging token)
-//!   - GetWorkflowExecutionHistory (history view; `wait_new_event` is follow mode)
 
 use temporalio_client::tonic::Request;
 use tmprl_client::{Conn, ProfileRef};
 
-// The generated protos live under temporalio_common, re-exported through the client's deps.
 use temporalio_common::protos::temporal::api::{
     common::v1::WorkflowExecution,
     enums::v1::HistoryEventFilterType,
@@ -96,8 +85,6 @@ async fn main() -> anyhow::Result<()> {
                 namespace: conn.namespace().to_string(),
                 execution: Some(exec.clone()),
                 maximum_page_size: 100,
-                // `wait_new_event: true` is what turns this into `tail -f`. Left false
-                // here so the spike terminates.
                 wait_new_event: false,
                 history_event_filter_type: HistoryEventFilterType::AllEvent as i32,
                 ..Default::default()

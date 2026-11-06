@@ -1,28 +1,14 @@
 //! The command registry.
-//!
-//! Every user-visible action is registered here exactly once. The keymap, the `:` command
-//! line, the which-key popup and the help overlay all read this one table, so they cannot
-//! drift apart: a command that exists is reachable and discoverable by construction.
-//!
-//! Commands carry an [`Action`] rather than a function pointer. Dispatch lives in
-//! `tmprl-tui`, which keeps this crate free of any application or terminal types, and
-//! makes the match on `Action` exhaustive, so a new command cannot be silently unhandled.
 
-/// Which payloads a yank takes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PayloadPart {
-    /// Everything the row carries.
     All,
-    /// Arguments only: `input`, or `input[0]`, `input[1]` … when there are several.
     Input,
-    /// The return value only.
     Result,
 }
 
-/// What a command does. `tmprl-tui` matches on this exhaustively.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Action {
-    // Application
     Quit,
     ToggleHelp,
     ToggleMessages,
@@ -31,7 +17,6 @@ pub enum Action {
     Refresh,
     ToggleTimes,
 
-    // Navigation between screens
     OpenItem,
     GoUp,
     GoSchedules,
@@ -42,7 +27,6 @@ pub enum Action {
     JumpBack,
     JumpForward,
 
-    // Motion
     MoveDown,
     MoveUp,
     MoveLeft,
@@ -54,18 +38,14 @@ pub enum Action {
     PageDown,
     PageUp,
 
-    // Modes
     EnterInsert,
     LeaveInsert,
     EnterVisual,
     EnterVisualLine,
 
-    // Finding. Search moves the cursor within the rows already loaded; it never refetches,
-    // which is what distinguishes it from the visibility query.
     OpenSearch,
     SearchNext,
     SearchPrev,
-    /// The `<leader>f` family. Each opens the one picker over a different set of items.
     FindWorkflow,
     FindEvent,
     FindPane,
@@ -73,23 +53,17 @@ pub enum Action {
     FindFilter,
     FindNamespace,
     FindProfile,
-    /// The failed-and-stuck list, `<leader>xx`. A query preset, not a screen of its own.
     ProblemList,
 
-    // Data
     YankField,
     YankRecord,
-    /// Yank the payloads under the cursor; the variant picks the subset.
     YankPayloadAll,
     YankPayloadInput,
     YankPayloadResult,
     YankWorkflowId,
     YankRunId,
-    /// Fetch the next page of the workflow list. Driven by scrolling rather than by a key,
-    /// but it is a command so that `:` reaches it like anything else.
     LoadMore,
 
-    // History
     ToggleFold,
     ExpandAll,
     CollapseAll,
@@ -103,13 +77,11 @@ pub enum Action {
     DetailDown,
     DetailUp,
     OpenPipe,
-    /// Open what is under the cursor in `$EDITOR`, `<leader>e`.
     OpenEditor,
     OpenSource,
     OpenChild,
     OpenParent,
 
-    // Windows and tabs
     SplitRight,
     SplitDown,
     CloseWindow,
@@ -122,7 +94,6 @@ pub enum Action {
     GrowRight,
     GrowUp,
     GrowDown,
-    // Mutations. Each opens a confirmation; none acts on its own.
     CancelWorkflow,
     TerminateWorkflow,
     SignalWorkflow,
@@ -135,7 +106,6 @@ pub enum Action {
     BackfillSchedule,
     CreateSchedule,
 
-    // Queries. Read-only, so no confirmation and allowed on a read-only profile.
     QueryWorkflow,
     StackTrace,
 
@@ -143,19 +113,13 @@ pub enum Action {
     CloseTab,
     NextTab,
     PrevTab,
-    /// Apply the saved view bound to this digit. Carries the digit because the views come
-    /// from `views.toml` and cannot be enumerated at compile time.
     SelectView(char),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Command {
-    /// Stable identifier. This is what `keys.toml` refers to, and what macros and `--exec`
-    /// will refer to when they exist, so it is part of the public interface and must not
-    /// change casually.
     pub id: &'static str,
     pub title: &'static str,
-    /// Grouping for the help overlay.
     pub group: &'static str,
     pub action: Action,
 }
@@ -285,13 +249,6 @@ impl Registry {
         Self { commands }
     }
 
-    /// Register the saved views from `views.toml` as ordinary commands.
-    ///
-    /// Views are user data, so their ids and titles are not known at compile time. They are
-    /// leaked deliberately: a `Registry` is built once at startup and lives for the whole
-    /// process, so this is a bounded, one-off allocation, and it is what lets a saved view
-    /// be a first-class command, reachable from `:`, the help overlay and a macro, rather
-    /// than a special case wired past the registry.
     pub fn add_views(&mut self, views: &[crate::config::SavedView]) {
         for v in views {
             let id: &'static str = Box::leak(format!("view.{}", v.key).into_boxed_str());
@@ -314,8 +271,6 @@ impl Registry {
         self.commands.iter().find(|c| c.id == id)
     }
 
-    /// Subsequence match over the id and title, ranked so that shorter ids win ties. Good
-    /// enough for a command line where the candidate set is small and known.
     pub fn search(&self, query: &str) -> Vec<&Command> {
         let q = query.trim().to_ascii_lowercase();
         if q.is_empty() {
@@ -323,15 +278,10 @@ impl Registry {
             all.sort_by_key(|c| c.id);
             return all;
         }
-        // Scored by the same matcher the pickers use, so `:` and `<leader>ff` rank the
-        // same way. Before, this was a bare subsequence test with a prefix-first sort,
-        // which is adequate for eighty command ids and not for anything longer.
         let mut hits: Vec<(&Command, i32)> = self
             .commands
             .iter()
             .filter_map(|c| {
-                // An id and a title are two ways of naming the same command, so the better
-                // of the two scores is the command's score.
                 let by_id = crate::fuzzy::match_score(&q, c.id).map(|m| m.score);
                 let by_title = crate::fuzzy::match_score(&q, c.title).map(|m| m.score);
                 by_id.max(by_title).map(|s| (c, s))
@@ -341,7 +291,6 @@ impl Registry {
         hits.into_iter().map(|(c, _)| c).collect()
     }
 
-    /// Every group name, in first-registered order, the help overlay renders in this order.
     pub fn groups(&self) -> Vec<&'static str> {
         let mut seen = Vec::new();
         for c in &self.commands {
@@ -375,8 +324,6 @@ mod tests {
 
     #[test]
     fn every_action_is_registered() {
-        // Adding an Action without a Command would make it unreachable from the command
-        // line, which defeats the point of the registry.
         let r = Registry::builtin();
         let actions: std::collections::HashSet<_> = r.all().iter().map(|c| c.action).collect();
         assert_eq!(
@@ -430,7 +377,6 @@ mod tests {
         assert_eq!(one.title, "Running", "the view's own name is its title");
         assert_eq!(one.group, "Views");
         assert_eq!(r.get("view.2").unwrap().action, Action::SelectView('2'));
-        // Reachable from the command line like anything else.
         assert!(r.search("view.").iter().any(|c| c.id == "view.1"));
     }
 

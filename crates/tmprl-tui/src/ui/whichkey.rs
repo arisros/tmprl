@@ -1,7 +1,4 @@
 //! The which-key popup.
-//!
-//! Its contents come straight from the keymap's pending candidates, so it cannot advertise a
-//! binding that does not exist or omit one that does.
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
@@ -31,7 +28,6 @@ pub fn render(frame: &mut Frame, app: &App, t: &Theme) {
                         .to_string(),
                     t.fg,
                 ),
-                // A prefix that opens more bindings, shown the way which-key shows groups.
                 None => (
                     format!("+{} more", e.bindings),
                     t.dim.add_modifier(Modifier::ITALIC),

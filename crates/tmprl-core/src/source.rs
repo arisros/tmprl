@@ -1,8 +1,4 @@
 //! From a history event to the source that produced it: what a resolver is told, and what
-//! it answers.
-//!
-//! tmprl knows nothing about anyone's code. A resolver is a program the user names in
-//! `config.toml`; it reads one JSON object on stdin and prints where to open the editor.
 
 use std::path::PathBuf;
 
@@ -12,17 +8,12 @@ use crate::clock::rfc3339_utc;
 use crate::history::{Category, Group, NormalizedEvent};
 use crate::workflow::WorkflowRow;
 
-/// The shape of the object a resolver reads. Raised when a field is renamed or removed,
-/// never when one is added.
 pub const CONTRACT: u32 = 1;
 
-/// Where a resolver said to open the editor.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Location {
     pub path: PathBuf,
     pub line: Option<u32>,
-    /// The directory to run the editor in: the root of the project the file belongs to,
-    /// so that the editor opens the project and not one stray file.
     pub root: Option<PathBuf>,
 }
 
@@ -57,11 +48,6 @@ fn event(event: &NormalizedEvent) -> Value {
     })
 }
 
-/// What a resolver is told about the thing under the cursor.
-///
-/// `events` are the group's, in history order, with every detail row tmprl kept: the
-/// worker's identity is among them, which is often the only trace of which build ran.
-/// `payloads` is the JSON object `!` pipes, already decoded where a codec could.
 pub fn request(
     profile: &str,
     workflow: &WorkflowRow,
@@ -95,10 +81,6 @@ pub fn request(
     })
 }
 
-/// Read a resolver's answer: the first line that says anything, `path`, `path:line` or
-/// `path:line:column`. The path must be absolute, since the resolver's working directory
-/// is not the reader's. A second line, when it is an absolute path, is the directory to
-/// run the editor in.
 pub fn locate(output: &str) -> Result<Location, String> {
     let mut lines = output.lines().map(str::trim).filter(|l| !l.is_empty());
     let line = lines.next().ok_or("the resolver printed nothing")?;
@@ -116,7 +98,6 @@ pub fn locate(output: &str) -> Result<Location, String> {
         numbers.push(n);
         path = head;
     }
-    // Read from the right, so the line is the last one found: `path:line:column`.
     let at = numbers.last().copied().filter(|n| *n > 0);
 
     if !path.starts_with('/') {
@@ -131,9 +112,6 @@ pub fn locate(output: &str) -> Result<Location, String> {
     })
 }
 
-/// Split a configured command into a program and its arguments, the way `$EDITOR` is
-/// split: on whitespace, with a leading `~/` meaning the home directory. No shell, so
-/// nothing in the command is an expansion or a pipeline.
 pub fn argv(command: &str, home: Option<&str>) -> Option<(String, Vec<String>)> {
     let expand = |word: &str| match (word.strip_prefix("~/"), home) {
         (Some(rest), Some(home)) => format!("{}/{rest}", home.trim_end_matches('/')),

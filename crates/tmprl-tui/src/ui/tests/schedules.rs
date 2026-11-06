@@ -44,8 +44,6 @@ fn the_schedule_list_shows_state_spec_and_next_run() {
     assert!(out.contains("paused"), "{out}");
     assert!(out.lines().next().unwrap().contains("1 paused"), "{out}");
 
-    // A paused schedule still has future times, since the server computes them from the
-    // spec. Showing one would suggest it is about to run.
     let held = out.lines().find(|l| l.contains("held")).unwrap();
     assert!(
         !held.contains("1m"),

@@ -1,14 +1,4 @@
 //! Integration tests against a real Temporal frontend.
-//!
-//! These assert the contracts the rest of tmprl is built on, the ones that would
-//! silently change under a `temporalio-client` bump. They need a server:
-//!
-//!     temporal server start-dev
-//!     cargo test -p tmprl-client
-//!
-//! With no server reachable the tests **skip** rather than fail, so `cargo test` stays
-//! green on a machine that has never run Temporal. Set `TMPRL_REQUIRE_SERVER=1` in CI to
-//! turn that skip into a hard failure.
 
 use temporalio_client::tonic::Request;
 use temporalio_common::protos::temporal::api::{
@@ -20,7 +10,6 @@ use temporalio_common::protos::temporal::api::{
 };
 use tmprl_client::{Conn, ProfileRef};
 
-/// Connect, or return `None` to skip. Keeps every test's preamble to one line.
 async fn conn() -> Option<Conn> {
     match Conn::connect(&ProfileRef::default()).await {
         Ok(c) => Some(c),
@@ -34,8 +23,6 @@ async fn conn() -> Option<Conn> {
     }
 }
 
-/// The profile loader resolves a namespace even with no config file present, tmprl must
-/// never come up namespace-less, because every RPC needs one.
 #[tokio::test]
 async fn connects_and_resolves_a_namespace() {
     let Some(c) = conn().await else { return };
@@ -45,7 +32,6 @@ async fn connects_and_resolves_a_namespace() {
     );
 }
 
-/// The namespace switcher reads this. `default` is guaranteed on a dev server.
 #[tokio::test]
 async fn lists_namespaces() {
     let Some(c) = conn().await else { return };
@@ -70,9 +56,6 @@ async fn lists_namespaces() {
     );
 }
 
-/// The list header shows a count from `CountWorkflowExecutions` while the table itself
-/// comes from `ListWorkflowExecutions`. If those two ever disagree about what an empty
-/// query means, the header lies, so pin it.
 #[tokio::test]
 async fn count_agrees_with_list() {
     let Some(c) = conn().await else { return };
@@ -108,8 +91,6 @@ async fn count_agrees_with_list() {
     );
 }
 
-/// Paging drives infinite scroll in the workflow table. A page smaller than the result set
-/// must hand back a token; the last page must not.
 #[tokio::test]
 async fn paginates_with_a_token() {
     let Some(c) = conn().await else { return };
@@ -166,9 +147,6 @@ async fn paginates_with_a_token() {
     assert_ne!(a, b, "page 2 must not repeat page 1");
 }
 
-/// The history view and follow mode both read this. Event 1 of every workflow is always
-/// `WorkflowExecutionStarted`, that invariant is what lets the header render before the
-/// rest of the history has paged in.
 #[tokio::test]
 async fn reads_history_starting_at_execution_started() {
     let Some(c) = conn().await else { return };
@@ -196,7 +174,6 @@ async fn reads_history_starting_at_execution_started() {
             namespace: ns,
             execution: Some(exec),
             maximum_page_size: 100,
-            // false, or this call long-polls and the test hangs. `true` is follow mode.
             wait_new_event: false,
             history_event_filter_type: HistoryEventFilterType::AllEvent as i32,
             ..Default::default()
@@ -215,8 +192,6 @@ async fn reads_history_starting_at_execution_started() {
     );
 }
 
-/// The typed wrapper must agree with the raw RPC about what a page contains. This is the
-/// call the workflow table makes on every scroll, so a mapping slip here is every row.
 #[tokio::test]
 async fn typed_list_maps_rows_and_pages() {
     let Some(c) = conn().await else { return };
@@ -237,11 +212,6 @@ async fn typed_list_maps_rows_and_pages() {
         );
     }
 
-    // NOTE: the server does *not* guarantee an order here, and the dev server's standard
-    // visibility store rejects `ORDER BY` outright ("operation is not supported"). So
-    // there is no server-side ordering to lean on, and tmprl sorts client-side, see
-    // `tmprl_core::workflow::WorkflowList`. This test therefore asserts the mapping, not
-    // an ordering the API never promised.
     assert!(
         page.rows.len() <= 10,
         "page_size must be respected: asked for 10, got {}",
@@ -249,8 +219,6 @@ async fn typed_list_maps_rows_and_pages() {
     );
 }
 
-/// Pin the constraint that forces client-side sorting, so that if a future server version
-/// starts supporting `ORDER BY` we find out from a failing test rather than never.
 #[tokio::test]
 async fn order_by_is_rejected_by_standard_visibility() {
     let Some(c) = conn().await else { return };
@@ -271,8 +239,6 @@ async fn order_by_is_rejected_by_standard_visibility() {
     }
 }
 
-/// Infinite scroll depends on the token round-tripping through the typed wrapper, and on
-/// the second page not repeating the first.
 #[tokio::test]
 async fn typed_list_continues_from_its_token() {
     let Some(c) = conn().await else { return };
@@ -300,9 +266,6 @@ async fn typed_list_continues_from_its_token() {
     );
 }
 
-/// The header counts. `GROUP BY` payloads are `json/plain` Keyword values holding a quoted
-/// status name, if that encoding ever changes, every status count silently reads zero, so
-/// assert that at least one group actually decoded.
 #[tokio::test]
 async fn grouped_counts_decode_to_statuses() {
     let Some(c) = conn().await else { return };
@@ -332,8 +295,6 @@ async fn grouped_counts_decode_to_statuses() {
     );
 }
 
-/// A filter must survive being adapted for the count RPC. This is the pairing the header
-/// depends on: the same user query, counted and listed, must describe the same set.
 #[tokio::test]
 async fn a_filtered_count_agrees_with_a_filtered_list() {
     let Some(c) = conn().await else { return };
@@ -362,8 +323,6 @@ async fn a_filtered_count_agrees_with_a_filtered_list() {
     );
 }
 
-/// The multi-namespace fan-out. Even with one namespace this pins the contract: rows come
-/// back merged and newest-first, and exhausted namespaces drop out of the token list.
 #[tokio::test]
 async fn fan_out_merges_rows_newest_first() {
     let Some(c) = conn().await else { return };
@@ -384,21 +343,10 @@ async fn fan_out_merges_rows_newest_first() {
     );
 }
 
-/// Paging a fan-out to exhaustion must terminate, and must visit every workflow exactly
-/// once.
-///
-/// This is the test for a bug that is invisible at a glance: if a continuation re-derives
-/// its namespaces from the original scope, a namespace that has already finished is handed
-/// an empty token, the server reads that as "start from the beginning", and it hands back
-/// page one plus a fresh token, forever. A tiny page size makes it show up with only a
-/// handful of workflows.
 #[tokio::test]
 async fn paging_a_fan_out_terminates_and_visits_each_row_once() {
     let Some(c) = conn().await else { return };
 
-    // Fan out over every namespace that actually holds workflows. The bug this guards
-    // against only appears when the namespaces exhaust at *different* points, so a
-    // single-namespace fan-out would not reach it.
     let mut namespaces = Vec::new();
     let mut total = 0usize;
     let mut biggest = 0usize;
@@ -423,11 +371,6 @@ async fn paging_a_fan_out_terminates_and_visits_each_row_once() {
         return;
     }
 
-    // Size the page so the largest namespace takes about `ROUNDS` pages however much data
-    // happens to be on this server. A fixed page size of 1 makes the request count scale
-    // with the cluster, which trips the namespace rate limit on anything but a nearly
-    // empty one, and makes the test pass or fail depending on what ran before it.
-    // Smaller namespaces still exhaust several pages earlier, which is what the bug needs.
     const ROUNDS: usize = 6;
     let page_size = biggest.div_ceil(ROUNDS).max(1) as i32;
 
@@ -437,8 +380,6 @@ async fn paging_a_fan_out_terminates_and_visits_each_row_once() {
         .await
         .expect("first page");
 
-    // Generous, but finite: without a bound a regression here hangs the suite instead of
-    // failing it.
     let limit = ROUNDS * 4 + 16;
     let mut rounds = 0;
     loop {
@@ -477,8 +418,6 @@ async fn paging_a_fan_out_terminates_and_visits_each_row_once() {
     );
 }
 
-/// The typed history read, end to end. Event 1 is always `WorkflowExecutionStarted`, so
-/// normalisation has a fixed point to be checked against.
 #[tokio::test]
 async fn typed_history_normalises_a_real_workflow() {
     let Some(c) = conn().await else { return };
@@ -514,21 +453,17 @@ async fn typed_history_normalises_a_real_workflow() {
     );
     assert_eq!(first.subject, row.workflow_type);
 
-    // Ids are dense and ascending, the grouping pass assumes history order.
     let ids: Vec<i64> = hist.events.iter().map(|e| e.id).collect();
     let mut sorted = ids.clone();
     sorted.sort_unstable();
     assert_eq!(ids, sorted, "events must arrive in history order");
 
-    // Every event carries a timestamp, which the group durations depend on.
     assert!(
         hist.events.iter().all(|e| e.time.is_some()),
         "every history event is timestamped"
     );
 }
 
-/// Grouping a real history. The workflow group must exist and reflect how the run ended,
-/// which is the same fact the workflow list shows, so the two must agree.
 #[tokio::test]
 async fn a_real_history_groups_consistently_with_the_list() {
     use tmprl_core::history::{GroupRef, Outcome, group_events};
@@ -536,7 +471,6 @@ async fn a_real_history_groups_consistently_with_the_list() {
     let Some(c) = conn().await else { return };
     let ns = c.namespace().to_string();
 
-    // A closed workflow has a terminal event to check the outcome against.
     let page = c
         .list_workflows(&ns, "ExecutionStatus = 'Terminated'", 1, Vec::new())
         .await
@@ -564,7 +498,6 @@ async fn a_real_history_groups_consistently_with_the_list() {
     assert!(!wf.is_open(), "a terminated workflow is not still running");
     assert_eq!(wf.first_event(), Some(1));
 
-    // Grouping must not lose or duplicate events.
     let mut grouped: Vec<i64> = groups
         .iter()
         .flat_map(|g| g.events.iter().copied())
@@ -578,8 +511,6 @@ async fn a_real_history_groups_consistently_with_the_list() {
     );
 }
 
-/// The dashboard's task queue panel reads this. A queue nothing polls is the case it
-/// exists for, so describing one must succeed rather than fail as not found.
 #[tokio::test]
 async fn a_task_queue_nothing_polls_is_still_described() {
     use tmprl_core::taskqueue::TaskQueueKind;
@@ -594,14 +525,11 @@ async fn a_task_queue_nothing_polls_is_still_described() {
         assert_eq!(health.last_poll_ms, None);
         match health.backlog {
             Some(n) => assert_eq!(n, 0, "nothing was ever sent to it"),
-            // An older server ignores `report_stats`. The panel then shows pollers only.
             None => eprintln!("NOTE: this server reports no task queue stats"),
         }
     }
 }
 
-/// The dashboard asks this of every failed row it lists, so it has to be one event however
-/// long the history is, and nothing at all for a workflow that has not closed.
 #[tokio::test]
 async fn the_close_event_is_the_one_event_a_closed_workflow_ended_on() {
     use tmprl_core::history::{GroupRef, Outcome, Role};
@@ -643,9 +571,6 @@ async fn the_close_event_is_the_one_event_a_closed_workflow_ended_on() {
     }
 }
 
-/// A query is answered by a worker, and CI runs none. What has to hold is that asking does
-/// not hang the task past tmprl's own deadline, and fails with a code the picker can tell
-/// apart from "this workflow has no such handler".
 #[tokio::test]
 async fn a_query_nothing_answers_fails_within_the_deadline() {
     use tmprl_core::fault::Code;

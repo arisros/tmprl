@@ -7,8 +7,6 @@ impl App {
         self.mode == Mode::Insert && self.insert_target == InsertTarget::Query
     }
 
-    /// The query text to show: the live edit while Insert mode owns it, otherwise what is
-    /// applied. Used by the tests and by anything that needs the focused pane's query.
     pub fn query_display(&self) -> &str {
         if self.is_editing_query() {
             self.insert_buf.as_str()
@@ -17,14 +15,6 @@ impl App {
         }
     }
 
-    /// `<leader>xx`: everything that went wrong.
-    ///
-    /// A query preset rather than a screen of its own, which is the whole reason the query
-    /// bar is the interface. It lands in the bar, visible and editable, so narrowing it
-    /// further is ordinary editing rather than a feature this would have had to grow.
-    ///
-    /// `IN` rather than three `OR`s: Temporal's visibility grammar takes it, and the result
-    /// is short enough to read in the bar, which a three-clause disjunction is not.
     pub(super) fn show_problems(&mut self) {
         self.mark_jump();
         const PROBLEMS: &str =
@@ -34,9 +24,6 @@ impl App {
         if self.view.screen != Screen::Workflows {
             self.view.screen = Screen::Workflows;
             self.view.viewing = None;
-            // Including the continuation tokens: `load_history` passes `history_token`
-            // unconditionally, so a token left over from the history being abandoned would
-            // be sent to whichever run is opened next.
             self.reset_history();
         }
         self.view.cursor = 0;
@@ -45,16 +32,9 @@ impl App {
         self.load_workflows(false);
     }
 
-    /// Append a clause to the visibility query and apply it.
-    ///
-    /// `AND`ed onto whatever is already there rather than replacing it, so the picker
-    /// composes: status, then type, then task queue, three visits and no typing. The text
-    /// stays in the bar and stays editable, which is the rule the whole query bar is built
-    /// on.
     pub(super) fn add_clause(&mut self, clause: &str) {
         self.mark_jump();
-        // An `ORDER BY` is a trailing clause, not a predicate: `AND`ing it produces a query
-        // the server rejects.
+        // ORDER BY cannot be ANDed; the server rejects it.
         let ordering = clause
             .trim_start()
             .to_ascii_lowercase()
@@ -82,7 +62,6 @@ impl App {
         };
         let (name, query) = (view.name.clone(), view.query.clone());
         self.mark_jump();
-        // A view is a bookmark, not a mode: it fills the query bar, which stays editable.
         self.view.query = query;
         if matches!(self.view.screen, Screen::Namespaces | Screen::Dashboard) {
             self.view.stop_dashboard();
@@ -92,15 +71,10 @@ impl App {
         self.load_workflows(false);
     }
 
-    /// Literal input, the two editing keys a text field cannot do without, and the keys
-    /// that drive the completion list under the bar.
     pub(super) fn insert_keys(&mut self, flushed: Vec<Chord>) {
         use tmprl_core::{Key, Mods};
         for c in flushed {
             match c.key {
-                // Enter applies the query rather than accepting an offer. The offer is on
-                // `<Tab>`, so a query you typed in full is never diverted by a list you
-                // were not reading.
                 Key::Enter if c.mods.is_none() => self.commit_insert(),
                 Key::Tab if c.mods.is_none() => self.accept_completion(),
                 Key::Char('n') if c.mods == Mods::CTRL => self.move_completion(1),
@@ -126,11 +100,6 @@ impl App {
         }
     }
 
-    /// Rebuild the offers for what is in the bar now.
-    ///
-    /// Recomputed per keystroke rather than filtered down: the fragment can grow *and*
-    /// shrink, and a list that only ever narrows would go empty on a backspace and stay
-    /// there.
     pub(super) fn recompute_completion(&mut self) {
         if !self.is_editing_query() {
             self.completion = None;
@@ -146,10 +115,6 @@ impl App {
         }
     }
 
-    /// `<Tab>`: splice the selected offer into the bar, replacing the clause being typed.
-    ///
-    /// The query is *not* applied: the text lands in the bar and stays editable, which is
-    /// the rule the whole bar is built on. Enter still applies it.
     fn accept_completion(&mut self) {
         let Some(clause) = self
             .completion
@@ -161,12 +126,9 @@ impl App {
         };
         self.insert_buf
             .set(complete::apply(self.insert_buf.as_str(), &clause));
-        // A fresh list for the text as it now stands: what was being typed is complete, so
-        // there is nothing left to offer for it.
         self.completion = None;
     }
 
-    /// Enter in Insert mode. On the query bar this applies the query and reloads.
     pub(super) fn commit_insert(&mut self) {
         if self.insert_target != InsertTarget::Query {
             return;

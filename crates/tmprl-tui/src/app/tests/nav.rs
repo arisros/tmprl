@@ -40,8 +40,6 @@ fn jumping_back_with_nowhere_to_go_says_so() {
 
 #[test]
 fn ordinary_motion_is_not_a_jump() {
-    // The whole point: a jumplist that recorded every `j` is a scroll history, and
-    // `<C-o>` stops being worth pressing.
     let mut app = app();
     four(&mut app);
     app.run("motion.down", None);
@@ -70,11 +68,10 @@ fn gg_is_a_jump_so_you_can_get_back_from_it() {
 fn a_new_jump_discards_the_forward_history() {
     let mut app = app();
     four(&mut app);
-    app.run("nav.open", None); // workflows -> history
-    app.run("nav.jump-back", None); // back to workflows
+    app.run("nav.open", None);
+    app.run("nav.jump-back", None);
     assert_eq!(app.view.screen, Screen::Workflows);
 
-    // A fresh jump from here. `<C-i>` must not offer the history any more.
     app.run("motion.bottom", None);
     app.run("nav.jump-forward", None);
     let (msg, _) = app.note.clone().expect("should have refused");
@@ -83,8 +80,6 @@ fn a_new_jump_discards_the_forward_history() {
 
 #[test]
 fn a_jump_back_to_a_workflow_list_refetches_rather_than_restoring_a_stale_one() {
-    // The list is re-requested, so coming back shows what is there now. Asserting on
-    // the generation because that is what a fetch bumps.
     let mut app = app();
     four(&mut app);
     app.run("nav.open", None);
@@ -106,8 +101,6 @@ fn the_problem_list_is_a_jump() {
 
 #[test]
 fn tab_jumps_forward_because_it_is_the_same_key_as_ctrl_i() {
-    // Ctrl+I is byte 0x09 on a terminal, which arrives as Tab. Binding only `<C-i>`
-    // gives a key that never fires.
     let mut app = app();
     four(&mut app);
     app.run("nav.open", None);
@@ -120,8 +113,6 @@ fn tab_jumps_forward_because_it_is_the_same_key_as_ctrl_i() {
 
 #[test]
 fn failing_to_find_a_pane_leaves_the_tab_where_it_was() {
-    // Finding a pane in another tab means rotating, because Tabs cannot be inspected
-    // without being made current. A miss must undo the rotation.
     let mut app = app();
     four(&mut app);
     app.run("tab.new", None);
@@ -136,8 +127,6 @@ fn failing_to_find_a_pane_leaves_the_tab_where_it_was() {
 
 #[test]
 fn jumping_back_to_a_list_returns_to_the_workflow_not_the_row_number() {
-    // A live list grows at the top. Restoring a bare index would put the cursor on
-    // whatever has since taken that slot.
     let mut app = app();
     four(&mut app);
     app.run("motion.down", None);
@@ -147,7 +136,6 @@ fn jumping_back_to_a_list_returns_to_the_workflow_not_the_row_number() {
     assert_eq!(app.view.screen, Screen::History);
 
     app.run("nav.jump-back", None);
-    // Two newer workflows arrive while we were away, pushing everything down.
     let mut rows = vec![wf("default", "r9", 900), wf("default", "r8", 800)];
     for run in ["r4", "r3", "r2", "r1"] {
         let start = 100 * run[1..].parse::<i64>().unwrap();
@@ -166,21 +154,13 @@ fn jumping_back_to_a_list_returns_to_the_workflow_not_the_row_number() {
     );
 }
 
-// ---- regressions from the review of #17 ----
-
 #[test]
 fn picking_a_workflow_from_inside_a_history_does_not_merge_the_two() {
-    // The bug this pins: `open_workflow` set `viewing` and called `load_history`
-    // without clearing the previous run's events or continuation token. `load_history`
-    // then saw non-empty events, skipped bumping the generation, sent r1's page token
-    // to r2, and merged the reply into r1's events, so one outline showed two
-    // workflows.
     let mut app = app();
     four(&mut app);
     app.run("nav.open", None);
     assert_eq!(app.view.screen, Screen::History);
 
-    // A paged history: a non-empty token is what made the old code send the wrong one.
     app.handle(Msg::History {
         generation: app.view.generation,
         result: Ok((history_events(), b"page-2".to_vec())),
@@ -207,8 +187,6 @@ fn picking_a_workflow_from_inside_a_history_does_not_merge_the_two() {
 
 #[test]
 fn the_problem_list_clears_the_history_it_leaves_behind() {
-    // `load_history` passes `history_token` unconditionally, so a token left over from
-    // an abandoned history goes to whichever run is opened next.
     let mut app = app();
     four(&mut app);
     app.run("nav.open", None);
@@ -226,12 +204,6 @@ fn the_problem_list_clears_the_history_it_leaves_behind() {
 
 #[test]
 fn a_refused_dash_does_not_destroy_the_forward_jumps() {
-    // `Jumplist::push` truncates everything ahead of the cursor, so marking a jump for
-    // a move that turns out to be refused silently empties the `<C-i>` list.
-    //
-    // Getting to the state that shows it needs care: a *legal* `-` truncates the
-    // forward entries too, and correctly so. What is needed is to be sitting on the
-    // profile list, where `-` is refused, with forward entries still ahead.
     let mut app = app();
     app.handle(Msg::Namespaces(Ok(vec![NamespaceInfo {
         name: "default".into(),
@@ -242,18 +214,18 @@ fn a_refused_dash_does_not_destroy_the_forward_jumps() {
     app.handle(Msg::Profiles(Ok(Vec::new())));
     app.view.screen = Screen::Namespaces;
 
-    app.run("nav.up", None); // namespaces -> profiles
-    app.run("nav.open", None); // the connected profile -> its namespaces
-    app.run("nav.open", None); // namespaces -> workflows
+    app.run("nav.up", None);
+    app.run("nav.open", None);
+    app.run("nav.open", None);
     four(&mut app);
     assert_eq!(app.view.screen, Screen::Workflows);
 
-    app.run("nav.jump-back", None); // -> namespaces
-    app.run("nav.jump-back", None); // -> profiles, with two entries ahead
+    app.run("nav.jump-back", None);
+    app.run("nav.jump-back", None);
     assert_eq!(app.view.screen, Screen::Profiles);
 
     let ahead = app.jumps.len();
-    app.run("nav.up", None); // refused: already at the top level
+    app.run("nav.up", None);
     assert_eq!(
         app.jumps.len(),
         ahead,
@@ -270,8 +242,6 @@ fn a_refused_dash_does_not_destroy_the_forward_jumps() {
 
 #[test]
 fn the_cursor_stays_on_its_workflow_when_a_newer_one_arrives() {
-    // The whole reason the cursor is anchored to a run id. A live list grows at the
-    // top; an index-based cursor would quietly select a different workflow.
     let mut app = app();
     loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
     app.run("motion.top", None);
@@ -294,8 +264,6 @@ fn the_cursor_stays_on_its_workflow_when_a_newer_one_arrives() {
 
 #[test]
 fn a_reply_for_a_superseded_query_is_dropped() {
-    // Type a new query while the old one is still in flight: the stale reply must not
-    // repaint the table with rows the user is no longer looking at.
     let mut app = app();
     loaded(&mut app, vec![wf("default", "old", 100)], vec![]);
     let stale = app.view.generation;
@@ -399,8 +367,6 @@ fn a_visual_selection_of_namespaces_opens_a_fan_out() {
             .collect(),
     );
 
-    // Driven through the keymap, not by calling `run` directly: the binding is half of
-    // the feature, and a test that skips it cannot tell you the key does nothing.
     for chord in [
         Chord::ch('g'),
         Chord::ch('g'),
@@ -525,7 +491,6 @@ fn a_completion_replaces_only_the_clause_being_typed() {
 
 #[test]
 fn escape_closes_the_offers_before_it_abandons_anything() {
-    // The list was never asked for, so dismissing it must not cost the line being typed.
     let mut app = app();
     loaded(&mut app, vec![], vec![]);
     app.view.query.clear();
@@ -545,7 +510,6 @@ fn escape_closes_the_offers_before_it_abandons_anything() {
 
 #[test]
 fn backspacing_widens_the_offers_again() {
-    // A list that only ever narrowed would go empty on a backspace and stay there.
     let mut app = app();
     loaded(&mut app, vec![], vec![]);
     app.view.query.clear();
@@ -564,7 +528,6 @@ fn backspacing_widens_the_offers_again() {
 
 #[test]
 fn enter_applies_the_query_rather_than_accepting_an_offer() {
-    // A query typed in full must never be diverted by a list nobody was reading.
     let mut app = app();
     loaded(&mut app, vec![], vec![]);
     app.view.query.clear();
@@ -603,7 +566,6 @@ fn a_saved_view_fills_the_query_bar_and_leaves_it_editable() {
     assert_eq!(app.view.query, "ExecutionStatus = 'Failed'");
     assert_eq!(app.view.screen, Screen::Workflows);
 
-    // Still text, still editable, a view is a bookmark, not a mode.
     app.run("mode.insert", None);
     assert_eq!(app.insert_buf, "ExecutionStatus = 'Failed'");
 }
@@ -627,7 +589,6 @@ fn scrolling_near_the_end_asks_for_the_next_page_once() {
         "reaching the end should request the next page"
     );
 
-    // A second motion while that request is in flight must not queue another.
     app.run("motion.up", None);
     app.run("motion.bottom", None);
     assert!(app.view.loading_more);
@@ -662,7 +623,6 @@ fn gs_and_gw_switch_lists_within_a_namespace() {
 
 #[test]
 fn switching_lists_is_refused_from_a_namespace_or_a_history() {
-    // From a history the reader is inside one workflow; jumping sideways loses the place.
     let mut app = app();
     app.run("nav.schedules", None);
     assert_eq!(app.view.screen, Screen::Namespaces);

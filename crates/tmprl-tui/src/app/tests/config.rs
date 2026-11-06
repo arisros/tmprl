@@ -102,8 +102,6 @@ fn no_theme_file_is_the_default_palette_for_the_depth() {
 
 #[test]
 fn a_theme_error_is_still_reported_under_no_color() {
-    // The file is not used there, but it is still wrong, and saying so only once
-    // NO_COLOR is unset would look like the theme had broken by itself.
     let mut app = app();
     app.apply_theme(ColorDepth::Mono, Some("nope = \"red\"\n"));
     assert!(app.note.is_some());

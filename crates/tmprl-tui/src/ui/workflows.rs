@@ -1,9 +1,4 @@
 //! The workflow table.
-//!
-//! Status is carried by a glyph as well as a colour, so the column still reads on a
-//! 16-colour terminal, under `NO_COLOR`, and for a colour-blind operator. The namespace
-//! column appears only when the list is fanned out over more than one, because on a single
-//! namespace it would be the same value on every row.
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
@@ -19,14 +14,10 @@ use crate::app::{App, now_ms};
 use crate::theme::Theme;
 use crate::view::View;
 
-/// Fixed column widths. The workflow id gets whatever is left, because it is the column
-/// people actually read.
 const GUTTER: usize = 5;
 const STATUS: usize = 15;
 const TYPE: usize = 22;
 const AGE: usize = 5;
-/// Absolute mode spends the width on a start and a close column: when you have asked for
-/// clock times, "when did it finish" is the other half of the question.
 const STAMPS: usize = STAMP_WIDTH * 2 + 2;
 const NAMESPACE: usize = 16;
 
@@ -44,8 +35,6 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
         } else if view.query.trim().is_empty() {
             "no workflows in this namespace".to_string()
         } else {
-            // Distinguish "nothing here" from "your filter excluded everything", which is
-            // the far more likely cause and the one you can act on.
             "no workflows match this query (i to edit it)".to_string()
         };
         frame.render_widget(
@@ -55,14 +44,11 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
         return;
     }
 
-    // Before any width is worked out: the rows must be laid out inside whatever the
-    // scrollbar leaves, not over it.
     let area = super::list_scrollbar(frame, area, view.cursor, rows.len(), t);
 
     let show_ns = view.is_fanned_out();
     let times = if app.times.is_absolute() { STAMPS } else { AGE };
     let fixed = GUTTER + STATUS + TYPE + times + if show_ns { NAMESPACE } else { 0 };
-    // Never let the id column collapse to nothing on a narrow pane.
     let id_width = (area.width as usize).saturating_sub(fixed).max(8);
 
     let now = now_ms();
@@ -147,8 +133,6 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
             }
             Line::from(spans)
         })
-        // Repaint the search pattern last, over the finished row, so it survives
-        // whatever colouring and truncation the columns above applied.
         .map(|l| highlight(l, &app.search, match_style()))
         .collect();
 

@@ -2,7 +2,6 @@
 
 use crate::workflow::humanize_age_ms;
 
-/// One row of the schedule list.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScheduleRow {
     pub namespace: String,
@@ -10,28 +9,21 @@ pub struct ScheduleRow {
     pub workflow_type: String,
     pub paused: bool,
     pub notes: String,
-    /// A readable form of the timetable, from [`describe_spec`].
     pub spec: String,
-    /// Epoch millis of the next run, when the server offered one.
     pub next_run: Option<i64>,
     pub recent_runs: usize,
 }
 
 impl ScheduleRow {
-    /// Identity across refreshes. Schedule ids are unique within a namespace, so the pair is
-    /// the key, as it is for workflows.
     pub fn key(&self) -> (&str, &str) {
         (self.namespace.as_str(), self.schedule_id.as_str())
     }
 
-    /// Shown in the list. Paused is the state worth spotting: a schedule that is not running
-    /// looks identical to one that is until you read it.
     pub fn glyph(&self) -> char {
         if self.paused { '‖' } else { '●' }
     }
 }
 
-/// One `start..=end` step in a calendar field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Range {
     pub start: i32,
@@ -39,11 +31,7 @@ pub struct Range {
     pub step: i32,
 }
 
-/// A structured calendar, one list of ranges per field.
-///
-/// This is what the server actually stores. Creating a schedule with `--cron "0 2 * * *"`
-/// leaves `cron_string` empty and fills this in instead, so a list that reads only the cron
-/// string reports every cron schedule as having no timetable at all.
+// A schedule created with --cron is stored here, with cron_string empty.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Calendar {
     pub second: Vec<Range>,
@@ -54,14 +42,7 @@ pub struct Calendar {
     pub day_of_week: Vec<Range>,
 }
 
-/// Render a structured calendar back to a cron expression.
-///
-/// The seconds field is included only when it is not plain zero, so an ordinary
-/// five-field cron reads as one.
 pub fn describe_calendar(c: &Calendar) -> String {
-    // "For all fields besides year, at least one Range must be present to match anything."
-    // The server populates all six on create, so this only catches a hand-built spec, but
-    // rendering an empty field as `*` would claim it fires when it never does.
     if [
         &c.second,
         &c.minute,
@@ -91,7 +72,6 @@ pub fn describe_calendar(c: &Calendar) -> String {
     }
 }
 
-/// One cron field. A range covering the whole domain with step 1 is `*`.
 fn field(ranges: &[Range], min: i32, max: i32) -> String {
     let parts: Vec<String> = ranges
         .iter()
@@ -110,21 +90,12 @@ fn field(ranges: &[Range], min: i32, max: i32) -> String {
     parts.join(",")
 }
 
-/// An interval in a schedule spec: run every `every`, offset by `offset`, both in seconds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Interval {
     pub every_secs: i64,
     pub offset_secs: i64,
 }
 
-/// Turn a spec into something readable in one column.
-///
-/// A schedule can carry several cron strings and several intervals at once, and the protobuf
-/// keeps them in separate lists. Joining them is the only way one row can say what the
-/// timetable actually is.
-///
-/// Cron strings are shown verbatim. Anyone reading a schedule list already reads cron, and
-/// rewriting `0 9 * * 1-5` as prose makes it longer and no clearer.
 pub fn describe_spec(cron: &[String], calendars: &[Calendar], intervals: &[Interval]) -> String {
     let mut parts: Vec<String> = cron.iter().filter(|c| !c.is_empty()).cloned().collect();
     parts.extend(calendars.iter().map(describe_calendar));
@@ -139,14 +110,12 @@ pub fn describe_spec(cron: &[String], calendars: &[Calendar], intervals: &[Inter
     }
 
     if parts.is_empty() {
-        // A spec with neither is legal: the schedule only runs when triggered by hand.
         "manual".to_string()
     } else {
         parts.join(", ")
     }
 }
 
-/// Seconds as something short: `30s`, `5m`, `1h`, `7d`.
 fn humanize_duration(secs: i64) -> String {
     match secs {
         s if s <= 0 => "0s".into(),
@@ -157,11 +126,6 @@ fn humanize_duration(secs: i64) -> String {
     }
 }
 
-/// How long until the next run, or `None` when nothing is scheduled.
-///
-/// A paused schedule can still carry future action times, because the server computes them
-/// from the spec rather than from whether it will act on them. Callers show the pause state
-/// separately rather than reading it out of this.
 pub fn time_until(next_run: Option<i64>, now: i64) -> Option<String> {
     let at = next_run?;
     Some(if at <= now {
@@ -184,8 +148,6 @@ mod tests {
 
     #[test]
     fn a_cron_string_is_shown_verbatim() {
-        // Anyone reading a schedule list already reads cron; prose would be longer and no
-        // clearer.
         assert_eq!(
             describe_spec(&["0 9 * * 1-5".into()], &[], &[]),
             "0 9 * * 1-5"
@@ -211,8 +173,6 @@ mod tests {
 
     #[test]
     fn several_rules_are_joined_rather_than_one_being_picked() {
-        // The protobuf keeps crons and intervals in separate lists and a schedule can carry
-        // both. Showing only one would misdescribe the timetable.
         let out = describe_spec(&["0 9 * * 1-5".into()], &[], &[every(3_600)]);
         assert_eq!(out, "0 9 * * 1-5, every 1h");
     }
@@ -230,9 +190,6 @@ mod tests {
 
     #[test]
     fn a_cron_schedule_is_stored_as_a_calendar_and_reads_back_as_cron() {
-        // Creating a schedule with --cron leaves cron_string empty and fills in the
-        // structured calendar, so reading only the string reports "manual" for every one.
-        // These are the exact ranges a dev server stores for `0 2 * * *`.
         let c = Calendar {
             second: at(&[(0, 0)]),
             minute: at(&[(0, 0)]),
@@ -245,7 +202,6 @@ mod tests {
         assert_eq!(describe_spec(&[], &[c], &[]), "0 2 * * *");
     }
 
-    /// Every field populated, as the server always sends them.
     fn full() -> Calendar {
         Calendar {
             second: at(&[(0, 0)]),
@@ -279,8 +235,6 @@ mod tests {
 
     #[test]
     fn a_calendar_missing_a_field_never_fires() {
-        // The proto says every field besides year needs a range to match anything, so
-        // rendering the gap as `*` would claim it fires when it never does.
         let mut c = full();
         c.hour = Vec::new();
         assert_eq!(describe_calendar(&c), "never");
@@ -288,7 +242,6 @@ mod tests {
 
     #[test]
     fn a_spec_with_no_rules_is_manual() {
-        // Legal, and it means the schedule only runs when triggered by hand.
         assert_eq!(describe_spec(&[], &[], &[]), "manual");
         assert_eq!(describe_spec(&[String::new()], &[], &[]), "manual");
     }

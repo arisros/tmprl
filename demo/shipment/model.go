@@ -1,9 +1,4 @@
 // Package shipment is tmprl's sample workload: a made-up freight forwarder.
-//
-// Nothing here ships anything. It exists to give a Temporal namespace the shape a real
-// one has, so tmprl can be demonstrated and tested without anybody's production: a long
-// automated workflow, a second workflow that waits on a person, several versions live at
-// once, and activities that fail, retry and time out on purpose.
 package shipment
 
 // Scenario picks which of the scripted fates a shipment meets.

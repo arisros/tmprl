@@ -1,32 +1,17 @@
 //! The time axis behind the timeline view.
-//!
-//! Modelled on the timeline in Temporal's web UI, so the two read the same way: every group
-//! is placed by the times of its events on one shared axis, and a stretch in which nothing
-//! at all was running is folded down to a few columns instead of being drawn to scale.
-//! Without that fold, one two-hour timer turns every activity around it into a single dot.
-//!
-//! Nothing here knows about cells or colours. [`Timeline`] splits the run into active and
-//! idle segments, and [`Scale`] maps a timestamp onto a column once a width is known.
 
 use crate::history::{Category, Group};
 
-/// Columns a folded gap takes. Enough to show that something was cut, not so many that a
-/// dozen gaps eat the width the bars need.
 pub const GAP_COLUMNS: usize = 3;
 
-/// An idle stretch is folded when it is at least this share of the time still drawn to
-/// scale. The web UI's threshold, so the same history folds in the same places.
 const COLLAPSE_RATIO: f64 = 0.1;
 
-/// Roughly one tick every this many columns.
 const TICK_SPACING: usize = 12;
 
-/// A stretch of the run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Segment {
     pub start: i64,
     pub end: i64,
-    /// Something was running for the whole of it. Only idle segments ever fold.
     pub active: bool,
     pub collapsed: bool,
 }
@@ -37,7 +22,6 @@ impl Segment {
     }
 }
 
-/// The run's time span, cut into active and idle segments.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Timeline {
     start: i64,
@@ -46,10 +30,6 @@ pub struct Timeline {
 }
 
 impl Timeline {
-    /// Lay out a history. `now` is where anything still running ends, so a running workflow's
-    /// axis grows as it runs.
-    ///
-    /// `None` when nothing in the history carries a time: there is no axis to draw.
     pub fn new(groups: &[Group], now: i64) -> Option<Self> {
         let workflow = groups.iter().find(|g| g.category == Category::Workflow);
         let start = workflow
@@ -69,7 +49,6 @@ impl Timeline {
             _ if running => now.max(latest),
             _ => latest,
         }
-        // A history of one instant still needs an axis with a length.
         .max(start + 1);
 
         let mut t = Self {
@@ -93,16 +72,11 @@ impl Timeline {
         &self.segments
     }
 
-    /// Fold every gap that qualifies, or unfold them all.
-    ///
-    /// Folding repeats until nothing changes: each fold shrinks the time still drawn to
-    /// scale, which can push another gap over the threshold.
     pub fn fold_gaps(&mut self, fold: bool) {
         if !fold {
             self.segments.iter_mut().for_each(|s| s.collapsed = false);
             return;
         }
-        // One segment is the whole run; folding it would leave nothing to draw.
         if self.segments.len() <= 1 {
             return;
         }
@@ -126,21 +100,15 @@ impl Timeline {
         }
     }
 
-    /// Whether any gap is folded.
     pub fn has_folds(&self) -> bool {
         self.segments.iter().any(|s| s.collapsed)
     }
 
-    /// Place this timeline across `width` columns.
     pub fn scale(&self, width: usize) -> Scale {
         Scale::new(self, width)
     }
 }
 
-/// Active and idle segments between `start` and `end`, from the groups' own spans.
-///
-/// The workflow's own group spans the whole run, and workflow tasks are the worker polling:
-/// counting either would make every moment look busy and nothing would ever fold.
 fn segments(groups: &[Group], start: i64, end: i64) -> Vec<Segment> {
     let mut spans: Vec<(i64, i64)> = groups
         .iter()
@@ -153,12 +121,9 @@ fn segments(groups: &[Group], start: i64, end: i64) -> Vec<Segment> {
                 None => from,
             }
             .clamp(start, end);
-            // An instant (a marker, a signal) is a point, not a span: it keeps nothing busy.
             (to > from).then_some((from, to))
         })
         .collect();
-    // Groups arrive in the order they were opened, which is almost always time order; a
-    // sort is only paid when it is not.
     if !spans.is_sorted_by_key(|s| s.0) {
         spans.sort_by_key(|s| s.0);
     }
@@ -202,7 +167,6 @@ fn idle(start: i64, end: i64) -> Segment {
     }
 }
 
-/// One segment, placed.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Placed {
     start: i64,
@@ -212,18 +176,12 @@ struct Placed {
     collapsed: bool,
 }
 
-/// A tick on the axis.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Tick {
     pub column: usize,
-    /// Epoch millis at that column.
     pub at: i64,
 }
 
-/// A timeline placed across a number of columns.
-///
-/// Positions are fractional columns in `[0, width - 1]`, so the first and last instants of
-/// the run land in the first and last cells.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Scale {
     width: usize,
@@ -234,8 +192,6 @@ impl Scale {
     fn new(t: &Timeline, width: usize) -> Self {
         let span = width.saturating_sub(1) as f64;
         let folds = t.segments.iter().filter(|s| s.collapsed).count();
-        // A folded gap keeps a fixed width only while that leaves most of the row to the
-        // bars; on a narrow pane every gap shrinks to one column.
         let gap = if folds * GAP_COLUMNS * 2 <= width {
             GAP_COLUMNS as f64
         } else {
@@ -280,7 +236,6 @@ impl Scale {
         self.width
     }
 
-    /// The fractional column of `ms`, clamped to the axis.
     pub fn project(&self, ms: i64) -> f64 {
         let (Some(first), Some(last)) = (self.placed.first(), self.placed.last()) else {
             return 0.0;
@@ -297,12 +252,10 @@ impl Scale {
         p.from + (ms - p.start) as f64 / dur * (p.to - p.from)
     }
 
-    /// The cell `ms` falls in.
     pub fn column(&self, ms: i64) -> usize {
         (self.project(ms).round().max(0.0) as usize).min(self.width.saturating_sub(1))
     }
 
-    /// The time at a column, the inverse of [`Scale::project`].
     pub fn unproject(&self, column: f64) -> i64 {
         let (Some(first), Some(last)) = (self.placed.first(), self.placed.last()) else {
             return 0;
@@ -319,7 +272,6 @@ impl Scale {
         p.start + ((column - p.from) / w * (p.end - p.start) as f64).round() as i64
     }
 
-    /// Column ranges of the folded gaps, for drawing the fold marks.
     pub fn folds(&self) -> Vec<std::ops::RangeInclusive<usize>> {
         self.placed
             .iter()
@@ -336,8 +288,6 @@ impl Scale {
         self.folds().iter().any(|r| r.contains(&column))
     }
 
-    /// Evenly spaced ticks, skipping the origin and anything inside a fold, where the label
-    /// would describe time that is not drawn.
     pub fn ticks(&self) -> Vec<Tick> {
         if self.width < 2 {
             return Vec::new();
@@ -355,11 +305,6 @@ impl Scale {
     }
 }
 
-/// An offset from the start of the run, the way the web UI's axis labels it: `1m 30s`,
-/// `2h 5m`, `1s 250ms`.
-///
-/// Milliseconds are shown only when asked for, which the axis does when its ticks are less
-/// than a second apart and whole seconds would label two ticks the same.
 pub fn format_offset(ms: i64, with_millis: bool) -> String {
     let ms = ms.max(0);
     let mut parts = Vec::new();
@@ -472,7 +417,6 @@ mod tests {
 
     #[test]
     fn the_workflow_and_its_tasks_never_count_as_activity() {
-        // Otherwise the workflow's own span marks the whole run busy and nothing folds.
         let t = Timeline::new(
             &[
                 workflow(0, Some(100)),
@@ -487,7 +431,6 @@ mod tests {
 
     #[test]
     fn a_long_idle_stretch_is_folded_and_a_short_one_is_not() {
-        // Two seconds of work either side of an hour of nothing, and a 1ms pause.
         let hour = 3_600_000;
         let t = Timeline::new(
             &[
@@ -510,8 +453,6 @@ mod tests {
 
     #[test]
     fn folding_repeats_until_no_gap_qualifies() {
-        // The first gap is 40% of the run; once it is folded the second, 8% of the whole,
-        // is 13% of what is left and folds too.
         let t = Timeline::new(
             &[
                 workflow(0, Some(100)),
@@ -582,7 +523,6 @@ mod tests {
         let folds = s.folds();
         assert_eq!(folds.len(), 1);
         assert_eq!(folds[0].clone().count(), GAP_COLUMNS);
-        // Each second of work gets half of what the gap leaves: (62 - 3) / 2.
         assert!(
             (s.project(1_000) - 29.5).abs() < 1e-9,
             "{}",
@@ -643,7 +583,6 @@ mod tests {
         assert_eq!(format_offset(2 * 3_600_000 + 5 * 60_000, false), "2h 5m");
         assert_eq!(format_offset(1_250, false), "1s");
         assert_eq!(format_offset(1_250, true), "1s 250ms");
-        // Under a second there is nothing else to show.
         assert_eq!(format_offset(250, false), "250ms");
         assert_eq!(format_offset(86_400_000 + 1_000, false), "1d 1s");
     }

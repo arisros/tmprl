@@ -1,14 +1,4 @@
 //! Key resolution: chords in, command ids out.
-//!
-//! Three behaviours here are worth more than they look:
-//!
-//! * **Counts.** `7j` means seven, and it composes with any motion, because the count is
-//!   accumulated by the resolver rather than by each command.
-//! * **Prefixes.** An incomplete sequence resolves to [`Resolution::Pending`] carrying the
-//!   keys that would complete it. That list is exactly what the which-key popup draws, so
-//!   the popup can never disagree with the keymap.
-//! * **Flushing.** An unmatched sequence returns the chords it swallowed. That is what lets
-//!   `jk` leave Insert mode without eating a literal `j` typed before some other letter.
 
 use crate::key::{Chord, ChordSeq, Key, KeyParseError};
 use crate::mode::Mode;
@@ -20,33 +10,28 @@ pub struct Binding {
     pub command: &'static str,
 }
 
-/// A key that could come next, for the which-key popup.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingEntry {
     pub next: Chord,
-    /// `Some` when this key completes a binding, `None` when it only opens a deeper prefix.
     pub command: Option<&'static str>,
-    /// How many bindings live under this key. `> 1` means it is a group.
     pub bindings: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Resolution {
-    /// A digit was consumed into the count. Nothing to run yet.
     Count(u32),
-    /// A prefix matched. `candidates` is what could come next.
-    Pending { candidates: Vec<PendingEntry> },
-    /// A binding matched.
+    Pending {
+        candidates: Vec<PendingEntry>,
+    },
     Run {
         id: &'static str,
         count: Option<u32>,
     },
-    /// Nothing matched. `flushed` is every chord that was held, including this one, so the
-    /// caller can treat them as literal input.
-    Unbound { flushed: Vec<Chord> },
+    Unbound {
+        flushed: Vec<Chord>,
+    },
 }
 
-/// Keys held while waiting for a sequence to complete.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Pending {
     pub count: Option<u32>,
@@ -61,7 +46,6 @@ impl Pending {
     pub fn is_idle(&self) -> bool {
         self.count.is_none() && self.chords.is_empty()
     }
-    /// What the statusline shows in the bottom right, like vim's pending-command indicator.
     pub fn display(&self) -> String {
         let mut s = String::new();
         if let Some(c) = self.count {
@@ -79,7 +63,6 @@ pub struct Keymap {
     leader: Chord,
 }
 
-/// Counts are capped so that a leaned-on digit key cannot ask for a motion of four billion.
 const MAX_COUNT: u32 = 100_000;
 
 impl Keymap {
@@ -97,7 +80,6 @@ impl Keymap {
         command: &'static str,
     ) -> Result<(), KeyParseError> {
         let seq = ChordSeq::parse(seq, self.leader)?;
-        // Last binding wins, so a user keymap can override a default.
         self.bindings.retain(|b| !(b.mode == mode && b.seq == seq));
         self.bindings.push(Binding { mode, seq, command });
         Ok(())
@@ -110,7 +92,6 @@ impl Keymap {
         &self.bindings
     }
 
-    /// Every chord sequence bound to a command, for the help overlay.
     pub fn keys_for(&self, command: &str) -> Vec<&Binding> {
         self.bindings
             .iter()
@@ -119,8 +100,6 @@ impl Keymap {
     }
 
     pub fn resolve(&self, mode: Mode, pending: &mut Pending, chord: Chord) -> Resolution {
-        // A digit starts or extends a count, but only when no sequence is in flight,
-        // otherwise `<leader>1` could never be bound.
         if mode.takes_counts()
             && pending.chords.is_empty()
             && let Key::Char(c) = chord.key
@@ -186,13 +165,6 @@ impl Keymap {
     }
 }
 
-/// The default keymap.
-///
-/// Only bindings whose commands actually do something are registered. Binding a key to a
-/// feature that is not built yet would make the which-key popup advertise things that do
-/// nothing, which is worse than an empty keymap.
-///
-/// `C-h/j/k/l` are deliberately absent. See `docs/INTERFACE.md`.
 pub fn default_keymap() -> Keymap {
     let mut m = Keymap::new(Chord::ch(' '));
     let mut bind = |mode, seq, cmd| {
@@ -227,75 +199,43 @@ pub fn default_keymap() -> Keymap {
         bind(mode, "<C-c>", "app.quit");
     }
 
-    // `<CR>` opens in the visual modes too, where it means "open the selection": that is
-    // how several namespaces become one merged workflow list. `-` stays Normal-only,
-    // walking up a level while selecting rows has no sensible meaning.
     for mode in [Mode::Normal, Mode::Visual, Mode::VisualLine] {
         bind(mode, "<CR>", "nav.open");
     }
     bind(Mode::Normal, "-", "nav.up");
-    // The jumplist. `<C-o>` and `<C-i>` are free here: neither is one of the four
-    // chords tmux's pane navigation takes.
-    //
-    // `<Tab>` is bound alongside `<C-i>` because on a terminal they are the *same key*:
-    // Ctrl+I is byte 0x09, which is what Tab sends, and crossterm reports it as
-    // `KeyCode::Tab`. Binding only `<C-i>` gives a jump-forward that never fires outside
-    // the few terminals speaking the Kitty keyboard protocol. Terminal vim has the same
-    // collision and resolves it the same way.
+    // <Tab> and <C-i> are the same key on a terminal.
     bind(Mode::Normal, "<C-o>", "nav.jump-back");
     bind(Mode::Normal, "<C-i>", "nav.jump-forward");
     bind(Mode::Normal, "<Tab>", "nav.jump-forward");
-    // `g` is vim's goto prefix, so `gs` and `gw` switch between the two lists a namespace
-    // holds.
     bind(Mode::Normal, "gs", "nav.schedules");
     bind(Mode::Normal, "gw", "nav.workflows");
     bind(Mode::Normal, "gd", "nav.dashboard");
     bind(Mode::Normal, "]p", "dashboard.next-panel");
     bind(Mode::Normal, "[p", "dashboard.prev-panel");
 
-    // `<leader>T` for time. Not a vim binding, there is nothing in vim it resembles; it
-    // sits on the leader because it changes what the whole screen shows rather than where
-    // the cursor is.
     bind(Mode::Normal, "<leader>T", "app.times");
-    // `<leader>G` for the Gantt-style timeline, beside `<leader>T` because both change how
-    // time is drawn rather than what is loaded.
     bind(Mode::Normal, "<leader>G", "history.timeline");
 
-    // Folds use vim's `z` family, so the which-key popup on `z` reads like vim's does.
-    // `zp` is not a vim binding, but it sits in the same namespace as the folds it
-    // resembles: it folds away the workflow-task plumbing.
     for mode in [Mode::Normal, Mode::Visual, Mode::VisualLine] {
         bind(mode, "za", "history.fold");
         bind(mode, "zR", "history.expand-all");
         bind(mode, "zM", "history.collapse-all");
         bind(mode, "zp", "history.plumbing");
-        // `zg` folds time rather than rows: the idle gaps on the timeline's axis.
         bind(mode, "zg", "history.gaps");
-        // vim-unimpaired's bracket motions: `]f` / `[f` for the next and previous failure.
         bind(mode, "]f", "history.next-failure");
         bind(mode, "[f", "history.prev-failure");
         bind(mode, "F", "history.follow");
-        // `K` is vim's "look up what is under the cursor", which is exactly what the detail
-        // pane does, it shows the payloads of the focused event or group.
         bind(mode, "K", "history.detail");
-        // vim scrolls a window by a line with <C-e>/<C-y>; here they scroll the payload
-        // pane, which is the only thing on screen tall enough to need it.
         bind(mode, "<C-e>", "history.detail-down");
         bind(mode, "<C-y>", "history.detail-up");
-        // vim's filter operator. Here it filters the focused payloads rather than lines.
         bind(mode, "!", "payload.pipe");
-        // Payload yanks live under a `<leader>y` prefix rather than on `y` itself: an exact
-        // match wins over a prefix in `resolve`, so binding `<leader>y` as well would make
-        // these three unreachable. The prefix also puts them in the which-key popup.
         bind(mode, "<leader>ya", "yank.payload");
         bind(mode, "<leader>yi", "yank.payload-input");
         bind(mode, "<leader>yr", "yank.payload-result");
         bind(mode, "<leader>yw", "yank.workflow-id");
         bind(mode, "<leader>yR", "yank.run-id");
 
-        // Windows and tabs, with vim's bindings. `<C-w>` prefixes focus movement, never
-        // bare `<C-h/j/k/l>`, which tmux's vim-tmux-navigator swallows before any
-        // application sees them.
+        // <C-w> prefix, never bare <C-h/j/k/l>: tmux's vim-tmux-navigator takes those.
         bind(mode, "<leader>sv", "window.split-right");
         bind(mode, "<leader>sh", "window.split-down");
         bind(mode, "<leader>sx", "window.close");
@@ -308,8 +248,6 @@ pub fn default_keymap() -> Keymap {
         bind(mode, "<leader>rj", "window.grow-down");
         bind(mode, "<leader>rk", "window.grow-up");
         bind(mode, "<leader>rl", "window.grow-right");
-        // Mutations live under `<leader>m`, for "mutate", and clear of bare `m`, which
-        // marks reserve. Every one of them opens a confirmation rather than acting.
         bind(mode, "<leader>mc", "workflow.cancel");
         bind(mode, "<leader>mt", "workflow.terminate");
         bind(mode, "<leader>ms", "workflow.signal");
@@ -330,23 +268,15 @@ pub fn default_keymap() -> Keymap {
         bind(mode, "<leader>tp", "tab.previous");
     }
 
-    // `/` `n` `N` as vim has them. Reverse-open (`?`) is not bound: `?` is the help
-    // overlay here, and help is reached far more often than a backwards search is started.
-    // `N` still walks backwards, which is the part that matters.
     bind(Mode::Normal, "/", "search.open");
     bind(Mode::Normal, "n", "search.next");
     bind(Mode::Normal, "N", "search.previous");
 
-    // The `<leader>f` family, Telescope's `f` for find. Each is the same picker over a
-    // different list, which is why they share a prefix rather than being spread across the
-    // keyboard by what they happen to search.
     bind(Mode::Normal, "<leader>ff", "find.workflow");
     bind(Mode::Normal, "<leader>fl", "find.event");
     bind(Mode::Normal, "<leader>fb", "find.pane");
     bind(Mode::Normal, "<leader>fh", "find.command");
     bind(Mode::Normal, "<leader>fg", "find.filter");
-    // `<leader>N` sits outside the `f` family on purpose: switching namespace is changing
-    // *where you are*, not finding something inside where you already are.
     bind(Mode::Normal, "<leader>N", "find.namespace");
     bind(Mode::Normal, "<leader>P", "find.profile");
     bind(Mode::Normal, "<leader>xx", "list.problems");
@@ -360,7 +290,6 @@ pub fn default_keymap() -> Keymap {
     bind(Mode::Normal, "v", "mode.visual");
     bind(Mode::Normal, "V", "mode.visual-line");
 
-    // `jk` is the escape hatch; `<Esc>` works too.
     bind(Mode::Insert, "jk", "mode.normal");
     bind(Mode::Insert, "<Esc>", "mode.normal");
 
@@ -385,10 +314,6 @@ mod tests {
 
     #[test]
     fn every_default_binding_names_a_command_that_exists() {
-        // `Keymap::bind` validates the *chord* and panics on a bad one, but it has no
-        // registry to check the command id against, so a typo in a default binding is a key
-        // that silently does nothing. `keys.toml` is checked at load; this is the same
-        // guarantee for the built-in map.
         let registry = crate::command::Registry::builtin();
         let map = map();
         let missing: Vec<&str> = map
@@ -402,8 +327,6 @@ mod tests {
 
     #[test]
     fn no_two_default_bindings_claim_the_same_keys_in_one_mode() {
-        // A duplicate is not an error the keymap can raise, the later one simply wins, so
-        // the earlier binding vanishes without a word.
         let map = map();
         let mut seen: Vec<(Mode, &ChordSeq)> = Vec::new();
         let mut clashes = Vec::new();
@@ -467,7 +390,6 @@ mod tests {
 
     #[test]
     fn leading_zero_is_not_a_count() {
-        // In vim `0` is a motion, not a count, it may only extend one already started.
         let (m, mut p) = (map(), Pending::default());
         assert!(matches!(
             m.resolve(Mode::Normal, &mut p, Chord::ch('0')),
@@ -496,8 +418,6 @@ mod tests {
         let r = m.resolve(Mode::Normal, &mut p, Chord::ch('g'));
         match r {
             Resolution::Pending { candidates } => {
-                // `g` is vim's goto prefix and gains continuations over time, so the point
-                // is that `gg` is among them, not how many there are.
                 let gg = candidates
                     .iter()
                     .find(|c| c.next == Chord::ch('g'))
@@ -562,7 +482,6 @@ mod tests {
 
     #[test]
     fn a_held_j_is_flushed_when_the_sequence_fails() {
-        // Typing "ja" in Insert must insert both characters, not swallow the `j`.
         let (m, mut p) = (map(), Pending::default());
         m.resolve(Mode::Insert, &mut p, Chord::ch('j'));
         match m.resolve(Mode::Insert, &mut p, Chord::ch('a')) {
@@ -585,7 +504,6 @@ mod tests {
 
     #[test]
     fn ctrl_hjkl_is_never_bound() {
-        // tmux's vim-tmux-navigator consumes these before any application sees them.
         let m = map();
         for c in ['h', 'j', 'k', 'l'] {
             let chord = Chord::ctrl(c);
@@ -621,7 +539,6 @@ mod tests {
 
     #[test]
     fn every_bound_command_exists_in_the_registry() {
-        // A binding to a non-existent id would be a key that silently does nothing.
         let reg = crate::command::Registry::builtin();
         for b in map().bindings() {
             assert!(

@@ -2,7 +2,6 @@
 
 use crate::{Rect, Tree, ViewId};
 
-/// Every tab, with one current. There is always at least one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Tabs {
     tabs: Vec<Tree>,
@@ -34,28 +33,23 @@ impl Tabs {
     }
 
     pub fn is_empty(&self) -> bool {
-        false // there is always one tab
+        false
     }
 
-    /// Open a tab after the current one and switch to it, as `:tabnew` does.
     pub fn open(&mut self, view: ViewId) {
         self.current += 1;
         self.tabs.insert(self.current, Tree::new(view));
     }
 
-    /// Close the current tab. Returns false when it is the last one, a session with no tabs
-    /// has nothing to draw, and quitting is a separate decision from closing.
     pub fn close(&mut self) -> bool {
         if self.tabs.len() == 1 {
             return false;
         }
         self.tabs.remove(self.current);
-        // Land on the tab that slid into this slot, or the new last one.
         self.current = self.current.min(self.tabs.len() - 1);
         true
     }
 
-    /// Wrapping, like vim's `gt` / `gT`.
     pub fn next(&mut self) {
         self.current = (self.current + 1) % self.tabs.len();
     }
@@ -64,12 +58,10 @@ impl Tabs {
         self.current = (self.current + self.tabs.len() - 1) % self.tabs.len();
     }
 
-    /// Every view across every tab, for a caller that owns the view state.
     pub fn views(&self) -> Vec<ViewId> {
         self.tabs.iter().flat_map(|t| t.views()).collect()
     }
 
-    /// Lay out the current tab.
     pub fn layout(&self, area: Rect) -> Vec<crate::Pane> {
         self.current().layout(area)
     }
@@ -100,7 +92,6 @@ mod tests {
         assert_eq!(tabs.index(), 1);
         assert_eq!(tabs.current().focused(), v(2));
 
-        // From the middle, a new tab lands next, not at the end.
         tabs.previous();
         tabs.open(v(3));
         assert_eq!(tabs.index(), 1);
@@ -125,7 +116,7 @@ mod tests {
         let mut tabs = Tabs::new(v(1));
         tabs.open(v(2));
         tabs.open(v(3));
-        tabs.previous(); // on tab 1, holding view 2
+        tabs.previous();
 
         assert!(tabs.close());
         assert_eq!(tabs.len(), 2);
@@ -144,8 +135,6 @@ mod tests {
 
     #[test]
     fn the_final_tab_cannot_be_closed() {
-        // Quitting is a separate decision from closing a tab, and a session with no tabs has
-        // nothing to draw.
         let mut tabs = Tabs::new(v(1));
         assert!(!tabs.close());
         assert_eq!(tabs.len(), 1);

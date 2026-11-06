@@ -1,7 +1,4 @@
 //! `DescribeWorkflowExecution`, for what the history cannot say yet.
-//!
-//! Only the pending activities are read today. See `tmprl_core::pending` for why the
-//! history alone cannot show a retry in progress.
 
 use temporalio_client::tonic::Request;
 use temporalio_common::protos::temporal::api::{

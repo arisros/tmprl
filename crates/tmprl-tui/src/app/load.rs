@@ -1,5 +1,4 @@
 //! Every request to the server. Each spawns a task and returns at once; the reply
-//! arrives as a [`Msg`] and is applied by [`App::handle`].
 
 use super::*;
 
@@ -28,7 +27,6 @@ impl App {
         }
     }
 
-    /// Spawn a namespace fetch. Returns immediately; the result arrives as a `Msg`.
     pub fn load_namespaces(&mut self) {
         let Some(conn) = self.conn.clone() else {
             return;
@@ -41,17 +39,8 @@ impl App {
         });
     }
 
-    /// Fetch what this cluster lets you filter on, unless it is already in hand.
-    ///
-    /// Once per namespace, alongside the workflow list rather than when the filter picker
-    /// opens: the picker snapshots its items, so an attribute that arrived after it opened
-    /// would not appear until it was opened again. `R` is the retry, which is what clears
-    /// the namespace recorded here.
     pub fn load_search_attributes(&mut self) {
         let namespace = self.namespace().to_string();
-        // A failure is remembered, not retried on every query change: on a cluster whose
-        // operator service is closed off this would otherwise fire on every keystroke-
-        // committed filter.
         if self.attributes_for.as_deref() == Some(namespace.as_str()) {
             return;
         }
@@ -67,15 +56,10 @@ impl App {
         });
     }
 
-    /// `R`: ask the cluster again next time the list loads.
     pub(super) fn forget_search_attributes(&mut self) {
         self.attributes_for = None;
     }
 
-    /// Fetch the first page for the current query, and the header counts alongside it.
-    ///
-    /// Bumping the generation is what makes an in-flight reply for the previous query
-    /// harmless: it arrives, does not match, and is dropped.
     pub fn load_workflows(&mut self, append: bool) {
         if !append {
             self.view.generation = self.view.generation.wrapping_add(1);
@@ -85,16 +69,12 @@ impl App {
             self.load_search_attributes();
         }
 
-        // Set before the connection guard: this records the decision to fetch, which is
-        // what stops a second page being queued while the first is still in flight.
         self.view.loading_more = true;
 
         let Some(conn) = self.conn.clone() else {
             return;
         };
-        // On a continuation, ask only the namespaces that still have pages. Passing the
-        // whole scope would hand an exhausted namespace an empty token, which the server
-        // reads as "start again", so it would never finish.
+        // An exhausted namespace given an empty token starts again from the first page.
         let tokens: Tokens = if append {
             self.view
                 .workflows
@@ -126,11 +106,6 @@ impl App {
         });
     }
 
-    /// Fetch a page of the focused workflow's history.
-    ///
-    /// Called for the first page and for each continuation; the accumulated events are
-    /// re-grouped whenever one lands, because a page boundary routinely falls inside a
-    /// group.
     pub fn load_history(&mut self) {
         self.load_history_page(HISTORY_PAGE_SIZE);
     }
@@ -143,8 +118,6 @@ impl App {
         if first_page {
             self.view.generation = self.view.generation.wrapping_add(1);
             self.view.history.begin_refresh();
-            // Activity ids repeat across runs ("1", "2", …), so another run's list would
-            // attach itself to this one's rows.
             self.view.pending.clear();
         }
         self.view.loading_more = true;
@@ -175,11 +148,6 @@ impl App {
         });
     }
 
-    /// Describe the run on screen once, for its pending activities.
-    ///
-    /// A retry in progress writes no history event, so the attempt it is on, the failure
-    /// that caused it and the time of the next try are only in this call's reply. See
-    /// `tmprl_core::pending`.
     fn load_pending(&mut self) {
         let (Some(row), Some(conn)) = (self.view.viewing.clone(), self.conn.clone()) else {
             return;
@@ -193,8 +161,6 @@ impl App {
         });
     }
 
-    /// Re-describe on a timer for as long as a follow runs, because the history long poll
-    /// has nothing to wake on while an activity retries.
     pub(super) fn start_pending_poll(&mut self) {
         let (Some(row), Some(conn)) = (self.view.viewing.clone(), self.conn.clone()) else {
             return;

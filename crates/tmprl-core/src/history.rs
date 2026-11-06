@@ -1,31 +1,14 @@
 //! Turning a flat event log into the thing a human wants to read.
-//!
-//! Temporal sends a workflow's history as an ordered list of events linked only by integer
-//! back-references. An activity that was scheduled, started and completed is three rows on
-//! the wire and *one thing* to a reader. Reconstructing that is, per
-//! `docs/ARCHITECTURE.md`, the hardest part of the port.
-//!
-//! The split of labour:
-//!
-//! * `tmprl-client` maps each protobuf event onto a [`NormalizedEvent`] through one
-//!   exhaustive match. The generated types stop there.
-//! * This module folds those into [`Group`]s. It is pure, so the grouping rules, the part
-//!   that is actually easy to get wrong, are tested with hand-built events and no server.
 
 use crate::payload::Payload;
 
-/// What kind of thing an event is about. Drives icons, filtering and the outline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Category {
-    /// The workflow execution itself: started, completed, signalled, terminated.
     Workflow,
-    /// Workflow task, the worker polling and responding. Noise most of the time, which is
-    /// why the compact view can fold it away.
     WorkflowTask,
     Activity,
     Timer,
     ChildWorkflow,
-    /// Signals and cancellation aimed at *another* workflow.
     ExternalWorkflow,
     Update,
     Nexus,
@@ -34,25 +17,18 @@ pub enum Category {
 }
 
 impl Category {
-    /// Whether this is machinery rather than something the workflow author wrote. The
-    /// compact view hides these until asked.
     pub fn is_plumbing(self) -> bool {
         matches!(self, Category::WorkflowTask)
     }
 }
 
-/// Where an event sits in the life of the thing it belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
-    /// Opens a group: scheduled, initiated, started-by-us.
     Opens,
-    /// Neither opens nor closes, a worker picked the task up, a cancel was requested.
     Continues,
-    /// Closes a group: completed, failed, timed out, cancelled.
     Closes,
 }
 
-/// How something ended. `Pending` means it has not.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Outcome {
     #[default]
@@ -67,8 +43,6 @@ pub enum Outcome {
 }
 
 impl Outcome {
-    /// Whether this outcome is one a reader is hunting for. The minimap and the problem
-    /// list are built from this.
     pub fn is_failure(self) -> bool {
         matches!(
             self,
@@ -90,37 +64,19 @@ impl Outcome {
     }
 }
 
-/// Which group an event belongs to.
-///
-/// Groups are keyed by the id of the event that opened them, because that is the one
-/// identifier every back-reference in the protocol actually points at. Keying by a
-/// user-facing name instead (an activity id, say) would need a lookup that can fail, and
-/// would merge two genuinely separate schedulings of the same name into one row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum GroupRef {
-    /// The workflow execution itself.
     Workflow,
-    /// The group opened by this event id.
     Opened(i64),
 }
 
-/// Why something failed, kept whole.
-///
-/// The server sends a chain, not a sentence: an activity failure wrapping the application
-/// failure the worker raised, wrapping whatever that one was raised from. Each link carries
-/// its own message, its own type and its own stack trace, and the one you need is rarely
-/// the outermost, which is usually a variation on "activity task failed".
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Failure {
     pub message: String,
-    /// `type` on an application failure, the class the worker raised: `PaymentDeclined`.
     pub kind: Option<String>,
-    /// Which SDK produced it, `JavaSDK`. Worth showing: it says whose stack trace this is.
     pub source: Option<String>,
     pub stack_trace: Option<String>,
-    /// Set on an application failure the worker marked as not worth retrying.
     pub non_retryable: bool,
-    /// What this one was raised from.
     pub cause: Option<Box<Failure>>,
 }
 
@@ -132,8 +88,6 @@ impl Failure {
         }
     }
 
-    /// One line for a list column: the type is worth the width when there is one, because
-    /// `PaymentDeclined` is searchable and "card declined" is prose.
     pub fn headline(&self) -> String {
         match (&self.kind, self.message.is_empty()) {
             (Some(k), false) => format!("{k}: {}", self.message),
@@ -142,17 +96,14 @@ impl Failure {
         }
     }
 
-    /// This failure and everything it was raised from, outermost first.
     pub fn chain(&self) -> impl Iterator<Item = &Failure> {
         std::iter::successors(Some(self), |f| f.cause.as_deref())
     }
 
-    /// The innermost link: what actually went wrong, once the wrappers are peeled off.
     pub fn root(&self) -> &Failure {
         self.chain().last().unwrap_or(self)
     }
 
-    /// How many links the chain has. `1` when there is nothing underneath.
     pub fn depth(&self) -> usize {
         self.chain().count()
     }
@@ -170,40 +121,23 @@ impl From<String> for Failure {
     }
 }
 
-/// One protobuf history event, flattened.
-///
-/// Deliberately not a 60-variant mirror of the protobuf `oneof`. Everything downstream
-/// needs, what it is about, which group it joins, whether it opens or closes that group,
-/// how it ended, is extracted by the mapping in `tmprl-client`, so this module and the
-/// views never touch a generated type or re-derive the same facts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NormalizedEvent {
     pub id: i64,
-    /// Epoch milliseconds.
     pub time: Option<i64>,
-    /// The protobuf event name, e.g. `ActivityTaskScheduled`. Kept verbatim because it is
-    /// what Temporal's own docs, the CLI and the web UI all call it.
     pub name: &'static str,
     pub category: Category,
     pub group: GroupRef,
     pub role: Role,
     pub outcome: Outcome,
-    /// What the event is about: an activity type, a timer id, a signal name.
     pub subject: String,
-    /// Attempt number, where the protocol reports one. A retry does *not* produce a second
-    /// scheduling event, the count lives here.
     pub attempt: Option<i32>,
-    /// Why it failed, when the event carries a failure.
     pub failure: Option<Failure>,
-    /// Detail rows for the expanded view, in protocol order.
     pub fields: Vec<(&'static str, String)>,
-    /// Payloads this event carries, labelled, `input`, `result`, `details[1]`. Labels are
-    /// owned because an argument list needs an index in them.
     pub payloads: Vec<(String, Payload)>,
 }
 
 impl NormalizedEvent {
-    /// A minimal event, for tests and for the arms of the mapping that carry nothing else.
     pub fn new(
         id: i64,
         name: &'static str,
@@ -243,8 +177,6 @@ impl NormalizedEvent {
     }
 }
 
-/// Why a workflow closed, in one line: the failure it ended on, at its root, or the reason
-/// someone gave for ending it. `None` when the event says nothing, as a timeout does.
 pub fn close_reason(event: &NormalizedEvent) -> Option<String> {
     let text = match &event.failure {
         Some(failure) => {
@@ -262,7 +194,6 @@ pub fn close_reason(event: &NormalizedEvent) -> Option<String> {
             .map(|(_, value)| value.clone())
             .unwrap_or_default(),
     };
-    // Server text on one line of a list: a newline or an escape in it must not be drawn.
     let line = text
         .split(|c: char| c.is_control())
         .map(str::trim)
@@ -272,40 +203,28 @@ pub fn close_reason(event: &NormalizedEvent) -> Option<String> {
     (!line.is_empty()).then_some(line)
 }
 
-/// Several events that are one thing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Group {
     pub key: GroupRef,
     pub category: Category,
-    /// From the opening event, the activity type, timer id, child workflow id.
     pub subject: String,
-    /// Every member event id, in history order.
     pub events: Vec<i64>,
     pub started_at: Option<i64>,
-    /// `None` while the group is still open.
     pub ended_at: Option<i64>,
     pub outcome: Outcome,
-    /// Highest attempt seen. 1 unless something was retried.
     pub attempts: i32,
     pub failure: Option<Failure>,
 }
 
 impl Group {
-    /// Still running: nothing has closed it.
     pub fn is_open(&self) -> bool {
         self.ended_at.is_none() && self.outcome == Outcome::Pending
     }
 
-    /// Wall-clock duration, once it has ended.
     pub fn duration_ms(&self) -> Option<i64> {
         Some(self.ended_at? - self.started_at?)
     }
 
-    /// The events whose payloads describe the group: the one that opened it and the one that
-    /// closed it. The middle of a group is task plumbing and carries nothing.
-    ///
-    /// A group still open has a single event, where those two are the same one, so the pair
-    /// is deduplicated rather than showing that event's input twice.
     pub fn payload_ends(&self) -> Vec<i64> {
         let mut ends: Vec<i64> = [self.events.first(), self.events.last()]
             .into_iter()
@@ -352,7 +271,6 @@ impl Group {
             .map(|(_, value)| value)
     }
 
-    /// The id of the event that opened this group, for jumping to it.
     pub fn first_event(&self) -> Option<i64> {
         self.events.first().copied()
     }
@@ -361,16 +279,6 @@ impl Group {
 const ID_FIELDS: [&str; 5] = ["activityId", "workflowId", "runId", "updateId", "taskQueue"];
 const PRIMARY_IDS: [&str; 3] = ["activityId", "workflowId", "updateId"];
 
-/// Fold normalised events into groups, in the order the groups were opened.
-///
-/// A single forward pass: every event names its own group, so nothing here needs to look
-/// ahead or resolve a name to an id. Events are expected in history order, which is the
-/// order the server sends them.
-///
-/// Events whose group was never opened, the first page of a history that starts mid-run,
-/// or a back-reference to an event Temporal has since archived, are not dropped. They open
-/// a group of their own, so a truncated history renders as a partial group rather than as
-/// nothing at all.
 pub fn group_events(events: &[NormalizedEvent]) -> Vec<Group> {
     let mut groups: Vec<Group> = Vec::new();
     let mut index: std::collections::HashMap<GroupRef, usize> = std::collections::HashMap::new();
@@ -400,8 +308,6 @@ pub fn group_events(events: &[NormalizedEvent]) -> Vec<Group> {
         if let Some(n) = ev.attempt {
             g.attempts = g.attempts.max(n);
         }
-        // The opening event is the one that names the group. A later event may carry a
-        // subject too (a child workflow's run id, say) but must not rename it.
         if ev.role == Role::Opens && !ev.subject.is_empty() && g.subject.is_empty() {
             g.subject = ev.subject.clone();
         }
@@ -417,14 +323,6 @@ pub fn group_events(events: &[NormalizedEvent]) -> Vec<Group> {
     groups
 }
 
-/// Append only the events we do not already hold.
-///
-/// Returns how many were actually new.
-///
-/// Follow mode re-reads from the last continuation token it saw, which replays the events
-/// after that point, and a resumed follow replays whatever page the token sat in. History is
-/// append-only with strictly ascending ids, so "new" is exactly "id greater than the highest
-/// we hold", no set, no scan of what we already have.
 pub fn merge_events(existing: &mut Vec<NormalizedEvent>, incoming: Vec<NormalizedEvent>) -> usize {
     let highest = existing.last().map(|e| e.id).unwrap_or(i64::MIN);
     let before = existing.len();
@@ -432,16 +330,7 @@ pub fn merge_events(existing: &mut Vec<NormalizedEvent>, incoming: Vec<Normalize
     existing.len() - before
 }
 
-/// The event a reset would actually go back to, at or before `at`.
-///
-/// Temporal only resets to a **completed workflow task**: the point where the workflow's
-/// state is well defined and can be replayed forward. Any other event is not a valid reset
-/// point, and asking for one is an error from the server.
-///
-/// The reader almost never has the cursor on a workflow task, because those are the plumbing
-/// the outline folds away by default. So "reset to here" resolves backwards to the last
-/// completed workflow task at or before the selected event, and the confirmation shows the
-/// id it resolved to, so the target moves but never silently.
+// Temporal only resets to a completed workflow task.
 pub fn reset_point(events: &[NormalizedEvent], at: i64) -> Option<i64> {
     events
         .iter()
@@ -450,10 +339,6 @@ pub fn reset_point(events: &[NormalizedEvent], at: i64) -> Option<i64> {
         .map(|e| e.id)
 }
 
-/// Groups that failed, timed out or were terminated, in history order.
-///
-/// This is what the problem list and the minimap read: on a long history the interesting
-/// question is "where did it go wrong", and scrolling to find out does not scale.
 pub fn failures(groups: &[Group]) -> Vec<&Group> {
     groups.iter().filter(|g| g.outcome.is_failure()).collect()
 }
@@ -464,8 +349,6 @@ mod tests {
 
     #[test]
     fn an_open_group_lists_its_single_event_once() {
-        // First and last are the same event while a group is still open; showing the pair
-        // blindly would print that event's input twice in the payload pane.
         let g = Group {
             key: GroupRef::Workflow,
             category: Category::Workflow,
@@ -500,8 +383,6 @@ mod tests {
         NormalizedEvent::new(id, name, Category::Activity, group, role).with_time(Some(time))
     }
 
-    /// The worked example from `docs/ARCHITECTURE.md`: an activity that was retried once
-    /// and then succeeded. Three events on the wire, one thing to a reader.
     fn retried_activity() -> Vec<NormalizedEvent> {
         let mut scheduled = ev(
             5,
@@ -520,7 +401,6 @@ mod tests {
             Role::Continues,
             2_000,
         );
-        // A retry does not schedule again: the attempt count rides on the started event.
         started.attempt = Some(2);
         started.failure = Some("card declined".into());
 
@@ -568,9 +448,6 @@ mod tests {
 
     #[test]
     fn interleaved_groups_do_not_bleed_into_each_other() {
-        // Two activities in flight at once is the normal case, and the events arrive
-        // interleaved. Grouping by arrival order rather than by back-reference would
-        // scramble them.
         let events = vec![
             ev(
                 5,
@@ -622,7 +499,6 @@ mod tests {
         let groups = group_events(&events);
 
         assert_eq!(groups.len(), 2);
-        // Ordered by when each group opened, not by when it closed.
         assert_eq!(groups[0].subject, "A");
         assert_eq!(groups[0].events, [5, 8, 10]);
         assert_eq!(groups[0].outcome, Outcome::Completed);
@@ -670,8 +546,6 @@ mod tests {
 
     #[test]
     fn an_orphaned_event_opens_its_own_group_rather_than_vanishing() {
-        // A history page that starts mid-run refers back to events it does not contain.
-        // Dropping those would render a page as empty and look like a bug in tmprl.
         let events = vec![
             ev(
                 42,
@@ -839,9 +713,6 @@ mod tests {
 
     #[test]
     fn replayed_events_are_not_appended_twice() {
-        // Follow mode resumes from a continuation token, which replays the page that token
-        // sat in. Appending blindly would list the same events twice and inflate every
-        // group's event count.
         let mut held: Vec<NormalizedEvent> = retried_activity();
         assert_eq!(held.len(), 3);
 
@@ -849,7 +720,6 @@ mod tests {
         assert_eq!(merge_events(&mut held, replay), 0, "nothing was new");
         assert_eq!(held.len(), 3);
 
-        // A genuinely new event lands.
         let fresh = vec![ev(
             8,
             "TimerStarted",
@@ -864,7 +734,6 @@ mod tests {
     #[test]
     fn a_partial_replay_keeps_only_the_tail() {
         let mut held: Vec<NormalizedEvent> = retried_activity();
-        // The server replays from event 6 and adds 8 and 9.
         let mut incoming = retried_activity()[1..].to_vec();
         incoming.push(ev(
             8,
@@ -895,8 +764,6 @@ mod tests {
 
     #[test]
     fn a_reset_resolves_back_to_the_last_completed_workflow_task() {
-        // The cursor is almost never on a workflow task (those are folded away) so "reset
-        // to here" has to walk back to the nearest valid point.
         let events = vec![
             NormalizedEvent::new(1, "S", Category::Workflow, GroupRef::Workflow, Role::Opens),
             NormalizedEvent::new(
@@ -941,8 +808,6 @@ mod tests {
 
     #[test]
     fn a_failed_workflow_task_is_not_a_reset_point() {
-        // Only a *completed* task leaves the workflow in a state that can be replayed
-        // forward; the server rejects anything else.
         let events = vec![
             NormalizedEvent::new(
                 2,
@@ -1012,7 +877,6 @@ mod tests {
         };
         assert_eq!(typed.headline(), "PaymentDeclined: card declined");
 
-        // A type with no message still reads as something rather than as blank.
         let no_message = Failure {
             kind: Some("PaymentDeclined".into()),
             ..Failure::default()

@@ -130,8 +130,6 @@ fn an_empty_log_says_so() {
 
 #[test]
 fn a_failure_with_no_rpc_behind_it_is_filed_under_its_kind() {
-    // A codec refusal has no call name to show, and an empty one would print as a
-    // dangling separator.
     let mut app = app_with_rows();
     app.handle(Msg::Decoded(Err(Fault::codec("codec server returned 502"))));
     app.run("app.messages", None);

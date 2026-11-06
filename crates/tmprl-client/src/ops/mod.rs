@@ -1,7 +1,4 @@
 //! Typed operations.
-//!
-//! Everything above this crate talks in these types, never in protobuf types. That is what
-//! keeps a `temporalio-client` bump contained: the generated types stop here.
 
 pub mod attributes;
 pub mod codec;
@@ -15,9 +12,6 @@ pub mod taskqueue;
 pub mod workflow;
 
 use tmprl_core::fault::Code;
-/// What every operation fails with. The type is `tmprl-core`'s, so the interface can read
-/// the code without depending on tonic; the name is kept because it is what this crate's
-/// signatures have always said.
 pub use tmprl_core::fault::Fault as OpError;
 
 pub(crate) fn rpc(operation: &'static str, status: temporalio_client::tonic::Status) -> OpError {
@@ -27,7 +21,6 @@ pub(crate) fn rpc(operation: &'static str, status: temporalio_client::tonic::Sta
 fn code(code: temporalio_client::tonic::Code) -> Code {
     use temporalio_client::tonic::Code as T;
     match code {
-        // A call that failed cannot carry Ok; if one ever does, it is not a known failure.
         T::Ok | T::Unknown => Code::Unknown,
         T::Cancelled => Code::Cancelled,
         T::InvalidArgument => Code::InvalidArgument,
@@ -83,18 +76,13 @@ mod tests {
         ];
         for (grpc, ours) in pairs {
             assert_eq!(code(grpc), ours);
-            // The names agree too, so a line in `:messages` can be searched for in a
-            // server log as written.
             assert_eq!(format!("{grpc:?}"), ours.name());
         }
-        // A failure cannot carry Ok. If one ever does it is not a failure tmprl knows.
         assert_eq!(code(T::Ok), Code::Unknown);
     }
 
     #[test]
     fn a_dropped_connection_is_told_apart_from_a_refusal() {
-        // The two call for different things from the reader, which is the reason the code
-        // is carried at all.
         let fault = rpc("ListNamespaces", Status::unavailable("transport error"));
         assert_eq!(fault.code, Code::Unavailable);
         assert!(!fault.is_refusal());

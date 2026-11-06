@@ -1,31 +1,15 @@
 //! `theme.toml`, and what the terminal can show of it.
-//!
-//! Two decisions live here, both pure so they are unit tests rather than something you find
-//! out by launching in the wrong terminal: how many colours there are to work with, read once
-//! from the environment at startup, and which palette slots the user has repainted. Turning
-//! either into terminal escapes is `tmprl-tui`'s job; this crate has no terminal to ask.
 
 use crate::config::ConfigError;
 
-/// How much colour the terminal is given.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColorDepth {
-    /// 24-bit RGB, the palette as designed.
     TrueColor,
-    /// The sixteen named colours, whose actual hues are the terminal's own. The only palette
-    /// that can follow a light background, because tmprl cannot see the background.
     Ansi16,
-    /// No colour at all, modifiers only.
     Mono,
 }
 
 impl ColorDepth {
-    /// The rule, with the environment passed in: `NO_COLOR` set to anything but the empty
-    /// string wins, per no-color.org; then `COLORTERM` saying `truecolor` or `24bit`; and
-    /// otherwise sixteen colours, the one answer that is never wrong.
-    ///
-    /// `TERM` is deliberately not consulted. It says what the terminal emulates, not what it
-    /// can paint, and guessing 24-bit from it is how a palette ends up unreadable.
     pub fn parse_setting(s: &str) -> Option<Option<Self>> {
         match s {
             "auto" => Some(None),
@@ -47,8 +31,6 @@ impl ColorDepth {
     }
 }
 
-/// One of the sixteen colours a terminal names. What each looks like is up to the terminal's
-/// own theme, which is the point of using them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ansi {
     Black,
@@ -70,8 +52,6 @@ pub enum Ansi {
 }
 
 impl Ansi {
-    /// Every colour beside the RGB xterm paints it with by default. A terminal theme moves
-    /// these, so the table is only a yardstick for [`Rgb::nearest_ansi`], never what is drawn.
     const XTERM: [(Self, &'static str, Rgb); 16] = [
         (Self::Black, "black", Rgb(0x00, 0x00, 0x00)),
         (Self::Red, "red", Rgb(0xcd, 0x00, 0x00)),
@@ -98,7 +78,6 @@ impl Ansi {
             .map(|(ansi, _, _)| *ansi)
     }
 
-    /// Black, white and the two greys between them: the colours with no hue to keep.
     pub fn is_grey(self) -> bool {
         matches!(
             self,
@@ -107,13 +86,10 @@ impl Ansi {
     }
 }
 
-/// A 24-bit colour.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rgb(pub u8, pub u8, pub u8);
 
 impl Rgb {
-    /// `#rrggbb`, in either case. The three-digit shorthand is not accepted: a theme file is
-    /// read far more often than it is typed, and one spelling is easier to grep.
     pub fn parse(s: &str) -> Option<Self> {
         let hex = s.strip_prefix('#')?;
         if hex.len() != 6 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -123,13 +99,6 @@ impl Rgb {
         Some(Self(byte(0)?, byte(2)?, byte(4)?))
     }
 
-    /// The named colour that stands in for this one where there are only sixteen.
-    ///
-    /// By hue first, and only then by distance: the hue picks one of the six colours, and
-    /// distance to xterm's defaults picks its normal or bright form. Distance alone does not
-    /// work, a soft red such as `#e05252` is nearer to mid grey than to either red, and a
-    /// failure painted grey has lost what the colour was for. Only something with almost no
-    /// hue becomes a grey.
     pub fn nearest_ansi(self) -> Ansi {
         use Ansi::*;
 
@@ -150,8 +119,6 @@ impl Rgb {
             } else {
                 (rf - gf) / c + 4.0
             };
-        // Not six equal sectors: green is the widest band the eye calls one colour and cyan
-        // the narrowest, and equal sectors turn a sea green into cyan.
         self.nearer(&match hue {
             h if h < 20.0 => [Red, BrightRed],
             h if h < 70.0 => [Yellow, BrightYellow],
@@ -163,7 +130,6 @@ impl Rgb {
         })
     }
 
-    /// Below this spread between the strongest and weakest channel a colour reads as grey.
     const GREY_BELOW: u8 = 0x30;
 
     fn nearer(self, candidates: &[Ansi]) -> Ansi {
@@ -179,7 +145,6 @@ impl Rgb {
     }
 }
 
-/// A colour as `theme.toml` spells it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColorValue {
     Rgb(Rgb),
@@ -196,8 +161,6 @@ impl ColorValue {
             .or_else(|| Ansi::parse(s).map(Self::Ansi))
     }
 
-    /// What a terminal without truecolor gets instead: a hex becomes the nearest of the
-    /// sixteen, a name is already one of them.
     pub fn to_ansi(self) -> Ansi {
         match self {
             Self::Rgb(rgb) => rgb.nearest_ansi(),
@@ -206,21 +169,15 @@ impl ColorValue {
     }
 }
 
-/// A place in the palette that `theme.toml` can repaint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Slot {
-    /// Primary text.
     Fg,
-    /// Secondary text.
     Dim,
-    /// Chrome: gutters, borders, hints.
     Faint,
-    /// Titles, cursors, anything running.
     Accent,
     Ok,
     Warn,
     Err,
-    /// The background of the cursor row and of a selection.
     Sel,
     ModeNormal,
     ModeInsert,
@@ -255,21 +212,9 @@ impl Slot {
     }
 }
 
-/// The slots a `theme.toml` names, in file order. Anything it leaves out keeps its default.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ThemeOverrides(pub Vec<(Slot, ColorValue)>);
 
-/// Parse `theme.toml`:
-///
-/// ```toml
-/// accent = "#6b99e8"
-/// err    = "bright-red"
-/// sel    = "#2c3340"
-/// ```
-///
-/// Strict like the other loaders: a slot that does not exist or a colour that does not parse
-/// is an error naming the line's key, because a theme that silently ignores a typo looks
-/// exactly like a theme that was never read.
 pub fn parse_theme(src: &str) -> Result<ThemeOverrides, ConfigError> {
     const FILE: &str = "theme.toml";
     let table: toml::Table = toml::from_str(src).map_err(|e| ConfigError::Syntax {
@@ -312,7 +257,6 @@ mod tests {
 
     #[test]
     fn an_empty_no_color_is_not_set() {
-        // no-color.org: the variable counts only when it is "present and not an empty string".
         assert_eq!(
             ColorDepth::detect(Some(""), Some("truecolor")),
             ColorDepth::TrueColor
@@ -336,7 +280,6 @@ mod tests {
     fn anything_else_is_sixteen_colours() {
         assert_eq!(ColorDepth::detect(None, None), ColorDepth::Ansi16);
         assert_eq!(ColorDepth::detect(None, Some("")), ColorDepth::Ansi16);
-        // Some terminals set COLORTERM to their own name. That is not a promise of 24-bit.
         assert_eq!(
             ColorDepth::detect(None, Some("rxvt-xpm")),
             ColorDepth::Ansi16
@@ -368,8 +311,6 @@ mod tests {
 
     #[test]
     fn a_hex_degrades_to_the_nearest_named_colour() {
-        // The built-in truecolor palette, which is the case that matters most: each slot
-        // has to land on the hue it was designed as.
         assert_eq!(Rgb(0xf0, 0xc6, 0x74).nearest_ansi(), Ansi::Yellow);
         assert_eq!(Rgb(0x00, 0xd7, 0x5f).nearest_ansi(), Ansi::Green);
         assert_eq!(Rgb(0x6b, 0x99, 0xe8).nearest_ansi(), Ansi::BrightBlue);
@@ -379,9 +320,7 @@ mod tests {
 
     #[test]
     fn a_soft_colour_keeps_its_hue_rather_than_going_grey() {
-        // Nearest by distance alone, this red is mid grey.
         assert_eq!(Rgb(0xe0, 0x52, 0x52).nearest_ansi(), Ansi::Red);
-        // The timeline's green, which equal 60 degree sectors would call cyan.
         assert_eq!(Rgb(0x30, 0xa4, 0x6c).nearest_ansi(), Ansi::Green);
         assert_eq!(Rgb(0x00, 0x90, 0xff).nearest_ansi(), Ansi::BrightBlue);
     }
@@ -399,8 +338,6 @@ mod tests {
 
     #[test]
     fn every_colour_maps_to_something() {
-        // The hue arithmetic divides by the chroma and wraps a negative angle; a corner
-        // of the cube is where either would go wrong.
         for r in [0u8, 0x7f, 0xff] {
             for g in [0u8, 0x7f, 0xff] {
                 for b in [0u8, 0x7f, 0xff] {
@@ -465,8 +402,6 @@ mod tests {
 
     #[test]
     fn a_table_is_not_a_slot() {
-        // `[accent]` would otherwise read as a slot holding the wrong type; either way it
-        // must not pass.
         assert!(parse_theme("[colors]\naccent = \"red\"").is_err());
     }
 

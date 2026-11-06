@@ -1,29 +1,19 @@
 //! Connection profiles: listing the ones in `temporal.toml` and switching to one.
-//!
-//! A switch is global. Every pane, the jumplist and every cache belong to the cluster they
-//! were filled from, so the session starts over on the new one: one pane, on its namespace
-//! list. The old connection stays in use until the new one has connected, so a profile that
-//! cannot be reached leaves you where you were.
 
 use tmprl_client::ProfileRef;
 use tmprl_core::fault::Code;
 
 use super::*;
 
-/// A switch that has not connected yet.
 #[derive(Debug, Clone)]
 pub(super) struct Switch {
     seq: u64,
     name: String,
-    /// A `TEMPORAL_*` variable the loader will layer over the profile, named in the note,
-    /// since otherwise every profile quietly reaches the same cluster.
     env_override: Option<&'static str>,
 }
 
 const OVERRIDING_VARS: [&str; 2] = ["TEMPORAL_ADDRESS", "TEMPORAL_NAMESPACE"];
 
-/// The first variable set that the loader would layer over a profile that takes the
-/// environment.
 pub(super) fn env_override(env: bool, is_set: impl Fn(&str) -> bool) -> Option<&'static str> {
     if !env {
         return None;
@@ -36,12 +26,10 @@ impl App {
         self.tx.epoch
     }
 
-    /// The file `--temporal-config` named, which every profile is read from.
     pub fn set_temporal_config(&mut self, path: Option<String>) {
         self.temporal_config = path;
     }
 
-    /// What `config.toml` says about the connected profile.
     pub(super) fn apply_profile_config(&mut self) {
         let resolved = self
             .config
@@ -60,7 +48,6 @@ impl App {
     }
 
     pub(super) fn load_profiles(&mut self) {
-        // Detached, nothing is fetched, the file included.
         if self.conn.is_none() {
             return;
         }
@@ -79,8 +66,6 @@ impl App {
     pub(super) fn on_profiles(&mut self, result: Result<Vec<ProfileSummary>, Fault>) {
         match result {
             Ok(mut list) => {
-                // Connected through the environment alone, the profile is in no file, and a
-                // list without the one you are on reads as if you were nowhere.
                 if !list.iter().any(|p| p.name == self.profile) {
                     list.insert(
                         0,
@@ -94,8 +79,6 @@ impl App {
                 let first = self.view.profiles.value().is_none();
                 self.view.profiles = Loadable::loaded(list);
                 if self.view.screen == Screen::Profiles {
-                    // The screen opened before the list existed, so its cursor could not
-                    // be put on the connected profile then.
                     if first {
                         self.view.cursor = self.connected_profile_row();
                     }
@@ -113,7 +96,6 @@ impl App {
         }
     }
 
-    /// `<leader>P`. The list is read off disk, so the first press may have to wait for it.
     pub(super) fn find_profile(&mut self) {
         if self.view.profiles.value().is_some() {
             self.open_picker(picker::Kind::Profiles);
@@ -156,7 +138,6 @@ impl App {
             .unwrap_or(0)
     }
 
-    /// The profile list, one level above the namespaces.
     pub(super) fn open_profiles(&mut self) {
         self.mark_jump();
         self.view.namespace_cursor = self.view.cursor;
@@ -183,7 +164,6 @@ impl App {
 
     pub(super) fn switch_profile(&mut self, name: &str) {
         if name == self.profile {
-            // The one already connected: the switch is a step back down to its namespaces.
             self.switching = None;
             if self.view.screen == Screen::Profiles {
                 self.mark_jump();
@@ -217,7 +197,6 @@ impl App {
         if self.conn.is_none() {
             return;
         }
-        // `--address` and `-n` were for the profile tmprl started on, not this one.
         let profile = ProfileRef {
             name: Some(name.to_string()),
             config_file: self.temporal_config.clone(),
@@ -270,7 +249,6 @@ impl App {
         }
     }
 
-    /// Start the session over on a new connection.
     pub(super) fn adopt(
         &mut self,
         profile: String,
@@ -288,7 +266,6 @@ impl App {
         let profiles = std::mem::take(&mut self.view.profiles);
         let id = self.fresh_view_id();
         self.tabs = Tabs::new(id);
-        // Dropping a view stops its follow poll and its dashboard requests.
         self.parked.clear();
         self.view = View::new(&self.namespace);
         self.view.profiles = profiles;

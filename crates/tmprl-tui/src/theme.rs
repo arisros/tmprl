@@ -1,26 +1,11 @@
 //! Colours.
-//!
-//! One palette of named slots, built once at startup for the colour depth the terminal was
-//! found to have, then repainted by `theme.toml`. A slot is a whole [`Style`] rather than a
-//! colour, because below truecolor some slots have no colour to give: `faint` is the
-//! terminal's own foreground dimmed, and the cursor row is reverse video. Renderers ask for
-//! the slot and never learn which depth they are drawing at.
-//!
-//! The truecolor defaults are derived from the `twilight256` palette so the interface sits
-//! comfortably beside an editor themed the same way. They assume a dark background. The
-//! 16-colour defaults assume nothing: they are the terminal's own named colours and its own
-//! foreground, so they follow whatever theme the terminal has, light ones included.
 
 use ratatui::style::{Color, Modifier, Style};
 use tmprl_core::Mode;
 use tmprl_core::config::Accent;
 use tmprl_core::theme::{Ansi, ColorDepth, ColorValue, Rgb, Slot, ThemeOverrides};
 
-/// What the terminal tmprl was started in can show. Read once: the rule itself is
-/// [`ColorDepth::detect`], which takes the two variables as arguments so it can be tested
-/// without touching the process environment.
 pub fn depth_from_env() -> ColorDepth {
-    // Lossy rather than `env::var`: a `NO_COLOR` that is not valid UTF-8 is still set.
     let var = |name: &str| std::env::var_os(name).map(|v| v.to_string_lossy().into_owned());
     ColorDepth::detect(var("NO_COLOR").as_deref(), var("COLORTERM").as_deref())
 }
@@ -35,10 +20,7 @@ pub struct Theme {
     pub ok: Style,
     pub warn: Style,
     pub err: Style,
-    /// Patched over a row's style to mark the cursor row and a selection.
     pub sel: Style,
-    /// The mode indicator's background, a distinct hue per mode as lualine does it.
-    /// `None` without colour, where the label alone says which mode it is.
     mode_normal: Option<Color>,
     mode_insert: Option<Color>,
     mode_visual: Option<Color>,
@@ -52,10 +34,6 @@ impl Default for Theme {
 }
 
 impl Theme {
-    /// The defaults for `depth`, with the slots `overrides` names repainted.
-    ///
-    /// Without colour the overrides are dropped: `NO_COLOR` is the user saying so outright,
-    /// and it outranks a file they wrote for some other terminal.
     pub fn new(depth: ColorDepth, overrides: &ThemeOverrides) -> Self {
         let mut theme = match depth {
             ColorDepth::TrueColor => Self::truecolor(),
@@ -92,9 +70,9 @@ impl Theme {
             fg: fg(0xd8, 0xdc, 0xe4),
             dim: fg(0x8a, 0x93, 0xa3),
             faint: fg(0x5a, 0x62, 0x70),
-            accent: fg(0x6b, 0x99, 0xe8), // Identifier
-            ok: fg(0xa7, 0xb8, 0x79),     // String
-            warn: fg(0xf0, 0xc6, 0x74),   // Function
+            accent: fg(0x6b, 0x99, 0xe8),
+            ok: fg(0xa7, 0xb8, 0x79),
+            warn: fg(0xf0, 0xc6, 0x74),
             err: fg(0xe0, 0x52, 0x52),
             sel: Style::new().bg(Color::Rgb(0x2c, 0x33, 0x40)),
             mode_normal: Some(Color::Rgb(0xff, 0x00, 0x7c)),
@@ -104,10 +82,6 @@ impl Theme {
         }
     }
 
-    /// Only colours with a hue are named. The greys are where terminal themes disagree
-    /// most, bright black is the background itself under Solarized, so text stays the
-    /// terminal's own foreground and the cursor row is reverse video: both are readable
-    /// on any background by construction.
     fn ansi16() -> Self {
         Self {
             depth: ColorDepth::Ansi16,
@@ -135,8 +109,6 @@ impl Theme {
             accent: Style::new(),
             ok: Style::new(),
             warn: Style::new(),
-            // The one slot whose meaning cannot be left to the glyph beside it: an error
-            // in the statusline is only its text.
             err: Style::new().add_modifier(Modifier::BOLD),
             sel: Style::new().add_modifier(Modifier::REVERSED),
             mode_normal: None,
@@ -146,11 +118,6 @@ impl Theme {
         }
     }
 
-    /// The colour a profile's `accent` names.
-    ///
-    /// The basic ANSI colours rather than the palette's RGB: this has to survive a
-    /// 16-colour terminal, since the whole point is that production cannot be mistaken
-    /// for SIT.
     pub fn profile_accent(&self, accent: Accent) -> Style {
         if self.depth == ColorDepth::Mono {
             return Style::new();
@@ -165,7 +132,6 @@ impl Theme {
         })
     }
 
-    /// The mode indicator: the mode's hue as a block behind its label.
     pub fn mode_badge(&self, mode: Mode) -> Style {
         badge(match mode {
             Mode::Normal => self.mode_normal,
@@ -175,13 +141,10 @@ impl Theme {
         })
     }
 
-    /// A block in a slot's colour, for a label that has to be seen from across the room.
     pub fn badge(&self, slot: Style) -> Style {
         badge(slot.fg)
     }
 
-    /// A pane's border. Focus is the accent, and where the accent has no colour to show it
-    /// with, weight: the focused border is bold against the others' dim.
     pub fn border(&self, focused: bool) -> Style {
         match (focused, self.accent.fg) {
             (false, _) => self.faint,
@@ -190,8 +153,6 @@ impl Theme {
         }
     }
 
-    /// The characters a fuzzy match landed on. Underlined as well where there is no accent
-    /// colour, since the row they sit in may already be bold.
     pub fn hit(&self, base: Style) -> Style {
         let hit = base.patch(self.accent).add_modifier(Modifier::BOLD);
         match self.accent.fg {
@@ -200,11 +161,6 @@ impl Theme {
         }
     }
 
-    /// A colour that is not a slot, the timeline's, brought down to what this terminal has.
-    ///
-    /// Sixteen colours get the nearest hue. A colour that degrades to a grey is left as the
-    /// terminal's foreground instead: black and white are each invisible on one of the two
-    /// backgrounds, and a grey carried no hue worth keeping.
     pub fn paint(&self, color: Color) -> Style {
         match (self.depth, color) {
             (ColorDepth::Mono, _) => Style::new(),
@@ -232,8 +188,6 @@ fn color(value: ColorValue) -> Color {
     }
 }
 
-/// ratatui calls ANSI 7 `Gray` and ANSI 15 `White`; the terminal's names are the ones
-/// `theme.toml` uses.
 fn ansi(a: Ansi) -> Color {
     match a {
         Ansi::Black => Color::Black,
@@ -294,18 +248,13 @@ mod tests {
     #[test]
     fn without_colour_the_things_that_must_be_told_apart_still_are() {
         let t = Theme::new(ColorDepth::Mono, &ThemeOverrides::default());
-        // The cursor row and a selection, against an ordinary row.
         assert!(t.sel.add_modifier.contains(Modifier::REVERSED));
         assert_ne!(t.fg.patch(t.sel), t.fg);
-        // The focused pane, against the others.
         assert_ne!(t.border(true), t.border(false));
-        // Chrome recedes, an error does not.
         assert!(t.faint.add_modifier.contains(Modifier::DIM));
         assert!(t.err.add_modifier.contains(Modifier::BOLD));
-        // A fuzzy hit shows on a row that is already bold.
         let row = t.fg.add_modifier(Modifier::BOLD);
         assert_ne!(t.hit(row), row);
-        // The mode indicator is still a block.
         assert!(
             t.mode_badge(Mode::Normal)
                 .add_modifier
@@ -336,8 +285,6 @@ mod tests {
 
     #[test]
     fn sixteen_colours_leave_text_to_the_terminal() {
-        // No named grey anywhere in the defaults: that is what makes a light background
-        // readable without tmprl knowing it is light.
         let t = Theme::new(ColorDepth::Ansi16, &ThemeOverrides::default());
         assert_eq!(t.fg, Style::new());
         assert_eq!(t.faint.fg, None);
@@ -370,8 +317,6 @@ mod tests {
 
     #[test]
     fn an_override_replaces_the_slots_modifier_too() {
-        // `faint` is dimmed foreground on sixteen colours. Naming a colour for it means
-        // that colour, not that colour dimmed.
         let t = themed(ColorDepth::Ansi16, "faint = \"bright-black\"");
         assert_eq!(t.faint, Style::new().fg(Color::DarkGray));
     }

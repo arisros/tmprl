@@ -9,12 +9,10 @@ pub enum Mode {
     Insert,
     Visual,
     VisualLine,
-    /// The `:` command line.
     Command,
 }
 
 impl Mode {
-    /// Shown in the statusline. Uppercase, like vim's.
     pub fn label(self) -> &'static str {
         match self {
             Mode::Normal => "NORMAL",
@@ -25,12 +23,10 @@ impl Mode {
         }
     }
 
-    /// Whether a leading digit starts a count rather than being literal input.
     pub fn takes_counts(self) -> bool {
         matches!(self, Mode::Normal | Mode::Visual | Mode::VisualLine)
     }
 
-    /// Whether unmatched keys should be inserted as text.
     pub fn is_text_entry(self) -> bool {
         matches!(self, Mode::Insert | Mode::Command)
     }

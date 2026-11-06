@@ -1,14 +1,4 @@
 //! `config.toml`, `keys.toml` and `views.toml`. `theme.toml` is parsed in [`crate::theme`]
-//! and `dashboard.toml` in [`crate::dashboard`]; both report through the same
-//! [`ConfigError`].
-//!
-//! Parsing lives here, in the crate with no IO, so a malformed config is a unit test rather
-//! than something you discover by launching the application. `tmprl-tui` reads the bytes off
-//! disk and hands them to these functions.
-//!
-//! Both loaders are *strict and additive*: an unknown command id or an unparseable chord is
-//! reported, not skipped silently. A keymap that quietly drops the line you just wrote is
-//! considerably worse than one that tells you the line is wrong.
 
 use crate::command::Registry;
 use crate::key::KeyParseError;
@@ -67,28 +57,13 @@ pub enum ConfigError {
     BadPanelKind { path: String, value: String },
 }
 
-/// A saved visibility query, reachable from a key.
-///
-/// The query is stored verbatim. A saved view sets the query bar's contents and nothing
-/// else, it is a bookmark, not a mode, so after selecting one the text is still right there
-/// to edit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SavedView {
-    /// `1`–`9`. Views are reached with the leader key, because a bare digit in Normal mode
-    /// is the start of a count.
     pub key: char,
     pub name: String,
     pub query: String,
 }
 
-/// Parse `views.toml`:
-///
-/// ```toml
-/// [[view]]
-/// key   = "1"
-/// name  = "Running"
-/// query = "ExecutionStatus = 'Running'"
-/// ```
 pub fn parse_views(src: &str) -> Result<Vec<SavedView>, ConfigError> {
     const FILE: &str = "views.toml";
     let table: toml::Table = toml::from_str(src).map_err(|e| ConfigError::Syntax {
@@ -144,30 +119,18 @@ pub fn parse_views(src: &str) -> Result<Vec<SavedView>, ConfigError> {
     Ok(views)
 }
 
-/// Where the codec server lives, if the cluster uses one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CodecConfig {
-    /// Base URL. `/decode` is appended to it, per Temporal's contract.
     pub endpoint: String,
-    /// Sent verbatim as `Authorization`. Optional, and deliberately *not* defaulted from
-    /// anything: a codec server is a service the user runs, and quietly forwarding a
-    /// credential they did not ask us to send would be a surprise.
     pub auth: Option<String>,
 }
 
-/// Where a profile's API key comes from, over `temporal.toml` and `TEMPORAL_API_KEY`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApiKey {
-    /// `api_key`, used as written.
     Literal(String),
-    /// `api_key_cmd`, run without a shell; the first line it prints is the key.
     Command(String),
 }
 
-/// A colour name for a profile's accent.
-///
-/// Named rather than a hex triple: this has to read on a 16-colour terminal, and the point
-/// is that production is unmistakable, not that it matches anyone's palette.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Accent {
     Red,
@@ -194,17 +157,12 @@ impl Accent {
     }
 }
 
-/// Per-profile settings, keyed by the profile name in `temporal.toml`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProfileConfig {
-    /// Colour for the profile name in the statusline.
     pub accent: Option<Accent>,
-    /// Refuse every mutation on this profile.
     pub readonly: bool,
-    /// Overrides the top-level codec for this profile.
     pub codec: Option<CodecConfig>,
     pub api_key: Option<ApiKey>,
-    /// Whether `TEMPORAL_*` variables override this profile, as they do in the `temporal` CLI.
     pub env: bool,
 }
 
@@ -220,7 +178,6 @@ impl Default for ProfileConfig {
     }
 }
 
-/// What applies to the profile actually connected, after falling back to the globals.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Resolved {
     pub accent: Option<Accent>,
@@ -242,11 +199,6 @@ impl Default for Resolved {
     }
 }
 
-/// Where the payload pane (`K`) opens, relative to the history list.
-///
-/// Both keep the list on screen, so `j` / `k` still move the row the pane is showing. There
-/// is no popup on purpose: it would cover the rows you are stepping through. Right by
-/// default, since a terminal is wider than it is tall; one too narrow stacks it anyway.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PayloadPane {
     Bottom,
@@ -264,27 +216,21 @@ impl PayloadPane {
     }
 }
 
-/// The payload pane's share of the history, in percent: `[layout] payload_size`, then
-/// `<leader>r{hjkl}` or a drag of its top rule.
 pub const PAYLOAD_SIZE: u16 = 50;
 pub const PAYLOAD_SIZE_MIN: u16 = 20;
 pub const PAYLOAD_SIZE_MAX: u16 = 80;
 
-/// A payload pane size kept where both the pane and the list stay readable.
 pub fn clamp_payload_size(percent: i32) -> u16 {
     percent.clamp(PAYLOAD_SIZE_MIN as i32, PAYLOAD_SIZE_MAX as i32) as u16
 }
 
-/// How often a screen that refreshes itself does so.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Refresh {
     Off,
-    /// Milliseconds between one answer and the next request.
     Every(i64),
 }
 
 impl Refresh {
-    /// Below this a dashboard is a load test of the visibility store.
     pub const FLOOR_MS: i64 = 5_000;
 
     pub fn interval_ms(self) -> Option<i64> {
@@ -301,35 +247,21 @@ impl Default for Refresh {
     }
 }
 
-/// `config.toml`. Everything in it is optional.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
-    /// The codec used by any profile that does not name its own.
     pub codec: Option<CodecConfig>,
-    /// IANA zone wall-clock times are rendered in. Absent means the machine's own zone.
     pub timezone: Option<String>,
     pub profiles: Vec<(String, ProfileConfig)>,
-    /// `[layout] payload`. Global rather than per profile: it is about your terminal, not
-    /// the cluster.
     pub payload_pane: PayloadPane,
-    /// `[layout] payload_size`, in percent.
     pub payload_size: u16,
-    /// `[refresh] dashboard`.
     pub dashboard_refresh: Refresh,
-    /// `[yank] max_bytes`. The largest text handed to the clipboard; anything longer is
-    /// written to a file instead.
     pub yank_max: usize,
-    /// `[source] command`. The program that says where the code behind a history event
-    /// is. Absent means `gf` has nowhere to go.
     pub source: Option<String>,
-    /// `[input] mouse`. Off unless asked for: a terminal that reports the mouse to tmprl no
-    /// longer selects text with a plain drag.
     pub mouse: bool,
-    /// `[display] colors`. A setting wins over `NO_COLOR`, as no-color.org asks.
     pub colors: Option<crate::theme::ColorDepth>,
 }
 
-/// Terminals commonly cap OSC 52 around 100 KB and truncate silently past it.
+// Terminals commonly cap OSC 52 around 100 KB and truncate silently.
 pub const DEFAULT_YANK_MAX: usize = 64 * 1024;
 
 impl Default for Config {
@@ -350,8 +282,6 @@ impl Default for Config {
 }
 
 impl Config {
-    /// Settings for one profile. A profile with no section is not an error: it simply gets
-    /// the globals, which is what every single-cluster user has today.
     pub fn resolve(&self, profile: &str) -> Resolved {
         let found = self.profiles.iter().find(|(name, _)| name == profile);
         match found {
@@ -362,9 +292,6 @@ impl Config {
             Some((_, p)) => Resolved {
                 accent: p.accent,
                 readonly: p.readonly,
-                // A profile that names no codec uses the global one; pointing production at
-                // the codec you set up for SIT is exactly the mistake worth preventing, but
-                // a single-cluster config must keep working unchanged.
                 codec: p.codec.clone().or_else(|| self.codec.clone()),
                 api_key: p.api_key.clone(),
                 env: p.env,
@@ -373,35 +300,6 @@ impl Config {
     }
 }
 
-/// Parse `config.toml`:
-///
-/// ```toml
-/// timezone = "Asia/Jakarta"      # optional, default: the machine's zone
-///
-/// [layout]
-/// payload = "bottom"             # or "right", the default
-/// payload_size = 40              # percent of the history, 20 to 80; default 50
-///
-/// [refresh]
-/// dashboard = "30s"              # or "off"; the default is 30s, the least is 5s
-///
-/// [yank]
-/// max_bytes = 1048576            # default 65536; a longer yank goes to a file
-///
-/// [codec]
-/// endpoint = "http://localhost:8081"
-/// auth     = "Bearer …"          # optional
-///
-/// [profile.prod]                 # keyed by the profile in temporal.toml
-/// accent      = "red"
-/// readonly    = true
-/// api_key_cmd = "pass show temporal/prod"   # first line of its output is the API key,
-///                                           # or api_key = "…" as written, not both
-/// env         = false                       # TEMPORAL_* variables do not override it
-///
-/// [profile.prod.codec]           # overrides the codec above, for this profile only
-/// endpoint = "https://codec.internal"
-/// ```
 pub fn parse_config(src: &str) -> Result<Config, ConfigError> {
     const FILE: &str = "config.toml";
     let table: toml::Table = toml::from_str(src).map_err(|e| ConfigError::Syntax {
@@ -414,8 +312,6 @@ pub fn parse_config(src: &str) -> Result<Config, ConfigError> {
         Some(raw) => Some(parse_codec(raw, "codec")?),
     };
 
-    // Validated here rather than at first render: a zone typo that only surfaces as wrong
-    // times on screen is one nobody attributes to the config.
     let timezone = match table.get("timezone") {
         None => None,
         Some(v) => {
@@ -755,23 +651,6 @@ fn parse_codec(raw: &toml::Value, path: &str) -> Result<CodecConfig, ConfigError
     Ok(CodecConfig { endpoint, auth })
 }
 
-/// Apply `keys.toml` on top of a keymap:
-///
-/// ```toml
-/// [normal]
-/// "<leader>w" = "nav.open"
-/// "ZZ"        = "app.quit"
-///
-/// [insert]
-/// "jj" = "mode.normal"
-/// ```
-///
-/// Later bindings win, and this runs after the defaults, so a user binding overrides the
-/// built-in one for the same chord in the same mode.
-///
-/// Command ids are resolved against `registry`, which is what lets a `String` from a config
-/// file become the `&'static str` the keymap stores, and what makes a typo an error at
-/// startup instead of a key that silently does nothing.
 pub fn apply_keys(src: &str, registry: &Registry, keymap: &mut Keymap) -> Result<(), ConfigError> {
     const FILE: &str = "keys.toml";
     let table: toml::Table = toml::from_str(src).map_err(|e| ConfigError::Syntax {
@@ -793,8 +672,6 @@ pub fn apply_keys(src: &str, registry: &Registry, keymap: &mut Keymap) -> Result
                 path: format!("{mode_name}.{chord}"),
                 expected: "a command id string",
             })?;
-            // Resolving through the registry is what turns the config's String into the
-            // 'static id the keymap holds.
             let id = registry
                 .get(command)
                 .ok_or_else(|| ConfigError::UnknownCommand {
@@ -813,14 +690,6 @@ pub fn apply_keys(src: &str, registry: &Registry, keymap: &mut Keymap) -> Result
     Ok(())
 }
 
-/// Bind each saved view to `<leader>{digit}`.
-///
-/// Not to the bare digit the interface design originally called for: a leading digit in
-/// Normal mode is a count (`7j`), and counts are load-bearing. `<leader>1` keeps both, and
-/// puts the views in the which-key popup under the leader where they are discoverable.
-///
-/// Only views that actually exist get a binding, so the popup never advertises an empty
-/// slot. Call [`Registry::add_views`] first, the commands must exist to be bound.
 pub fn bind_views(views: &[SavedView], keymap: &mut Keymap) -> Result<(), ConfigError> {
     for v in views {
         let seq = format!("<leader>{}", v.key);
@@ -924,8 +793,6 @@ mod tests {
 
     #[test]
     fn saved_views_bind_under_the_leader_not_the_bare_digit() {
-        // A bare `1` starts a count, and counts compose with every motion. Binding views
-        // to bare digits would break `7j`, which is not a trade worth making.
         let mut registry = Registry::builtin();
         let views = vec![SavedView {
             key: '1',
@@ -959,8 +826,6 @@ mod tests {
 
     #[test]
     fn an_unconfigured_view_slot_is_left_unbound() {
-        // Which-key and the help overlay are generated from the keymap, so a binding for a
-        // view that does not exist would be a lie rendered on screen.
         let mut keymap = default_keymap();
         bind_views(&[], &mut keymap).unwrap();
         let mut p = Pending::default();
@@ -982,8 +847,6 @@ mod tests {
         )
         .unwrap();
         let codec = c.codec.unwrap();
-        // The trailing slash goes, because `/decode` is appended and `//decode` is not the
-        // same path to every server.
         assert_eq!(codec.endpoint, "http://localhost:8081");
         assert_eq!(codec.auth.as_deref(), Some("Bearer abc"));
     }
@@ -1002,7 +865,6 @@ mod tests {
 
     #[test]
     fn a_codec_section_without_an_endpoint_is_an_error() {
-        // Silently ignoring it would leave encrypted payloads unreadable with no clue why.
         let err = parse_config("[codec]\nauth = \"x\"\n").unwrap_err();
         assert!(err.to_string().contains("codec.endpoint"), "got {err}");
 
@@ -1069,8 +931,6 @@ mod tests {
 
     #[test]
     fn an_unknown_command_is_an_error_rather_than_a_dead_key() {
-        // This is the whole reason the loader resolves through the registry. A silently
-        // dropped binding is a key that does nothing, with no way to find out why.
         let registry = Registry::builtin();
         let mut keymap = default_keymap();
         let err = apply_keys(
@@ -1126,7 +986,6 @@ mod tests {
 
     #[test]
     fn a_config_with_no_profile_section_gives_every_profile_the_globals() {
-        // The single-cluster config that exists today must keep working untouched.
         let cfg = parse_config("[codec]\nendpoint = \"http://localhost:8081\"").unwrap();
         let r = cfg.resolve("anything");
         assert_eq!(r.codec.unwrap().endpoint, "http://localhost:8081");
@@ -1150,7 +1009,6 @@ endpoint = "https://codec.internal"
             cfg.resolve("prod").codec.unwrap().endpoint,
             "https://codec.internal"
         );
-        // A profile that names no codec still falls back, rather than losing decoding.
         assert_eq!(
             cfg.resolve("sit").codec.unwrap().endpoint,
             "http://localhost:8081"
@@ -1234,8 +1092,6 @@ accent = "green"
 
     #[test]
     fn an_unknown_accent_is_reported_rather_than_ignored() {
-        // Silently dropping it would leave production painted like everything else, which
-        // is the exact failure the accent exists to prevent.
         let err = parse_config("[profile.prod]\naccent = \"crimson\"").unwrap_err();
         assert!(matches!(err, ConfigError::BadAccent { .. }), "{err:?}");
         assert!(err.to_string().contains("crimson"), "{err}");
@@ -1353,7 +1209,6 @@ accent = "green"
 
     #[test]
     fn an_unknown_payload_position_is_reported() {
-        // "popup" is the one people will try; it is refused rather than quietly ignored.
         for src in [
             "[layout]\npayload = \"popup\"",
             "[layout]\npayload = 1",

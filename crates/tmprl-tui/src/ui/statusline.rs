@@ -11,9 +11,6 @@ use crate::app::{App, Note, Screen};
 use crate::theme::Theme;
 
 pub fn render_header(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
-    // The right-hand summary is laid out first, because what is left over is the budget
-    // the left side has to fit in. Rendering the left side at full length and the summary
-    // on top of it is how the two collide on a narrow terminal or a long workflow id.
     let right = match app.view.screen {
         Screen::Profiles => profile_summary(app, t),
         Screen::Namespaces => namespace_summary(app, t),
@@ -24,13 +21,9 @@ pub fn render_header(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
     };
     let right_width: usize = right.iter().map(|s| s.content.chars().count()).sum();
 
-    // A read-only profile says so in words as well as colour: the accent is the fast
-    // signal, but it has to survive a 16-colour terminal and a colour-blind reader.
     let ro = if app.readonly() { " [ro]" } else { "" };
 
-    // Everything on the left except the scope: " tmprl profile=<name>[ro] (<address>)  ns=".
     let fixed = " tmprl profile=  ns=".len() + app.profile().chars().count() + ro.chars().count();
-    // The address goes before the scope does: the profile name already says which cluster.
     let address = format!(" ({})", short_address(app.address()));
     let room = (area.width as usize).saturating_sub(right_width + fixed + 3);
     let address = if room >= address.chars().count() + MIN_SCOPE {
@@ -39,7 +32,6 @@ pub fn render_header(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
         String::new()
     };
     let budget = room.saturating_sub(address.chars().count()).max(8);
-    // The scope is the part that varies without bound, so it is the part that gives way.
     let scope = super::truncate(&scope_label(app), budget);
 
     let left = Line::from(vec![
@@ -64,18 +56,13 @@ pub fn render_header(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
     }
 }
 
-/// The scope is cut to this before the address is dropped to make room for it.
 const MIN_SCOPE: usize = 16;
 
-/// `https://prod.example:7233/` as `prod.example:7233`: the scheme and the slash are noise
-/// next to a profile name.
 pub(super) fn short_address(url: &str) -> &str {
     let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
     rest.strip_suffix('/').unwrap_or(rest)
 }
 
-/// How the profile name is painted. An accent makes it bold as well as coloured, so the
-/// environment is legible where colour is not.
 fn profile_style(app: &App, t: &Theme) -> Style {
     match app.accent() {
         None => t.fg,
@@ -83,10 +70,7 @@ fn profile_style(app: &App, t: &Theme) -> Style {
     }
 }
 
-/// What the list is scoped to. A fan-out over several namespaces is summarised rather than
-/// listed, because the header has one line and the rows carry the namespace anyway.
 fn scope_label(app: &App) -> String {
-    // On a history, the workflow being read is more use than the namespace scope.
     if let Some(w) = &app.view.viewing {
         return format!("{}  {}", w.namespace, w.workflow_id);
     }
@@ -136,10 +120,6 @@ fn dashboard_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
     )]
 }
 
-/// Per-status counts, from one `CountWorkflowExecutions ... GROUP BY ExecutionStatus`.
-///
-/// Each tally is prefixed with the same glyph the table uses, so the header and the rows
-/// are read the same way.
 fn workflow_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
     if let Some(e) = app.view.counts.error() {
         return vec![Span::styled(format!("counts: {e}"), t.err)];
@@ -162,13 +142,10 @@ fn workflow_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
             status_style(status, t),
         ));
     }
-    // The total is the server's own, not the sum of the groups: grouped counts are
-    // approximate, so summing them would understate the real number.
     spans.push(Span::styled(format!("{} total", counts.total), t.dim));
     spans
 }
 
-/// What the history header shows: what is being read, and what went wrong in it.
 fn history_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
     let Some(outline) = app.view.history.value() else {
         return vec![Span::styled(
@@ -184,7 +161,6 @@ fn history_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
 
     let mut spans = Vec::new();
     if s.failures > 0 {
-        // First, because it is why anyone opens a history.
         spans.push(Span::styled(
             format!("✗ {} failed  ", s.failures),
             t.err.add_modifier(Modifier::BOLD),
@@ -222,7 +198,6 @@ fn schedule_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
     let paused = rows.iter().filter(|s| s.paused).count();
     let mut spans = Vec::new();
     if paused > 0 {
-        // A paused schedule is the one worth spotting: it looks like any other until read.
         spans.push(Span::styled(
             format!("‖ {paused} paused  "),
             t.warn.add_modifier(Modifier::BOLD),
@@ -233,7 +208,6 @@ fn schedule_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
 }
 
 pub fn render_status(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
-    // The command line takes over the status row while it is open.
     if let Some(prompt) = &app.prompt {
         let sigil = prompt.sigil();
         let mut spans = vec![Span::styled(sigil, t.accent)];
@@ -253,7 +227,6 @@ pub fn render_status(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
         Span::styled(format!(" {} ", mode.label()), t.mode_badge(mode)),
         Span::raw(" "),
     ];
-    // A view that rewrites itself while you read it has to say so.
     if app.view.following {
         spans.push(Span::styled(" FOLLOW ", t.badge(t.ok)));
         spans.push(Span::raw(" "));
@@ -282,7 +255,6 @@ pub fn render_status(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
 
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
 
-    // Pending keys, bottom right, like vim's pending-command indicator.
     let pend = app.pending.display();
     if !pend.is_empty() {
         let w = pend.len() as u16;

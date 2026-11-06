@@ -1,18 +1,7 @@
 //! Things that change a cluster, and the confirmation that stands in front of them.
-//!
-//! Everything up to now has been a reader. These are the operations that cannot be undone by
-//! pressing `R`, so the design in `docs/ARCHITECTURE.md` §9 puts one confirmation in front of
-//! every one of them, and that confirmation shows **the equivalent `temporal` CLI command**.
-//!
-//! That last part is the load-bearing bit. It teaches the CLI, it makes the action auditable
-//! at a glance, you can read exactly what is about to happen rather than trusting a verb,
-//! and it gives an escape hatch to anyone who would rather run it themselves. Which means the
-//! rendered command has to be *correct*: someone will copy it and run it. The flags here are
-//! checked against `temporal workflow --help`, and the quoting is tested.
 
 use crate::timerange::{Overlap, TimeRange, to_rfc3339};
 
-/// A change to a cluster, fully specified.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Mutation {
     Cancel {
@@ -31,7 +20,6 @@ pub enum Mutation {
         workflow_id: String,
         run_id: String,
         name: String,
-        /// JSON, as typed. `None` sends no input at all, which is not the same as `null`.
         input: Option<String>,
     },
     Delete {
@@ -39,8 +27,6 @@ pub enum Mutation {
         workflow_id: String,
         run_id: String,
     },
-    /// Rewind to a completed workflow task and replay forward from there. The event id is
-    /// already resolved to a valid reset point. See `history::reset_point`.
     Reset {
         namespace: String,
         workflow_id: String,
@@ -48,8 +34,6 @@ pub enum Mutation {
         event_id: i64,
         reason: String,
     },
-    /// Send an update and wait for its outcome. Unlike a signal, an update can be rejected
-    /// by the workflow and reports back.
     Update {
         namespace: String,
         workflow_id: String,
@@ -57,13 +41,11 @@ pub enum Mutation {
         name: String,
         input: Option<String>,
     },
-    /// Pause or resume a schedule. `paused` is the state being moved *to*.
     PauseSchedule {
         namespace: String,
         schedule_id: String,
         paused: bool,
     },
-    /// Run a scheduled workflow now, without waiting for its next time.
     TriggerSchedule {
         namespace: String,
         schedule_id: String,
@@ -72,8 +54,6 @@ pub enum Mutation {
         namespace: String,
         schedule_id: String,
     },
-    /// Create a schedule. `spec` is passed to the server as a cron string, which also
-    /// accepts `@every 1h`.
     CreateSchedule {
         namespace: String,
         schedule_id: String,
@@ -83,7 +63,6 @@ pub enum Mutation {
         spec: String,
         input: Option<String>,
     },
-    /// Replay every action the schedule would have taken over a past window.
     BackfillSchedule {
         namespace: String,
         schedule_id: String,
@@ -92,10 +71,7 @@ pub enum Mutation {
     },
 }
 
-/// The three schedule operations act on a schedule id rather than an execution, so they do
-/// not share the workflow accessors.
 impl Mutation {
-    /// The schedule this acts on, if it is a schedule operation at all.
     pub fn schedule_id(&self) -> Option<&str> {
         match self {
             Mutation::PauseSchedule { schedule_id, .. }
@@ -116,7 +92,6 @@ impl Mutation {
         }
     }
 
-    /// What the confirmation calls it.
     pub fn verb(&self) -> &'static str {
         match self {
             Mutation::Cancel { .. } => "Cancel",
@@ -134,8 +109,6 @@ impl Mutation {
         }
     }
 
-    /// How to say it happened. Spelled out rather than derived: "cancel" + "d" is "canceld",
-    /// and a status line that cannot spell does not inspire confidence in what it just did.
     pub fn past_tense(&self) -> &'static str {
         match self {
             Mutation::Cancel { .. } => "cancelled",
@@ -153,7 +126,6 @@ impl Mutation {
         }
     }
 
-    /// What a batch of this is a batch *of*, for the heading over a count.
     pub fn subject_plural(&self) -> &'static str {
         match self {
             Mutation::Cancel { .. }
@@ -194,7 +166,6 @@ impl Mutation {
             | Mutation::Delete { workflow_id, .. }
             | Mutation::Reset { workflow_id, .. }
             | Mutation::Update { workflow_id, .. } => workflow_id,
-            // Schedule operations have no execution; the id is the schedule's.
             Mutation::PauseSchedule { schedule_id, .. }
             | Mutation::TriggerSchedule { schedule_id, .. }
             | Mutation::DeleteSchedule { schedule_id, .. }
@@ -219,14 +190,7 @@ impl Mutation {
         }
     }
 
-    /// Whether the workflow does not survive it.
-    ///
-    /// A signal is a change but not a loss; a delete removes the history itself and cannot be
-    /// walked back even by starting the workflow again.
     pub fn is_destructive(&self) -> bool {
-        // A reset abandons everything after the reset point, so it loses work even though
-        // the workflow survives. An update, like a signal, only adds to it. Pausing and
-        // triggering a schedule are reversible by doing the opposite.
         !matches!(
             self,
             Mutation::Signal { .. }
@@ -238,8 +202,6 @@ impl Mutation {
         )
     }
 
-    /// Whether it destroys the record as well as the run. Only `delete` does, which is why it
-    /// is the one that asks for more than a keypress.
     pub fn destroys_history(&self) -> bool {
         matches!(
             self,
@@ -247,11 +209,6 @@ impl Mutation {
         )
     }
 
-    /// The equivalent `temporal` command, ready to paste into a shell.
-    ///
-    /// Flags follow `temporal workflow --help`: `-w/--workflow-id`, `-r/--run-id`,
-    /// `-n/--namespace`, `--reason`, `--name`, `--input`. The long forms are used because
-    /// this is meant to be read as much as run.
     pub fn cli(&self) -> String {
         let base = |verb: &str, m: &Mutation| {
             format!(
@@ -285,8 +242,6 @@ impl Mutation {
                 base("reset", self),
                 shell_quote(reason)
             ),
-            // `update execute` rather than `update start`: tmprl waits for the outcome, and
-            // the command shown should be the one that behaves the same way.
             Mutation::Update { name, input, .. } => {
                 let mut out = format!(
                     "temporal workflow update execute --namespace {} --workflow-id {} \
@@ -368,10 +323,6 @@ impl Mutation {
         }
     }
 
-    /// One line for `~/.local/state/tmprl/audit.jsonl`.
-    ///
-    /// The CLI equivalent is recorded alongside the fields, so the log answers "what was
-    /// actually done" without the reader having to reconstruct it from parts.
     pub fn audit_line(&self, at_epoch_millis: i64, target: Target<'_>, outcome: &str) -> String {
         let mut out = String::from("{");
         out.push_str(&format!(r#""at":{at_epoch_millis},"#));
@@ -394,26 +345,16 @@ impl Mutation {
     }
 }
 
-/// Which cluster a mutation was sent to.
-///
-/// Namespace names repeat across environments, so a namespace alone cannot answer "was
-/// this SIT or production". Profile and address together can.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Target<'a> {
     pub profile: &'a str,
     pub address: &'a str,
 }
 
-/// What a confirmation is waiting for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Confirm {
-    /// Every mutation this confirmation covers, in the order they will run. One for an
-    /// ordinary action, one per selected row for a batch.
     pub mutations: Vec<Mutation>,
-    /// When set, the reader must type this exactly before the action is allowed. Reserved for
-    /// the operations where a single keypress is too cheap for what it does.
     pub typed_word: Option<String>,
-    /// What they have typed so far.
     pub entered: String,
 }
 
@@ -422,11 +363,6 @@ impl Confirm {
         Self::batch(vec![mutation])
     }
 
-    /// A confirmation over several rows.
-    ///
-    /// The word owed scales with what is at stake: destroying histories always costs the
-    /// word, and a destructive batch costs the count, because one keypress is too cheap to
-    /// end a dozen workflows at once.
     pub fn batch(mutations: Vec<Mutation>) -> Self {
         let typed_word = if mutations.iter().any(Mutation::destroys_history) {
             Some("delete".to_string())
@@ -442,8 +378,6 @@ impl Confirm {
         }
     }
 
-    /// The mutation that stands for the set: the first, which every other one matches in
-    /// verb and namespace because a batch is one action over many rows.
     pub fn first(&self) -> &Mutation {
         &self.mutations[0]
     }
@@ -456,12 +390,10 @@ impl Confirm {
         self.mutations.is_empty()
     }
 
-    /// Whether this covers more than one row, which is what the heading has to say.
     pub fn is_batch(&self) -> bool {
         self.mutations.len() > 1
     }
 
-    /// Whether pressing Enter now would go ahead.
     pub fn is_satisfied(&self) -> bool {
         match &self.typed_word {
             None => true,
@@ -469,12 +401,6 @@ impl Confirm {
         }
     }
 
-    /// Why a word is owed at all.
-    ///
-    /// The renderer must not infer this from the word: "delete" is owed because a history is
-    /// about to stop existing, a count is owed because one keypress is too cheap for the
-    /// number of rows, and telling a reader that terminating destroys a history would be a
-    /// lie in the one place that has to be exact.
     pub fn caution(&self) -> Option<String> {
         self.typed_word.as_ref()?;
         Some(if self.first().destroys_history() {
@@ -488,7 +414,6 @@ impl Confirm {
         })
     }
 
-    /// What to tell the reader they still owe.
     pub fn prompt(&self) -> String {
         match &self.typed_word {
             None => "⏎ to confirm   Esc to cancel".into(),
@@ -498,11 +423,6 @@ impl Confirm {
     }
 }
 
-/// Quote a value for a POSIX shell.
-///
-/// Single quotes, with the one escape a single-quoted string needs. This matters more than it
-/// looks: the rendered command is meant to be copied and run, and a workflow id can contain
-/// spaces, quotes or a `;`. A command that is *almost* right is worse than none.
 pub fn shell_quote(s: &str) -> String {
     if !s.is_empty()
         && s.chars()
@@ -546,8 +466,6 @@ mod tests {
 
     #[test]
     fn the_caution_says_why_the_word_is_owed_rather_than_assuming_delete() {
-        // Telling a reader that terminating destroys a history would be a lie in the one
-        // place that has to be exact.
         let wf = |id: &str| Mutation::Terminate {
             namespace: "default".into(),
             workflow_id: id.into(),
@@ -578,8 +496,6 @@ mod tests {
 
     #[test]
     fn a_backfill_renders_the_cli_with_rfc3339_bounds() {
-        // Someone will copy this line and run it, so the times have to be in the format
-        // `temporal schedule backfill` accepts, not the millis tmprl holds internally.
         let m = Mutation::BackfillSchedule {
             namespace: "default".into(),
             schedule_id: "nightly recon".into(),
@@ -631,7 +547,6 @@ mod tests {
 
     #[test]
     fn a_signal_without_input_does_not_pass_an_empty_one() {
-        // `--input ''` is a JSON parse error, not "no input".
         let signal = Mutation::Signal {
             namespace: "default".into(),
             workflow_id: "w".into(),
@@ -653,8 +568,6 @@ mod tests {
 
     #[test]
     fn values_that_would_break_a_shell_are_quoted() {
-        // Someone will copy this and run it. A workflow id with a space or a semicolon must
-        // not turn into two commands.
         let m = Mutation::Terminate {
             namespace: "default".into(),
             workflow_id: "order 1; rm -rf /".into(),
@@ -663,13 +576,11 @@ mod tests {
         };
         let cli = m.cli();
         assert!(cli.contains("'order 1; rm -rf /'"), "got {cli}");
-        // The one escape a single-quoted shell string needs.
         assert!(cli.contains(r"'it'\''s stuck'"), "got {cli}");
     }
 
     #[test]
     fn plain_values_are_not_quoted_needlessly() {
-        // The command is meant to be read as much as run.
         assert_eq!(shell_quote("order-1"), "order-1");
         assert_eq!(shell_quote("ns.with.dots"), "ns.with.dots");
         assert_eq!(shell_quote(""), "''", "an empty value still needs quotes");
@@ -690,8 +601,6 @@ mod tests {
             "temporal workflow reset --namespace default --workflow-id order-1 --run-id r \
              --event-id 9 --reason 'bad deploy'"
         );
-        // A reset abandons everything after the point, so it loses work even though the
-        // workflow survives.
         assert!(m.is_destructive());
         assert!(!m.destroys_history(), "the history is still there");
         assert_eq!(Confirm::new(m).typed_word, None);
@@ -699,8 +608,6 @@ mod tests {
 
     #[test]
     fn an_update_uses_execute_because_tmprl_waits_for_the_outcome() {
-        // `update start` returns once accepted; `update execute` waits. The command shown
-        // should behave the way tmprl does.
         let m = Mutation::Update {
             namespace: "default".into(),
             workflow_id: "w".into(),
@@ -714,7 +621,6 @@ mod tests {
             "{cli}"
         );
         assert!(cli.ends_with("--name setLimit --input 50"), "{cli}");
-        // Like a signal, an update adds to a workflow rather than ending it.
         assert!(!m.is_destructive());
     }
 
@@ -732,7 +638,6 @@ mod tests {
 
     #[test]
     fn every_verb_has_a_past_tense_that_is_a_word() {
-        // "cancel" + "d" is "canceld".
         for (m, expected) in [
             (
                 Mutation::Cancel {
@@ -760,7 +665,6 @@ mod tests {
 
     #[test]
     fn pausing_a_schedule_renders_the_toggle_command() {
-        // The CLI has no `pause` subcommand: it is `toggle --pause`.
         let m = Mutation::PauseSchedule {
             namespace: "payments".into(),
             schedule_id: "nightly".into(),
@@ -859,7 +763,6 @@ mod tests {
         assert!(confirm.prompt().contains("⏎ to confirm"));
     }
 
-    /// The cluster the test mutations are sent to.
     fn sit() -> Target<'static> {
         Target {
             profile: "sit",
@@ -874,9 +777,7 @@ mod tests {
         assert!(line.contains(r#""workflowId":"order-1""#), "{line}");
         assert!(line.contains(r#""outcome":"ok""#), "{line}");
         assert!(line.contains(r#""at":1700000000000"#), "{line}");
-        // The command goes in too, so the log answers "what happened" on its own.
         assert!(line.contains("temporal workflow terminate"), "{line}");
-        // And it is one line, because the file is JSONL.
         assert!(!line.contains('\n'));
     }
 
@@ -898,15 +799,12 @@ mod tests {
 
     #[test]
     fn a_failed_mutation_is_still_recorded() {
-        // The log is what was attempted, not only what succeeded.
         let line = terminate("x").audit_line(1, sit(), "failed: permission denied");
         assert!(line.contains("permission denied"), "{line}");
     }
 
     #[test]
     fn an_audit_line_records_which_cluster_was_hit() {
-        // Two environments sharing a namespace name produce lines that differ only here,
-        // which is the whole reason the target is recorded.
         let line = terminate("stuck").audit_line(1, sit(), "ok");
         assert!(line.contains(r#""profile":"sit""#), "{line}");
         assert!(

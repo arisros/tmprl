@@ -15,12 +15,10 @@ use super::history::convert;
 use super::workflow::status_from_proto;
 use crate::Conn;
 
-/// With no worker polling the task queue the server holds a query until its own deadline,
-/// which is longer than anyone waits at a keyboard.
+// With no worker polling, the server holds a query past anyone's patience.
 const QUERY_DEADLINE: Duration = Duration::from_secs(15);
 
 impl Conn {
-    /// Ask one handler, with no arguments.
     pub async fn query_workflow(
         &self,
         namespace: &str,
@@ -46,8 +44,7 @@ impl Conn {
             .query_workflow(req)
             .await
             .map_err(|s| {
-                // tonic reports its own deadline as `Cancelled`, which reads as if someone
-                // had cancelled the query.
+                // tonic reports its own deadline as Cancelled.
                 if s.code() == temporalio_client::tonic::Code::Cancelled
                     && s.message() == "Timeout expired"
                 {

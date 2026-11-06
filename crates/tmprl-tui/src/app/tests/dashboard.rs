@@ -51,8 +51,6 @@ fn schedule(id: &str) -> ScheduleRow {
     }
 }
 
-/// Every panel of the builtin layout with something in it: two statuses, three failures,
-/// two types, one queue, two schedules.
 fn filled() -> App {
     let mut app = on_dashboard();
     reply(&mut app, 0, Ok(counts()));

@@ -1,12 +1,4 @@
 //! The payload pane.
-//!
-//! Shows the full detail of whatever the cursor is on: the event's fields, and its payloads
-//! decoded and pretty-printed. It is a pane under the list rather than an overlay, because
-//! the value you are reading usually only makes sense next to the row it belongs to.
-//!
-//! For a *group* row the interesting payloads are its input and its result, the arguments it
-//! was called with and what came back. Those live on the events that opened and closed the
-//! group, so the pane gathers from both rather than showing only the row you happen to be on.
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
@@ -22,8 +14,6 @@ use crate::app::{App, DecodeState};
 use crate::theme::Theme;
 use crate::view::View;
 
-/// Draw the pane. Returns how far it can scroll and where it ended up, which moves when a
-/// search asked it to find the match.
 pub fn render(
     frame: &mut Frame,
     area: Rect,
@@ -36,8 +26,6 @@ pub fn render(
         return (0, 0);
     }
     let focused = window_focused && view.detail_focus;
-    // A filter result replaces the payloads: you asked to see the filtered value, and
-    // showing both would bury it.
     if let Some(piped) = view.piped.clone() {
         let max = render_piped(frame, area, view, &piped, t, focused);
         return (max, view.detail_scroll.min(max));
@@ -68,10 +56,7 @@ pub fn render(
 
     let visible = area.height.saturating_sub(1) as usize;
     let (lines, starts) = fit(lines, area.width as usize, visible);
-    // A payload can be far taller than the pane. Clipping it silently would hide the end of
-    // a stack trace, which is the part worth reading, so the pane scrolls and says so.
     let max_scroll = lines.len().saturating_sub(visible);
-    // One line of context above the match, its label or the key it sits under.
     let scroll = match first_match {
         Some(at) if view.detail_seek => starts[at].saturating_sub(1),
         _ => view.detail_scroll,
@@ -85,8 +70,6 @@ pub fn render(
         .title(Span::styled(title, t.accent));
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    // This pane's only border is the rule along its top, so the bar takes a column rather
-    // than being drawn over the payload.
     let inner = super::list_scrollbar(frame, inner, scroll, lines.len(), t);
     frame.render_widget(
         Paragraph::new(visible_rows(lines, scroll, inner.height)),
@@ -122,7 +105,6 @@ fn record_text(frame: &mut Frame, area: Rect, view: &View) {
     };
 }
 
-/// The pane's top rule says how to move in it, which differs with where the focus is.
 fn title(label: &str, view: &View, focused: bool, scroll: usize, max_scroll: usize) -> String {
     let at = format!("{}/{}", scroll + 1, max_scroll + 1);
     match (max_scroll, focused) {
@@ -161,8 +143,6 @@ fn group_lines<'a>(
             t.dim,
         ),
     ];
-    // On the title line rather than its own: this pane's height is the payloads' budget,
-    // and a line spent here is a line of JSON that scrolls out of sight.
     if g.started_at.is_some() {
         let ended = match g.ended_at {
             Some(e) => format!(" → {}", app.clock.stamp(Some(e))),
@@ -205,8 +185,6 @@ fn group_lines<'a>(
         lines.extend(payload_lines(&e.payloads, app, t));
     }
     if lines.len() == before {
-        // A pane showing nothing but a title reads as broken. Plenty of events genuinely
-        // carry no payload, and saying so is the answer to "where is the input".
         lines.push(Line::from(Span::styled(
             "  no payloads on this group",
             t.faint,
@@ -218,7 +196,6 @@ fn group_lines<'a>(
     lines
 }
 
-/// Where a still-open activity is in its retries, as the server last described it.
 fn pending_line<'a>(p: &PendingActivity, app: &App, t: &Theme) -> Line<'a> {
     let mut parts = vec![
         format!("attempt {}", p.attempts_label()),
@@ -233,16 +210,10 @@ fn pending_line<'a>(p: &PendingActivity, app: &App, t: &Theme) -> Line<'a> {
     Line::from(Span::styled(format!("  {}", parts.join(" · ")), t.warn))
 }
 
-/// The failure chain: every link's message, then what it was raised from.
-///
-/// The outermost link is usually the least specific thing anyone could say about the
-/// failure, "activity task failed", so the chain is the point: the link that names the
-/// class and the sentence a human wrote is normally two down from it.
 fn failure_lines<'a>(f: &'a Failure, indent: &str, t: &Theme) -> Vec<Line<'a>> {
     let mut lines = Vec::new();
     for (depth, link) in f.chain().enumerate() {
         let prefix = if depth == 0 { "" } else { "caused by " };
-        // A message can carry its own newlines, and a span cannot draw one.
         let headline = link.headline();
         for (n, part) in headline.lines().enumerate() {
             let lead = if n == 0 { prefix } else { "  " };
@@ -257,7 +228,6 @@ fn failure_lines<'a>(f: &'a Failure, indent: &str, t: &Theme) -> Vec<Line<'a>> {
             tags.push(s.clone());
         }
         if link.non_retryable {
-            // The reason a failed activity never came back, and not otherwise on screen.
             tags.push("not retryable".to_string());
         }
         if !tags.is_empty() {
@@ -270,10 +240,6 @@ fn failure_lines<'a>(f: &'a Failure, indent: &str, t: &Theme) -> Vec<Line<'a>> {
     lines
 }
 
-/// Stack traces, last in the pane and after the payloads.
-///
-/// A Java trace is fifty lines that push the input out of sight, and the input is what you
-/// read first. Everything is still here, one `<C-e>` away, rather than truncated.
 fn stack_lines<'a>(f: &'a Failure, indent: &str, t: &Theme) -> Vec<Line<'a>> {
     let mut lines = Vec::new();
     for link in f.chain() {
@@ -337,15 +303,10 @@ fn payload_lines<'a>(payloads: &[(String, Payload)], app: &App, t: &Theme) -> Ve
         match p.render() {
             Rendered::Text(_) => {}
             Rendered::Null => lines.push(Line::from(Span::styled("    null", t.faint))),
-            // Say what it is and how big rather than showing bytes. The value is not lost,
-            // it is just not something a terminal should be asked to print.
             Rendered::Opaque { bytes, encoding } => lines.push(Line::from(Span::styled(
                 format!("    {encoding}, {bytes} bytes, not shown"),
                 t.faint,
             ))),
-            // The encoding is named rather than called "encrypted": a codec chooses its own
-            // encoding, so seeing the actual one is what tells you whether the codec server
-            // you are running is the right one for this payload.
             Rendered::Encrypted { bytes, encoding } => {
                 let (what, style) = match app.decode_state(p) {
                     DecodeState::NoCodec => (
@@ -372,11 +333,6 @@ fn payload_lines<'a>(payloads: &[(String, Payload)], app: &App, t: &Theme) -> Ve
     lines
 }
 
-/// The output of a `!` filter.
-///
-/// Failure is rendered as the command's own stderr rather than a message of ours: when a jq
-/// expression is wrong, jq's diagnosis is the entire answer and paraphrasing it loses the
-/// line and column.
 fn render_piped(
     frame: &mut Frame,
     area: Rect,
@@ -436,7 +392,7 @@ fn hidden_line<'a>(hidden: usize, t: &Theme) -> Line<'a> {
     ))
 }
 
-/// `Paragraph::scroll` takes a `u16`, which wraps past 65,535 rows.
+// Paragraph::scroll takes a u16, which wraps past 65,535 rows.
 fn visible_rows(lines: Vec<Line<'_>>, scroll: usize, height: u16) -> Vec<Line<'_>> {
     lines
         .into_iter()
@@ -445,11 +401,6 @@ fn visible_rows(lines: Vec<Line<'_>>, scroll: usize, height: u16) -> Vec<Line<'_
         .collect()
 }
 
-/// Wrap every line to the pane, and where each original line now starts.
-///
-/// Wrapped here rather than by `Paragraph`, so the scroll range, the `n/m` in the title
-/// and a search's jump all count the rows that are drawn. The scrollbar takes a column
-/// only once the rows outgrow the pane, so that is checked against the full width first.
 fn fit(lines: Vec<Line<'_>>, width: usize, height: usize) -> (Vec<Line<'_>>, Vec<usize>) {
     let full = wrap(lines.clone(), width);
     if full.0.len() <= height || width < 4 {
@@ -472,8 +423,6 @@ fn wrap(lines: Vec<Line<'_>>, width: usize) -> (Vec<Line<'_>>, Vec<usize>) {
             out.push(line);
             continue;
         }
-        // Continuations sit under the text they continue, so a wrapped message still reads
-        // as one block beside the key or label it belongs to.
         let lead = cells.iter().take_while(|(c, _)| *c == ' ').count();
         let indent = (lead + 2).min(width / 2);
         let mut at = 0;

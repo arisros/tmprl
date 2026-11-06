@@ -1,29 +1,12 @@
 //! The clauses the filter picker offers.
-//!
-//! Every entry here is a *clause*, not a query: accepting one appends it to the bar and
-//! leaves the text editable. The query is the interface, so this catalogue only ever writes
-//! text you could have typed yourself, and nothing it produces is a form tmprl understands
-//! better than you do.
-//!
-//! What the catalogue knows comes from three places, and the second and third are the point.
-//! Statuses are fixed by the protocol. Types and task queues are read off the rows already
-//! loaded, so the values offered are ones that exist in this namespace. Search attributes
-//! come from the cluster, so a custom attribute is offered with a clause shaped to its type
-//! rather than left for you to remember.
 
 use crate::clock::{Clock, rfc3339_utc};
 use crate::workflow::WorkflowStatus;
 
-/// One offer in the picker.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Clause {
-    /// The text appended to the query bar, and what the picker shows.
     pub text: String,
-    /// The group, shown beside the clause. Display only.
     pub note: &'static str,
-    /// Words the picker matches on without showing them, so "last hour" finds the timestamp
-    /// it compiles to. A literal `2026-09-21T06:00:00Z` is unsearchable otherwise: nobody
-    /// knows what the hour was.
     pub keywords: String,
 }
 
@@ -42,10 +25,6 @@ impl Clause {
     }
 }
 
-/// What a search attribute holds, which is what decides the clause offered for it.
-///
-/// Mirrors Temporal's `IndexedValueType`. `Unspecified` covers a type this build does not
-/// know: the attribute is still offered, because a name you can edit beats no offer at all.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AttributeType {
     Text,
@@ -58,32 +37,21 @@ pub enum AttributeType {
     Unspecified,
 }
 
-/// One search attribute the cluster has registered.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchAttribute {
     pub name: String,
     pub kind: AttributeType,
-    /// Predefined by Temporal rather than registered by whoever runs this cluster. System
-    /// attributes are offered last: the custom ones are why anyone opens this list.
     pub system: bool,
 }
 
-/// What the catalogue is built from.
 pub struct Facts<'a> {
-    /// Workflow types seen in the loaded rows, deduplicated.
     pub types: &'a [&'a str],
-    /// Task queues seen in the loaded rows, deduplicated.
     pub queues: &'a [&'a str],
-    /// What the cluster registered. Empty until it has been fetched, which is not an error:
-    /// the rest of the catalogue stands on its own.
     pub attributes: &'a [SearchAttribute],
-    /// Epoch millis, for the relative time clauses.
     pub now_ms: i64,
-    /// The viewing zone, which decides when "today" started.
     pub clock: &'a Clock,
 }
 
-/// Every clause worth offering, in the order the picker shows them.
 pub fn clauses(f: &Facts) -> Vec<Clause> {
     let mut out = Vec::new();
     out.extend(status_clauses());
@@ -95,15 +63,12 @@ pub fn clauses(f: &Facts) -> Vec<Clause> {
     out
 }
 
-/// Status is first because it is what most filters start with.
 fn status_clauses() -> Vec<Clause> {
     let mut out: Vec<Clause> = WorkflowStatus::DISPLAY_ORDER
         .iter()
         .map(|s| Clause::new(format!("ExecutionStatus = '{}'", s.query_name()), "status"))
         .collect();
 
-    // The two that are tedious to type and are asked for constantly. `IN` rather than a
-    // chain of `OR`s: the grammar takes it and the result still reads in one bar.
     out.push(
         Clause::new(
             "ExecutionStatus IN ('Failed', 'TimedOut', 'Terminated')",
@@ -118,12 +83,7 @@ fn status_clauses() -> Vec<Clause> {
     out
 }
 
-/// Relative windows, compiled to the absolute instant they mean.
-///
-/// Temporal's visibility grammar has no `now()`, so "the last hour" has to become a literal.
-/// It is computed once, when the picker opens: the clause is a fixed point in time, not a
-/// window that slides while you read it, which is also what makes it safe to leave in the
-/// bar and edit.
+// The visibility grammar has no now(), so a relative window becomes a literal.
 fn time_clauses(now_ms: i64, clock: &Clock) -> Vec<Clause> {
     const MINUTE: i64 = 60 * 1_000;
     const HOUR: i64 = 60 * MINUTE;
@@ -152,8 +112,6 @@ fn time_clauses(now_ms: i64, clock: &Clock) -> Vec<Clause> {
         );
     }
 
-    // Closing rather than starting: "what finished overnight" is a different question from
-    // "what started overnight", and only one of them is answerable with StartTime.
     out.push(
         Clause::new(
             format!("CloseTime > '{}'", rfc3339_utc(now_ms - 24 * HOUR)),
@@ -164,7 +122,6 @@ fn time_clauses(now_ms: i64, clock: &Clock) -> Vec<Clause> {
     out
 }
 
-/// `Field = 'value'` for each value actually seen.
 fn value_clauses(field: &str, values: &[&str], note: &'static str) -> Vec<Clause> {
     values
         .iter()
@@ -172,15 +129,8 @@ fn value_clauses(field: &str, values: &[&str], note: &'static str) -> Vec<Clause
         .collect()
 }
 
-/// One clause per registered attribute, shaped to what the attribute holds.
-///
-/// A `Keyword` takes a quoted literal, an `Int` does not, and a `Datetime` compared against
-/// a bare number is rejected by the server. Offering the wrong shape would be worse than
-/// offering nothing: it looks right and fails on send.
 fn attribute_clauses(attributes: &[SearchAttribute], now_ms: i64) -> Vec<Clause> {
     let mut sorted: Vec<&SearchAttribute> = attributes.iter().collect();
-    // Custom first: they are the ones nobody can be expected to remember. Stable within
-    // each group so the cluster's own ordering survives.
     sorted.sort_by_key(|a| a.system);
 
     sorted
@@ -194,15 +144,12 @@ fn attribute_clauses(attributes: &[SearchAttribute], now_ms: i64) -> Vec<Clause>
         .collect()
 }
 
-/// The clause skeleton for one attribute.
 fn attribute_template(a: &SearchAttribute, now_ms: i64) -> String {
     let name = &a.name;
     match a.kind {
         AttributeType::Int | AttributeType::Double => format!("{name} > 0"),
         AttributeType::Bool => format!("{name} = true"),
         AttributeType::Datetime => format!("{name} > '{}'", rfc3339_utc(now_ms - 24 * 3_600_000)),
-        // A list is matched with `IN`, and an empty literal is left for you to fill: the
-        // values are the cluster's, and guessing one would be inventing data.
         AttributeType::KeywordList => format!("{name} IN ('')"),
         AttributeType::Text | AttributeType::Keyword | AttributeType::Unspecified => {
             format!("{name} = ''")
@@ -210,8 +157,6 @@ fn attribute_template(a: &SearchAttribute, now_ms: i64) -> String {
     }
 }
 
-/// Fields the catalogue already offers with real values off the loaded rows. Offering
-/// `WorkflowType = ''` beside twenty actual workflow types is noise.
 fn is_already_offered(name: &str) -> bool {
     matches!(
         name,
@@ -219,7 +164,6 @@ fn is_already_offered(name: &str) -> bool {
     )
 }
 
-/// Trailing clauses. Last, because a query is read left to right and this is the end of it.
 fn order_clauses() -> Vec<Clause> {
     ["ORDER BY StartTime DESC", "ORDER BY StartTime ASC"]
         .into_iter()
@@ -231,7 +175,6 @@ fn order_clauses() -> Vec<Clause> {
 mod tests {
     use super::*;
 
-    // 2026-09-21T07:03:22.431Z
     const NOW: i64 = 1_789_974_202_431;
 
     fn jakarta() -> Clock {
@@ -273,7 +216,6 @@ mod tests {
     fn a_relative_window_compiles_to_the_instant_it_means() {
         let clock = jakarta();
         let cs = clauses(&facts(&[], &[], &[], &clock));
-        // 07:03:22Z minus an hour, to the second, and quoted the way the grammar wants.
         assert!(
             texts(&cs).contains(&"StartTime > '2026-09-21T06:03:22Z'"),
             "{:?}",
@@ -298,7 +240,6 @@ mod tests {
 
     #[test]
     fn today_starts_at_midnight_where_the_reader_is_not_at_midnight_utc() {
-        // 07:03Z on the 21st is 14:03 in Jakarta, so "today" began at 17:00Z on the 20th.
         let clock = jakarta();
         let cs = clauses(&facts(&[], &[], &[], &clock));
         assert!(
@@ -383,8 +324,6 @@ mod tests {
 
     #[test]
     fn an_attribute_the_catalogue_already_covers_is_not_offered_twice() {
-        // The server lists ExecutionStatus and WorkflowType as system attributes. Offering
-        // `WorkflowType = ''` beside the types actually loaded is noise.
         let attrs = [
             SearchAttribute {
                 name: "WorkflowType".into(),
@@ -413,7 +352,6 @@ mod tests {
 
     #[test]
     fn an_unknown_attribute_type_is_still_offered() {
-        // A cluster on a newer server than this build is not a reason to hide a filter.
         let attrs = [SearchAttribute {
             name: "Whatever".into(),
             kind: AttributeType::Unspecified,

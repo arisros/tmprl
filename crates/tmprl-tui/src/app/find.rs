@@ -3,13 +3,6 @@
 use super::*;
 
 impl App {
-    /// Open a picker over whatever `kind` names.
-    ///
-    /// Items are gathered once, at open. A picker over a live list that reshuffled itself
-    /// under the cursor while you typed would be unusable, and every one of these lists is
-    /// live: workflows page in, a followed history grows. A snapshot is also what makes
-    /// `Target::Row` sound, an index into a list that cannot change while the picker holds
-    /// the keyboard.
     pub(super) fn open_picker(&mut self, kind: picker::Kind) {
         let items = match kind {
             picker::Kind::Workflows => self.workflow_items(),
@@ -22,8 +15,6 @@ impl App {
             picker::Kind::Queries => self.query_items(),
         };
         if items.is_empty() {
-            // Saying why beats opening an empty box: the answer is nearly always "you are
-            // on the wrong screen" or "nothing has loaded yet".
             self.note = Some((
                 match kind {
                     picker::Kind::Workflows => "no workflows loaded; open a namespace first",
@@ -40,7 +31,6 @@ impl App {
             ));
             return;
         }
-        // Rows the last picker fetched are not this picker's business.
         self.picker_found.clear();
         self.picker_search = self.picker_search.wrapping_add(1);
         self.picker = Some(Picker::new(kind, items));
@@ -54,11 +44,6 @@ impl App {
             .collect()
     }
 
-    /// Rows of the history outline, as the outline currently stands.
-    ///
-    /// Folded rows are not listed, deliberately: the picker offers what you can navigate to,
-    /// and a row inside a collapsed group is not somewhere the cursor can go. `zR` first if
-    /// you want the events too.
     pub(super) fn history_items(&self) -> Vec<picker::Item> {
         if self.view.screen != Screen::History {
             return Vec::new();
@@ -87,7 +72,6 @@ impl App {
             .collect()
     }
 
-    /// Every open pane, across every tab. vim's `:ls`, and `<leader>fb` is its `:b`.
     pub(super) fn pane_items(&self) -> Vec<picker::Item> {
         let ids = self.tabs.views();
         if ids.len() < 2 {
@@ -96,7 +80,6 @@ impl App {
         let focused = self.tabs.current().focused();
         ids.into_iter()
             .map(|id| {
-                // The focused pane's state is in `self.view`; every other one is parked.
                 let view = if id == focused {
                     Some(&self.view)
                 } else {
@@ -135,10 +118,6 @@ impl App {
             .search("")
             .into_iter()
             .map(|c| {
-                // Id *and* title in the label, because `Picker` matches the label and
-                // nothing else. With the title in the note, `:` found `list.problems` by
-                // typing `failed` while `<leader>fh` did not, which is a confusing split
-                // between two things that are both "find a command".
                 picker::Item::new(
                     format!("{}  {}", c.id, c.title),
                     Target::Command(c.id.to_string()),
@@ -148,16 +127,6 @@ impl App {
             .collect()
     }
 
-    /// Clauses to build a visibility query out of.
-    ///
-    /// The catalogue itself is [`tmprl_core::filter`], which is pure and tested there. This
-    /// only gathers what it needs from the session: the values on the rows already loaded,
-    /// so the offers are ones that exist in this namespace, and the search attributes the
-    /// cluster registered, so a custom attribute comes with a clause shaped to its type.
-    ///
-    /// Each entry is a clause, not a whole query: accepting one appends it to the bar with
-    /// `AND`, and leaves the text editable. The query is the interface, and a builder that
-    /// replaced it with something you could not see is the web UI's mistake.
     pub(super) fn filter_items(&self) -> Vec<picker::Item> {
         self.filter_clauses()
             .into_iter()
@@ -169,8 +138,6 @@ impl App {
             .collect()
     }
 
-    /// The catalogue itself, shared by the picker and by the completion under the query
-    /// bar: two ways to reach one list, not two lists that drift apart.
     pub(super) fn filter_clauses(&self) -> Vec<filter::Clause> {
         let rows = self.view.workflow_rows();
         let mut types: Vec<&str> = rows.iter().map(|w| w.workflow_type.as_str()).collect();
@@ -200,8 +167,7 @@ impl App {
         let Some(p) = self.picker.as_mut() else {
             return;
         };
-        // `<C-n>` / `<C-p>` rather than `<C-j>` / `<C-k>`: tmux's pane navigation eats the
-        // latter before this application ever sees them. See docs/INTERFACE.md.
+        // Not <C-j>/<C-k>: tmux pane navigation takes them.
         let ctrl = chord.mods.ctrl;
         match chord.key {
             Key::Esc => self.picker = None,
@@ -210,8 +176,6 @@ impl App {
             Key::Up => self.move_picker(-1),
             Key::Char('n') if ctrl => self.move_picker(1),
             Key::Char('p') if ctrl => self.move_picker(-1),
-            // Backspace on an empty prompt closes, as it does at every other prompt here.
-            // The guard does the deleting, matching how `prompt_key` is written.
             Key::Backspace if !p.backspace() => self.picker = None,
             Key::Backspace => {}
             Key::Char(c) if chord.mods.is_none() => p.push(c),
@@ -230,11 +194,6 @@ impl App {
         self.schedule_picker_search();
     }
 
-    /// Start the debounce after a picker's prompt changed.
-    ///
-    /// Only for the workflow picker, and only while the loaded rows match nothing: the
-    /// local list is the answer whenever it has one, and a picker that fired a visibility
-    /// query on every keystroke would put a query per character on a production cluster.
     fn schedule_picker_search(&mut self) {
         self.picker_search = self.picker_search.wrapping_add(1);
         if self.conn.is_none() || !self.picker_wants_server() {
@@ -247,9 +206,6 @@ impl App {
         });
     }
 
-    /// Whether the picker on screen is one a server search could help, with a prompt worth
-    /// sending. Short prompts are excluded: three characters of a UUID match half a
-    /// namespace, and the round trip would be spent to say so.
     pub(super) fn picker_wants_server(&self) -> bool {
         let Some(p) = self.picker.as_ref() else {
             return false;
@@ -259,7 +215,6 @@ impl App {
             && p.prompt.trim().chars().count() >= PICKER_SEARCH_MIN
     }
 
-    /// The debounce expired. Issue the search if nothing has changed since.
     pub(super) fn picker_search_due(&mut self, search: u64) {
         if search != self.picker_search || !self.picker_wants_server() {
             return;
@@ -290,8 +245,6 @@ impl App {
                 .list_workflows_across(&scope, &exact, PICKER_SEARCH_LIMIT)
                 .await
                 .map(|(rows, _)| rows);
-            // An id nobody has in full is still a prefix worth trying, but only when the
-            // exact lookup came back with nothing: a hit there is the answer.
             if let (Ok(rows), Some(prefix)) = (&result, prefix)
                 && rows.is_empty()
             {
@@ -304,7 +257,6 @@ impl App {
         });
     }
 
-    /// Put fetched rows into the open picker.
     pub(super) fn picker_takes(&mut self, rows: Vec<WorkflowRow>) {
         let items: Vec<picker::Item> = rows
             .iter()
@@ -332,17 +284,11 @@ impl App {
         }
     }
 
-    /// Take the selected entry and close.
-    ///
-    /// The match on `Target` is exhaustive, so adding a picker whose outcome is genuinely
-    /// new is a compile error here rather than a key that does nothing.
     pub(super) fn accept_picker(&mut self) {
         let Some(p) = self.picker.as_ref() else {
             return;
         };
         let Some(target) = p.accept().cloned() else {
-            // Nothing matched what was typed. Closing silently would look like it took
-            // something, so leave the picker open and say nothing happened.
             self.note = Some(("no entry selected".into(), Note::Warn));
             return;
         };
@@ -351,22 +297,14 @@ impl App {
         match target {
             Target::Workflow { namespace, run_id } => self.open_workflow(&namespace, &run_id),
             Target::Row(row) => {
-                // The snapshot was taken when the picker opened. A history that re-grouped
-                // while it was up, or a page arriving under a follow, can leave it short.
-                // Saying so beats an `Enter` that closes the picker and moves nothing.
                 if row >= self.row_count() {
                     self.note = Some(("that row has gone".into(), Note::Warn));
                     return;
                 }
-                // A jump, as docs/INTERFACE.md promises: crossing a thousand-row history is
-                // exactly the move `<C-o>` should undo.
                 self.mark_jump();
                 self.set_cursor(row);
             }
             Target::Command(id) => self.run(&id, None),
-            // Not a jump. Every jumplist entry describes a position *within* a pane, and
-            // switching which pane is focused moves no cursor; recording it would make
-            // `<C-o>` mean two different things.
             Target::Pane(id) => self.focus_pane(ViewId(id)),
             Target::Query(clause) => self.add_clause(&clause),
             Target::Namespace(name) => self.switch_namespace(&name),
@@ -376,11 +314,6 @@ impl App {
     }
 
     pub(super) fn open_search(&mut self) {
-        // Seeded empty rather than with the last pattern. `/` almost always means "look for
-        // something else"; repeating the last search is what `n` is for, and pre-filling
-        // would mean clearing the line before every second search.
-        // As `:` and `!` do. Without it the statusline reads NORMAL while a `/` prompt is
-        // open and being typed into, and `close_prompt` resets a mode that was never set.
         self.mode = Mode::Command;
         self.prompt = Some(Prompt {
             kind: PromptKind::Search,
@@ -388,29 +321,17 @@ impl App {
         });
     }
 
-    /// Apply a freshly typed pattern and jump to the first match.
-    ///
-    /// Unlike `n`, this considers the row the cursor is already on: you have just typed the
-    /// pattern, and a `/` that skips a visible match one line up reads as not having found
-    /// it. Starting one row back and searching forward is how that falls out.
     pub(super) fn run_search(&mut self, pattern: String) {
         self.search = Search::new(pattern);
         if self.row_count() == 0 {
             return;
         }
-        // `/` is a jump, `n` is not. vim draws the line in the same place, and for the same
-        // reason: the first search is how you left, the repeats are the walking.
-        //
-        // Captured before the seek and pushed only if it landed: `Jumplist::push` truncates
-        // the forward entries, so recording a search that matched nothing would throw away
-        // the `<C-i>` list for a keystroke that moved nothing.
         let from = self.here();
         if self.seek(self.view.cursor, true, true) {
             self.jumps.push(from);
         }
     }
 
-    /// `n` and `N`: the same pattern again, from where the cursor is now.
     pub(super) fn jump_match(&mut self, forward: bool) {
         if self.search.is_empty() {
             self.note = Some(("no search yet, press / first".into(), Note::Warn));
@@ -419,14 +340,6 @@ impl App {
         self.seek(self.view.cursor, forward, false);
     }
 
-    /// Move the cursor to the next row matching the current pattern, and say what happened.
-    ///
-    /// Every outcome gets a message, because the alternatives are all worse: a silent
-    /// no-match looks like the key is unbound, and a silent wrap looks like the cursor
-    /// jumped on its own.
-    ///
-    /// Reports whether it landed anywhere, so a caller can decide not to record a jump for
-    /// a search that found nothing.
     pub(super) fn seek(&mut self, from: usize, forward: bool, inclusive: bool) -> bool {
         let labels = self.view.search_labels();
         let total = search::count(&self.search, &labels);
@@ -470,7 +383,6 @@ impl App {
         }
     }
 
-    /// Where on the row a hit was, when nothing on the row can show it: the payload path.
     fn matched_in(&self, row: usize) -> String {
         self.view
             .payload_match(row, &self.search)
@@ -478,8 +390,6 @@ impl App {
             .unwrap_or_default()
     }
 
-    /// Why a miss may not be the last word: `/` reads only decoded payloads, and a value
-    /// behind the codec is invisible to it until `K` has shown that row.
     fn unsearched_note(&self) -> String {
         if self.view.screen != Screen::History {
             return String::new();
@@ -490,10 +400,6 @@ impl App {
         }
     }
 
-    /// Keep looking past the events loaded so far, if this is a history with more pages.
-    ///
-    /// The rest of the run is finite and belongs to the workflow on screen, so paging it in
-    /// is a bounded thing to do, unlike paging a namespace. Returns whether a scan started.
     fn start_scan(&mut self, from: usize, forward: bool, inclusive: bool) -> bool {
         if self.view.screen != Screen::History
             || self.view.history_token.is_empty()
@@ -520,7 +426,6 @@ impl App {
         true
     }
 
-    /// A page landed while a scan was running: look again, then decide whether to go on.
     pub(super) fn continue_scan(&mut self, generation: u64) {
         let Some(scan) = self.scan else {
             return;
@@ -574,7 +479,6 @@ impl App {
         self.load_history_page(SCAN_PAGE_SIZE);
     }
 
-    /// End a scan, saying how far it got. `<Esc>`, and anything that abandons the history.
     pub(super) fn stop_scan(&mut self) {
         if self.scan.take().is_some() {
             self.note = Some((
@@ -588,11 +492,6 @@ impl App {
     }
 }
 
-/// One workflow as a picker entry.
-///
-/// The label is the workflow id alone: a label carrying the type and the status too would
-/// let a fuzzy pattern match characters spread across three different facts, which reads as
-/// the picker matching nothing you typed.
 fn workflow_item(w: &WorkflowRow) -> picker::Item {
     picker::Item::new(
         w.workflow_id.clone(),
@@ -614,10 +513,6 @@ fn workflow_item(w: &WorkflowRow) -> picker::Item {
     ))
 }
 
-/// A one-line description of what a pane is showing, for the pane picker.
-///
-/// Named by *what is in it* rather than by an id, because "pane 3" tells you nothing about
-/// which of four open histories it is. This mirrors how vim's `:ls` names buffers by file.
 pub(super) fn describe_pane(v: &View) -> String {
     match v.screen {
         Screen::Profiles => "profiles".to_string(),

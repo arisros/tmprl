@@ -45,8 +45,6 @@ impl Conn {
             .into_iter()
             .map(|e| row_from(namespace, e))
             .collect();
-        // ListSchedules gives no ordering guarantee either, and a list that reshuffles
-        // between refreshes is unusable. Schedule ids are stable, so sort on them.
         rows.sort_by(|a, b| a.schedule_id.cmp(&b.schedule_id));
 
         Ok(SchedulePage {
@@ -127,8 +125,6 @@ fn row_from(namespace: &str, e: ScheduleListEntry) -> ScheduleRow {
         paused: info.paused,
         notes: info.notes,
         spec: describe_spec(&spec.cron_string, &calendars, &intervals),
-        // The server returns future times ascending, but sorting costs nothing and a
-        // "next run" that is not the earliest would be wrong rather than merely odd.
         next_run: info
             .future_action_times
             .iter()
@@ -203,8 +199,6 @@ mod tests {
 
     #[test]
     fn a_schedule_with_nothing_set_still_maps() {
-        // Every field of the entry is optional on the wire, and one malformed row must not
-        // take down the list.
         let row = row_from("d", ScheduleListEntry::default());
         assert_eq!(row.spec, "manual");
         assert_eq!(row.next_run, None);

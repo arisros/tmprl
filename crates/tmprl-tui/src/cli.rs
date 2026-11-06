@@ -1,8 +1,4 @@
 //! The command line: arguments parsed by hand into what `main` should do.
-//!
-//! Parsing is a pure function over the arguments, so it prints nothing and exits nowhere;
-//! `main` does both. The flags are public API (see `docs/RELEASING.md`), which is why every
-//! one of them is pinned by a test here.
 
 use tmprl_client::ProfileRef;
 
@@ -40,7 +36,6 @@ theme.toml, views.toml) is a different directory; --config-path prints it.
 NO_COLOR is honoured. Press ? inside the application for keybindings.
 ";
 
-/// What the arguments ask for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Cli {
     Run {
@@ -49,15 +44,9 @@ pub enum Cli {
     },
     Help,
     Version,
-    /// `--config-path`, with the `--temporal-config` given before it, if one was.
     ConfigPath(Option<String>),
 }
 
-/// Parse everything after the program name.
-///
-/// `-h`, `-V` and `--config-path` answer as soon as they are reached, as they always have:
-/// asking for help must work even when the rest of the line is wrong, and `--config-path`
-/// reflects a `--temporal-config` only when that came first.
 pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Cli, String> {
     let mut profile = ProfileRef::default();
     let mut startup = Startup::default();
@@ -74,22 +63,18 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Cli, String> {
 
         match flag.as_str() {
             "-p" | "--profile" => profile.name = Some(value("--profile")?),
-            // `--config` predates tmprl having a config of its own and names the
-            // *Temporal* profile file. Kept as an alias so existing wrappers keep working.
             "--temporal-config" | "--config" => {
                 profile.config_file = Some(value("--temporal-config")?);
             }
             "-n" | "--namespace" => {
                 let namespace = value("--namespace")?;
-                // Both, deliberately: the connection is bound to it, and the app opens on it.
                 profile.namespace = Some(namespace.clone());
                 startup.namespace = Some(namespace);
             }
             "-q" | "--query" => startup.query = Some(value("--query")?),
             "-w" | "--workflow" => {
                 let id = value("--workflow")?;
-                // Refused here rather than after connecting: the lookup puts the id inside
-                // a quoted literal, and Temporal's grammar has no escape for a quote.
+                // Temporal's query grammar has no escape for a quote.
                 if tmprl_core::query::by_id(&id).is_none() {
                     return Err(format!(
                         "--workflow cannot look up `{id}`: it has a quote in it"
@@ -118,7 +103,6 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Cli, String> {
             }
         }
     }
-    // Checked once the whole line is read, so the order the flags came in does not matter.
     if startup.dashboard && (startup.query.is_some() || startup.workflow.is_some()) {
         return Err(
             "--dashboard opens the dashboard, so it cannot go with --query or --workflow".into(),
@@ -130,12 +114,6 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Cli, String> {
     })
 }
 
-/// The value an option was given, from `--option=value` or from the next argument.
-///
-/// A next argument that looks like another option is not taken as the value. Without that,
-/// `tmprl -n --readonly` would start writable in a namespace called `--readonly`, which is
-/// the one mistake a read-only flag must not make possible. `--option=value` remains for a
-/// value that really does begin with a dash.
 fn value_of(
     name: &str,
     inline: Option<String>,
@@ -192,7 +170,6 @@ mod tests {
 
     #[test]
     fn the_flags_that_predate_this_file_still_parse() {
-        // Wrappers and muscle memory depend on these exact spellings.
         let (profile, _) = run(&["-p", "prod", "--config", "/tmp/t.toml"]);
         assert_eq!(profile.name.as_deref(), Some("prod"));
         assert_eq!(profile.config_file.as_deref(), Some("/tmp/t.toml"));
@@ -342,7 +319,6 @@ mod tests {
 
     #[test]
     fn another_option_is_not_swallowed_as_a_value() {
-        // The dangerous reading: writable, in a namespace named `--readonly`.
         let e = refusal(&["-n", "--readonly"]);
         assert!(e.starts_with("--namespace needs a value"), "{e}");
         assert!(
@@ -413,7 +389,6 @@ mod tests {
         assert_eq!(parse_line(&["-n", "orders", "--help"]), Ok(Cli::Help));
         assert_eq!(parse_line(&["-V"]), Ok(Cli::Version));
         assert_eq!(parse_line(&["--version", "--nope"]), Ok(Cli::Version));
-        // Reached first, so the bad flag wins. Parsing is in order.
         assert!(parse_line(&["--nope", "--help"]).is_err());
     }
 

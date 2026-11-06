@@ -2,7 +2,6 @@
 
 use super::layout::Window;
 
-/// The most columns a histogram has. Each is one count.
 pub const MAX_BUCKETS: usize = 48;
 
 const MINUTE: i64 = 60_000;
@@ -23,7 +22,6 @@ const STEPS: [i64; 11] = [
     7 * DAY,
 ];
 
-/// One column: a stretch of time, and how many workflows fell in it once that is known.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Bucket {
     pub from_ms: i64,
@@ -31,7 +29,6 @@ pub struct Bucket {
     pub count: Option<i64>,
 }
 
-/// The finest round step that covers `span_ms` in no more than [`MAX_BUCKETS`] columns.
 pub fn bucket_for(span_ms: i64) -> i64 {
     let most = MAX_BUCKETS as i64;
     let columns = |step: i64| (span_ms + step - 1) / step;
@@ -41,16 +38,10 @@ pub fn bucket_for(span_ms: i64) -> i64 {
         .unwrap_or_else(|| columns(most).max(1))
 }
 
-/// How far back a window reaches, and how wide it is.
 pub fn span_ms(window: &Window) -> i64 {
     window.since_ms.unwrap_or(0) - window.older_ms.unwrap_or(0)
 }
 
-/// The stretches a window is cut into at `now_ms`, oldest first.
-///
-/// Edges sit on multiples of the step, not on `now_ms`, so a stretch that has passed is the
-/// same stretch at every refresh and its count is asked for once. The price is that the
-/// first and last columns are part of a step.
 pub fn edges(window: &Window, bucket_ms: i64, now_ms: i64) -> Vec<(i64, i64)> {
     let bucket_ms = bucket_ms.max(1);
     let end = now_ms - window.older_ms.unwrap_or(0);

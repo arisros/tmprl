@@ -1,16 +1,8 @@
 //! Finding and reading `~/.config/tmprl/*.toml`.
-//!
-//! This module is only the file IO. Everything that can be got wrong about the *contents*
-//! (an unknown command id, a malformed chord, two views on one key) is decided in
-//! `tmprl_core::config`, where it is unit tested without touching a disk.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-/// `$TMPRL_CONFIG_DIR`, else `$XDG_CONFIG_HOME/tmprl`, else `~/.config/tmprl`.
-///
-/// `HOME` is read rather than pulled from a crate: this is the only path lookup tmprl does,
-/// and it is not worth a dependency.
 pub fn config_dir() -> Option<PathBuf> {
     resolve_dir(
         std::env::var_os("TMPRL_CONFIG_DIR"),
@@ -19,11 +11,6 @@ pub fn config_dir() -> Option<PathBuf> {
     )
 }
 
-/// The precedence rule, with the environment passed in.
-///
-/// Split out so it can be tested as a function. Reading the real environment in a test
-/// means mutating process-global state, which races against every other test in the binary
-///, tests run in parallel threads, and a flaky suite is worse than an untested one.
 fn resolve_dir(
     explicit: Option<OsString>,
     xdg: Option<OsString>,
@@ -38,7 +25,6 @@ fn resolve_dir(
     home.map(|h| PathBuf::from(h).join(".config").join("tmprl"))
 }
 
-/// The files tmprl reads out of its config directory.
 pub const CONFIG_FILES: [&str; 5] = [
     "config.toml",
     "dashboard.toml",
@@ -47,17 +33,9 @@ pub const CONFIG_FILES: [&str; 5] = [
     "views.toml",
 ];
 
-/// What `--config-path` prints.
-///
-/// Answers "where do I put config.toml", which is otherwise only discoverable by reading
-/// the source: the directory is chosen from the environment and there is no other way to
-/// see which branch won. Marks each file present or absent, because an absent file and a
-/// file in the wrong directory look identical from the outside.
 pub fn describe_paths(explicit_temporal_config: Option<&str>) -> String {
     let mut out = String::new();
 
-    // The connection file first: it is the one that decides whether `-p sit` resolves, and
-    // the one whose default path differs per platform.
     match tmprl_client::config_file_in_use(explicit_temporal_config) {
         None => out.push_str("profiles: nowhere (no HOME)\n"),
         Some(path) => {
@@ -83,7 +61,6 @@ pub fn describe_paths(explicit_temporal_config: Option<&str>) -> String {
     out
 }
 
-/// Where the audit log lives, as text, whether or not it exists yet.
 fn audit_path_display() -> String {
     match audit_dir() {
         Ok(dir) => dir.join("audit.jsonl").display().to_string(),
@@ -91,10 +68,6 @@ fn audit_path_display() -> String {
     }
 }
 
-/// Read a config file, or `None` if it is absent.
-///
-/// An unreadable file is reported rather than treated as absent, "I wrote a keys.toml and
-/// nothing happened" is the failure this exists to prevent.
 pub fn read(name: &str) -> Result<Option<String>, String> {
     match config_dir() {
         Some(dir) => read_from(&dir, name),
@@ -111,7 +84,6 @@ fn read_from(dir: &Path, name: &str) -> Result<Option<String>, String> {
     }
 }
 
-/// `$XDG_STATE_HOME/tmprl`, else `~/.local/state/tmprl`.
 fn audit_dir() -> Result<PathBuf, String> {
     match std::env::var_os("XDG_STATE_HOME") {
         Some(d) => Ok(PathBuf::from(d).join("tmprl")),
@@ -122,11 +94,6 @@ fn audit_dir() -> Result<PathBuf, String> {
     }
 }
 
-/// Append one line to `~/.local/state/tmprl/audit.jsonl`.
-///
-/// State, not config: `$XDG_STATE_HOME` else `~/.local/state`, per the XDG spec. The file is
-/// opened in append mode every time rather than held open, so an external `tail -f` sees each
-/// line as it lands and nothing is lost if tmprl is killed.
 pub fn append_audit(line: &str) -> Result<(), String> {
     use std::io::Write;
 
@@ -140,8 +107,6 @@ pub fn append_audit(line: &str) -> Result<(), String> {
         .append(true)
         .open(&path)
         .map_err(|e| format!("could not open {}: {e}", path.display()))?;
-    // One write per line: `writeln!` may split into several, and two processes appending at
-    // once would interleave the pieces.
     file.write_all(format!("{line}\n").as_bytes())
         .map_err(|e| format!("could not write {}: {e}", path.display()))
 }
@@ -201,8 +166,6 @@ mod tests {
 
     #[test]
     fn describe_paths_names_every_file_and_the_audit_log() {
-        // The listing has to be complete: a file tmprl reads but does not mention here
-        // sends the reader looking in the wrong directory.
         let out = describe_paths(None);
         for name in CONFIG_FILES {
             assert!(out.contains(name), "{name} missing from:\n{out}");
@@ -217,8 +180,6 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("config.toml"), "").unwrap();
 
-        // `describe_paths` reads the real environment, so the marking logic is exercised
-        // through the same predicate rather than by mutating process-global state.
         assert!(dir.join("config.toml").is_file());
         assert!(!dir.join("keys.toml").is_file());
         let _ = std::fs::remove_dir_all(&dir);

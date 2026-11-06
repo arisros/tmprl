@@ -1,11 +1,4 @@
 //! The workflow history: a collapsible outline of groups.
-//!
-//! One row per group by default, an activity that was scheduled, started and completed is
-//! one line, not three. Folding a group open shows the events underneath it, indented.
-//!
-//! Only the visible rows are ever built. The outline answers "what is row N" without
-//! walking the rows before it, so scrolling a hundred-thousand-event history moves an index
-//! rather than rebuilding a list.
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
@@ -43,8 +36,6 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
         let msg = if outline.show_plumbing() {
             "no events"
         } else {
-            // Everything was workflow tasks, which are hidden by default. Saying so beats
-            // an empty pane that looks broken.
             "nothing but workflow tasks (zp to show them)"
         };
         frame.render_widget(
@@ -66,14 +57,11 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
         .saturating_sub(height.saturating_sub(1) / 2)
         .min(outline.len().saturating_sub(height));
 
-    // The one call that matters: only these rows are built.
     let lines: Vec<Line> = outline
         .slice(first, height)
         .into_iter()
         .enumerate()
         .map(|(n, row)| render_row(outline, row, first + n, view, app, t))
-        // Repaint the search pattern last, over the finished row, so it survives
-        // whatever colouring and truncation the columns above applied.
         .map(|l| highlight(l, &app.search, match_style()))
         .collect();
 
@@ -112,7 +100,6 @@ fn render_row<'a>(
             };
             let mut spans = vec![
                 gutter,
-                // A fold marker only where there is something to unfold.
                 Span::styled(
                     if g.events.len() > 1 {
                         if expanded { "▾ " } else { "▸ " }
@@ -129,7 +116,6 @@ fn render_row<'a>(
                 Span::styled(format!("{:<32}", truncate(&g.subject, 31)), base),
             ];
             let live = pending::for_group(&view.pending, g, outline.events());
-            // Attempts are only worth the space when something was actually retried.
             let attempts = match live {
                 Some(p) if p.attempt > 1 => Some(p.attempts_label()),
                 Some(_) => None,
@@ -173,11 +159,7 @@ fn render_row<'a>(
             let Some(e) = outline.event(event) else {
                 return Line::from(gutter);
             };
-            let mut spans = vec![
-                gutter,
-                // Indented under the group it belongs to.
-                Span::styled(format!("    {:>5}  ", e.id), t.faint),
-            ];
+            let mut spans = vec![gutter, Span::styled(format!("    {:>5}  ", e.id), t.faint)];
             if app.times.is_absolute() {
                 spans.push(Span::styled(
                     format!("{}  ", app.clock.stamp(e.time)),
@@ -205,7 +187,6 @@ fn render_row<'a>(
     }
 }
 
-/// Status as shape, not colour alone, the same rule the workflow table follows.
 fn outcome_glyph(o: Outcome) -> char {
     match o {
         Outcome::Pending => '●',

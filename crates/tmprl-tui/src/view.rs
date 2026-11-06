@@ -1,14 +1,4 @@
 //! What one pane owns.
-//!
-//! Everything here is per-pane: two windows side by side each have their own cursor, their
-//! own query, their own history and their own follow task. Everything that is *not* here,
-//! the mode, the keymap, the prompt, the note line, the codec cache, belongs to the session
-//! and is shared, because there is one keyboard and one status line however many panes are
-//! open.
-//!
-//! Splitting this out of `App` is what makes a window tree possible at all. Before it, the
-//! application held one cursor and one history, so a second pane had nothing of its own to
-//! show.
 
 use std::cell::{Cell, RefCell};
 
@@ -24,7 +14,6 @@ use tmprl_core::{Loadable, ScheduleRow, StatusCounts, WorkflowList, WorkflowRow}
 use crate::app::Screen;
 use crate::ui::category_label;
 
-/// One row per line from `area.y` down, the first of them being row `first`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RowsDrawn {
     pub area: tmprl_ui::Rect,
@@ -32,7 +21,6 @@ pub struct RowsDrawn {
 }
 
 impl RowsDrawn {
-    /// The row a click on `column`, `line` landed on, if it landed on one.
     pub fn row_at(&self, column: u16, line: u16) -> Option<usize> {
         let a = self.area;
         (column >= a.x && column < a.right() && line >= a.y && line < a.bottom())
@@ -40,8 +28,6 @@ impl RowsDrawn {
     }
 }
 
-/// A stretch of the payload pane being dragged over, in screen cells, in the order the
-/// pointer went: `from` where the press was, `to` where it is now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TextSelection {
     pub from: (u16, u16),
@@ -49,9 +35,6 @@ pub struct TextSelection {
 }
 
 impl TextSelection {
-    /// Each line it covers as `(row, first column, last column)`, in reading order, the way
-    /// a terminal selects: the first line from the press on, whole lines between, the last
-    /// up to the pointer.
     pub fn lines(&self, area: tmprl_ui::Rect) -> Vec<(u16, u16, u16)> {
         let key = |(x, y): (u16, u16)| (y, x);
         let (start, end) = if key(self.from) <= key(self.to) {
@@ -70,8 +53,6 @@ impl TextSelection {
     }
 }
 
-/// What the payload pane put on screen at its last draw, cell by cell, so a drag over it
-/// copies exactly the text that was under the pointer.
 #[derive(Debug, Default)]
 pub struct DrawnText {
     pub area: tmprl_ui::Rect,
@@ -103,109 +84,51 @@ pub struct View {
     pub history: Loadable<Outline>,
     pub schedules: Loadable<Vec<ScheduleRow>>,
     pub dashboard: Option<Board>,
-    /// When each of the dashboard's requests is next due.
     pub dashboard_pacer: Pacer,
-    /// Requests the dashboard has out, so leaving it or closing the pane stops them.
     pub dashboard_tasks: Vec<tokio::task::JoinHandle<()>>,
-    /// The schedule the next schedule list should put the cursor on.
     pub seek_schedule: Option<String>,
 
-    /// The workflow whose history is on screen.
     pub viewing: Option<WorkflowRow>,
-    /// Whether the history is being tailed. Shown in the statusline, because a view that
-    /// silently changes under you is worse than one that does not update.
     pub following: bool,
-    /// Whether the history is drawn as a timeline, `<leader>G`. Per pane, so a split can
-    /// show the outline beside the timeline of the same run.
     pub timeline: bool,
-    /// Whether the timeline shows idle stretches to scale instead of folded, `zg`.
     pub timeline_gaps_open: bool,
-    /// Whether the payload pane is open under the history list.
     pub show_detail: bool,
-    /// Output of the last `!` filter, shown in the pane in place of the payloads. `Err` is
-    /// the command's own stderr, which is the only useful thing to show when jq rejects a
-    /// filter.
     pub piped: Option<Result<String, String>>,
-    /// A query's answer, shown in the pane in place of the payloads under the cursor, and
-    /// what `!`, the payload yanks and `$EDITOR` take while it is up.
     pub queried: Option<Vec<(String, Payload)>>,
-    /// The query handlers the open workflow listed, for the picker.
     pub handlers: Option<tmprl_core::interaction::Handlers>,
-    /// First visible line of the payload pane, and how far it can usefully go. A payload can
-    /// be far taller than the pane, clipping a stack trace silently hides its end, which is
-    /// the part worth reading.
     pub detail_scroll: usize,
     pub detail_max_scroll: usize,
-    /// The motions scroll the payload pane instead of moving the row cursor. Reached with
-    /// the window focus keys, since the pane is part of this window and not one of its own.
     pub detail_focus: bool,
-    /// Where the last draw put the pane, and how many lines it showed. Narrow terminals
-    /// stack a pane that was asked to sit beside the list, so only the renderer knows.
     pub detail_beside: bool,
     pub detail_page: usize,
-    /// The cells the pane was last drawn in, which is how a click or the wheel finds it.
     pub detail_area: tmprl_ui::Rect,
-    /// The cells the history and the pane share, so a drag of the pane's top rule can be
-    /// turned into a share of them.
     pub body_area: tmprl_ui::Rect,
-    /// The rows the last draw put on screen, which is how a click finds the row under it.
     pub rows_drawn: Cell<Option<RowsDrawn>>,
-    /// The payload pane's text as last drawn, for a drag to copy from.
     pub detail_text: RefCell<DrawnText>,
 
-    /// The visibility query, verbatim. This string is the interface: everything that
-    /// filters the list compiles into it, and it is always on screen and always editable.
     pub query: String,
-    /// Namespaces the workflow list is fanned out over.
     pub scope: Vec<String>,
 
     pub cursor: usize,
-    /// Where a visual selection started, if one is active.
     pub anchor: Option<usize>,
-    /// Rows this pane can show, set by the renderer, used by half-page motions. Per-pane
-    /// because a half page in a split is half of *that* pane.
     pub page: usize,
 
-    /// The row the cursor is on, by identity rather than by index. Rows arrive above the
-    /// cursor on a live list, so an index silently drifts onto a different workflow.
     pub cursor_key: Option<(String, String)>,
-    /// Cursor position on the namespace screen, restored by `-`.
     pub namespace_cursor: usize,
-    /// Cursor position on the workflow list, restored by `-` from a history.
     pub workflow_cursor: usize,
-    /// Bumped whenever the query or scope changes. Replies carrying an older generation
-    /// belong to a query the user has already moved on from.
-    ///
-    /// Per-pane, and that matters: two panes fetching at once must not invalidate each
-    /// other's replies.
     pub generation: u64,
-    /// Every history event loaded so far, for re-grouping when a page arrives.
     pub history_events: Vec<NormalizedEvent>,
-    /// Continuation token for the history being read. Empty means fully loaded.
     pub history_token: Vec<u8>,
-    /// The last *non-empty* token seen. Follow resumes from here: an empty token restarts
-    /// from event 1, and paging leaves the token empty once it has caught up.
     pub history_resume: Vec<u8>,
-    /// The follow task, so toggling off (or leaving the screen) actually stops the poll.
     pub follow_task: Option<tokio::task::JoinHandle<()>>,
-    /// Open activities as the server last described them. A retry in progress shows up
-    /// here and nowhere in the history.
     pub pending: Vec<PendingActivity>,
-    /// Re-describes the run while it is followed. The history long poll cannot notice a
-    /// retry, since a retry writes no event.
     pub pending_task: Option<tokio::task::JoinHandle<()>>,
-    /// A page request is in flight; scrolling must not queue a second one.
     pub loading_more: bool,
-    /// A search just landed: the payload pane scrolls to the first match on its next draw,
-    /// which is the first moment its lines exist to look in.
     pub detail_seek: bool,
-    /// Payloads flattened for `/`. A `RefCell` because labels are built from `&self`, and
-    /// per pane because what it holds is this pane's history.
     flat: RefCell<FlatCache>,
 }
 
 impl View {
-    /// A fresh pane, scoped to one namespace.
     pub fn new(namespace: &str) -> Self {
         Self {
             screen: Screen::Namespaces,
@@ -257,16 +180,7 @@ impl View {
         }
     }
 
-    /// A new pane looking at the same place as this one.
-    ///
-    /// The navigation is copied (screen, scope, query, which workflow) but none of the
-    /// loaded data, tasks or tokens: the new pane fetches its own. Splitting is almost
-    /// always "show me this again so I can take one of them somewhere else", and a split
-    /// that dropped you back at the namespace list would make the diff case two navigations
-    /// instead of one keystroke.
     pub fn fork(&self) -> Self {
-        // Field-by-field rather than `..View::new(..)`: View has a Drop (it aborts a follow
-        // poll), and struct update syntax would have to move out of the base value.
         let mut out = View::new(self.scope.first().map(String::as_str).unwrap_or_default());
         out.screen = self.screen;
         out.scope = self.scope.clone();
@@ -280,10 +194,6 @@ impl View {
         out
     }
 
-    /// Stop this pane's follow poll, if it has one.
-    ///
-    /// A poll left running holds a request open and keeps feeding a pane that may have been
-    /// closed, so closing a window has to come through here.
     pub fn stop_following(&mut self) {
         self.following = false;
         for task in [self.follow_task.take(), self.pending_task.take()]
@@ -304,8 +214,6 @@ impl View {
 
 impl Drop for View {
     fn drop(&mut self) {
-        // Closing a window must not leave its long poll running against a pane that no
-        // longer exists.
         self.stop_following();
     }
 }
@@ -330,24 +238,12 @@ impl View {
         self.schedules.value().map(Vec::as_slice).unwrap_or(&[])
     }
 
-    /// Every dashboard item, in cursor order.
     pub fn dashboard_items(&self) -> impl Iterator<Item = &Item> {
         self.dashboard
             .iter()
             .flat_map(|b| (0..b.panel_count()).flat_map(move |p| b.items(p)))
     }
 
-    /// The text `/` matches against, one string per row, in row order.
-    ///
-    /// Built on demand rather than cached: a search is something a person types, a handful
-    /// of times a minute, while the rows underneath it change on every page and every
-    /// refresh. A cache would have to be invalidated from six places and would be wrong in
-    /// the one case that matters, a list still growing under a follow.
-    ///
-    /// Each label is generous, wider than the columns that fit on screen: a run id is not
-    /// rendered but is exactly the kind of thing pasted in from a log line, and a search
-    /// that cannot find it would send you back to the query bar for something the pane has
-    /// already loaded.
     pub fn search_labels(&self) -> Vec<String> {
         let mut labels = self.row_labels();
         if self.screen == Screen::History {
@@ -358,8 +254,6 @@ impl View {
         labels
     }
 
-    /// What a row is called, without its payloads: the picker shows these, and a label
-    /// carrying a flattened input would push the name off the line.
     pub fn row_labels(&self) -> Vec<String> {
         match self.screen {
             Screen::Profiles => self
@@ -413,12 +307,6 @@ impl View {
         }
     }
 
-    /// Labels for the history outline.
-    ///
-    /// A group and an event read differently, and both are searchable, because both are
-    /// rows you can put the cursor on. A group carries the name you would search for, the
-    /// activity type; an event carries the protocol name and its fields, which is how you
-    /// find `ActivityTaskTimedOut` or the row whose `activityId` is the one from the alert.
     fn history_labels(&self) -> Vec<String> {
         let Some(outline) = self.history.value() else {
             return Vec::new();
@@ -428,11 +316,6 @@ impl View {
             .collect()
     }
 
-    /// Add each history row's readable payloads, flattened, to its label.
-    ///
-    /// A group carries the payloads `K` shows for it, its input and result, so a search
-    /// lands on a folded group rather than finding nothing until `zR`. Opened up, the group
-    /// and the event under it both match, which is where the value actually is.
     fn append_payloads(&self, labels: &mut [String]) {
         let Some(outline) = self.history.value() else {
             return;
@@ -451,10 +334,6 @@ impl View {
         cache.sweep();
     }
 
-    /// The payload path a search matched on this row, when only a payload explains the hit.
-    ///
-    /// `None` when the row's own text matches: the highlight already shows why, and naming
-    /// a path as well would suggest the payload was the reason.
     pub fn payload_match(&self, row: usize, search: &Search) -> Option<String> {
         if self.screen != Screen::History {
             return None;
@@ -484,7 +363,6 @@ impl View {
         self.flat.borrow().len()
     }
 
-    /// Payloads in the loaded history still waiting on the codec, which `/` cannot see.
     pub fn undecoded_payloads(&self) -> usize {
         self.history_events
             .iter()
@@ -493,7 +371,6 @@ impl View {
             .count()
     }
 
-    /// How many rows this pane's screen has.
     pub fn row_count(&self) -> usize {
         match self.screen {
             Screen::Profiles => self.profile_rows().len(),
@@ -505,13 +382,10 @@ impl View {
         }
     }
 
-    /// Whether this pane is fanned out over more than one namespace, which is when rows
-    /// need to say which namespace they came from.
     pub fn is_fanned_out(&self) -> bool {
         self.scope.len() > 1
     }
 
-    /// The inclusive row range selected, if a visual mode is active in this pane.
     pub fn selection(&self) -> Option<(usize, usize)> {
         let a = self.anchor?;
         Some((a.min(self.cursor), a.max(self.cursor)))
@@ -522,7 +396,6 @@ impl View {
     }
 }
 
-/// A history row's own text, without its payloads.
 fn history_label(outline: &Outline, row: usize) -> String {
     match outline.row_at(row) {
         Some(Row::Group { group, .. }) => match outline.group(group) {
@@ -554,11 +427,6 @@ fn history_label(outline: &Outline, row: usize) -> String {
     }
 }
 
-/// The events whose payloads a row carries: an event its own, a group what `K` shows for
-/// it, the events that opened and closed it.
-///
-/// Events arrive in id order, so a group's ends are found by binary search: a linear scan
-/// per group makes every search quadratic in the length of the run.
 fn payload_events(outline: &Outline, row: usize) -> Vec<&NormalizedEvent> {
     match outline.row_at(row) {
         Some(Row::Group { group, .. }) => {

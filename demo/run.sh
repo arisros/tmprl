@@ -1,14 +1,6 @@
 #!/usr/bin/env bash
 # The sample cluster for tmprl: a local Temporal dev server, the sample's workers and codec
 # server, and shipments to look at.
-#
-#   demo/run.sh up            start the server, the codec server and the workers
-#   demo/run.sh seed [n]      start n shipments (default 300), the same ones every time
-#   demo/run.sh tmprl [...]   run tmprl against it, with the sample's own config
-#   demo/run.sh down          stop everything and forget the data
-#
-# Needs the `temporal` CLI and Go. Nothing leaves the machine and every name, address and
-# phone number in the data is invented.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -44,7 +36,6 @@ case "${1:-}" in
   tmprl)
     shift
     # A shell that exports TEMPORAL_ADDRESS would override the profile.
-    # The config names the resolver by where this checkout is.
     mkdir -p "$RUN/config"
     for f in "$HERE"/config/config.toml "$HERE"/config/dashboard.toml; do
       sed "s|@DEMO@|$HERE|g" "$f" >"$RUN/config/$(basename "$f")"

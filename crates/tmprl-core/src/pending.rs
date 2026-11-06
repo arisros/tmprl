@@ -1,25 +1,16 @@
 //! Activities the server is still working on, from `DescribeWorkflowExecution`.
-//!
-//! The history cannot show a retry in progress. `ActivityTaskStarted`, the event that
-//! carries the attempt number and the last failure, is only written once the activity
-//! closes, so while it is retrying the history holds nothing but `ActivityTaskScheduled`.
-//! The live attempt, the failure that caused it and the time of the next try exist only
-//! in the mutable state that describe returns.
 
 use crate::history::{Category, Failure, Group, NormalizedEvent};
 use crate::workflow::humanize_age_ms;
 
-/// What the server says an open activity is doing right now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PendingState {
     #[default]
     Unspecified,
-    /// Waiting for a worker: the first attempt, or backing off before the next one.
     Scheduled,
     Started,
     CancelRequested,
     Paused,
-    /// Still running on the worker, paused on the server.
     PauseRequested,
 }
 
@@ -38,17 +29,12 @@ impl PendingState {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PendingActivity {
-    /// The join key back to the history. Describe does not report the scheduling event
-    /// id, but the server keeps activity ids unique among a run's open activities.
     pub activity_id: String,
     pub activity_type: String,
     pub state: PendingState,
-    /// The attempt running or about to run, from 1.
     pub attempt: i32,
-    /// 0 means unlimited, as in the retry policy.
     pub maximum_attempts: i32,
     pub last_failure: Option<Failure>,
-    /// Epoch milliseconds, like every other time in tmprl.
     pub next_attempt_at: Option<i64>,
     pub last_started_at: Option<i64>,
     pub last_heartbeat_at: Option<i64>,
@@ -56,13 +42,10 @@ pub struct PendingActivity {
 }
 
 impl PendingActivity {
-    /// Failed at least once and not given up on: the case `]f` stops on, since no event
-    /// says so until the retries run out.
     pub fn is_retrying(&self) -> bool {
         self.attempt > 1 || self.last_failure.is_some()
     }
 
-    /// `3/5`, or `3/∞` when the policy never gives up.
     pub fn attempts_label(&self) -> String {
         if self.maximum_attempts > 0 {
             format!("{}/{}", self.attempt, self.maximum_attempts)
@@ -71,7 +54,6 @@ impl PendingActivity {
         }
     }
 
-    /// A few words for a list row, or nothing when the attempt count already says it.
     pub fn status(&self, now_ms: i64) -> Option<String> {
         match self.state {
             PendingState::Paused | PendingState::PauseRequested | PendingState::CancelRequested => {
@@ -81,7 +63,6 @@ impl PendingActivity {
                 Some(at) if at > now_ms => {
                     Some(format!("retry in {}", humanize_age_ms(at - now_ms)))
                 }
-                // Backoff over, and no worker has taken the task yet.
                 _ if self.attempt > 1 => Some("retry due".to_string()),
                 _ => None,
             },
@@ -90,10 +71,6 @@ impl PendingActivity {
     }
 }
 
-/// The pending activity behind a history group, if the group is an open activity the
-/// server still reports.
-///
-/// `events` must be in id order, as the history keeps them.
 pub fn for_group<'a>(
     pending: &'a [PendingActivity],
     group: &Group,
@@ -152,8 +129,6 @@ mod tests {
 
     #[test]
     fn a_closed_group_ignores_a_stale_pending_entry() {
-        // Describe and history are separate calls: the activity can finish between them,
-        // and the row must then show how it ended, not the retry it was in.
         let mut done = NormalizedEvent::new(
             6,
             "ActivityTaskCompleted",

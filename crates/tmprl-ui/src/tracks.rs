@@ -6,21 +6,9 @@ use crate::{Axis, Rect};
 pub enum Track {
     Weight(u16),
     Cells(u16),
-    /// A weighted track with no use for more than `cells`: what it does not take goes to
-    /// the tracks that can use it.
-    Fit {
-        weight: u16,
-        cells: u16,
-    },
+    Fit { weight: u16, cells: u16 },
 }
 
-/// Cut `area` along `axis`. Fixed tracks get their cells, weighted ones share the rest, and
-/// none is smaller than `min`.
-///
-/// When they cannot all fit, tracks are dropped from the end, so the result may be shorter
-/// than `tracks`. A track that would be too small to read is worse than one that is absent
-/// and counted. The first track is never dropped: an area too small even for it is returned
-/// whole.
 pub fn tracks(area: Rect, axis: Axis, tracks: &[Track], min: u16) -> Vec<Rect> {
     if area.is_empty() || tracks.is_empty() {
         return Vec::new();
@@ -81,15 +69,12 @@ pub fn tracks(area: Rect, axis: Axis, tracks: &[Track], min: u16) -> Vec<Rect> {
             }
             break;
         }
-        // A track with all it can use steps out, and the rest is shared again.
         for (i, cap) in full {
             spans[i] = cap;
             open.retain(|o| *o != i);
         }
     }
     if open.is_empty() {
-        // Every track has all it can use. Whatever is over is shared by weight on top of
-        // that, rather than left unpainted.
         let over = extent - spans.iter().sum::<u32>();
         let weights: u32 = weighted.iter().map(|i| weight(&tracks[*i])).sum();
         for &i in &weighted {

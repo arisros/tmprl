@@ -1,14 +1,4 @@
 //! The window tree: splits, tabs and focus, expressed as rectangles.
-//!
-//! There are no ratatui types here and no dependencies at all. A layout is a tree plus some
-//! arithmetic, and keeping the terminal out of it is what lets the rules, where focus goes
-//! when you press `<C-w>l`, what happens to a split's siblings when you close it, be tested
-//! as plain functions.
-//!
-//! The model is vim's, because the people who want a Temporal client in their terminal
-//! mostly have vim's window commands in their fingers already. It also means the diff
-//! feature is not a feature: two workflow histories in a side-by-side split *is* the
-//! comparison, and it works for any two views rather than a pair somebody anticipated.
 
 mod tabs;
 mod tracks;
@@ -18,16 +8,9 @@ pub use tabs::Tabs;
 pub use tracks::{Track, tracks};
 pub use tree::{Pane, Tree};
 
-/// Which way a split divides its children.
-///
-/// Named for what you *see* rather than for the cut, because "horizontal split" is ambiguous
-/// in exactly the way that produces transposed layouts: vim's `:split` is called horizontal
-/// and stacks windows vertically.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Axis {
-    /// Side by side, divided along x. vim's `:vsplit`.
     Columns,
-    /// One above another, divided along y. vim's `:split`.
     Rows,
 }
 
@@ -40,7 +23,6 @@ impl Axis {
     }
 }
 
-/// Where to move focus, or which edge to drag.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Direction {
     Left,
@@ -50,7 +32,6 @@ pub enum Direction {
 }
 
 impl Direction {
-    /// The axis a split must divide on for this direction to mean anything within it.
     pub fn axis(self) -> Axis {
         match self {
             Direction::Left | Direction::Right => Axis::Columns,
@@ -58,18 +39,14 @@ impl Direction {
         }
     }
 
-    /// Whether this direction increases the coordinate.
     pub fn is_forward(self) -> bool {
         matches!(self, Direction::Right | Direction::Down)
     }
 }
 
-/// What a pane is showing. Opaque here: this crate arranges rectangles and does not care
-/// what is drawn in them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ViewId(pub u64);
 
-/// A rectangle in terminal cells.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Rect {
     pub x: u16,
@@ -100,7 +77,6 @@ impl Rect {
         self.width == 0 || self.height == 0
     }
 
-    /// Length along an axis.
     pub fn extent(self, axis: Axis) -> u16 {
         match axis {
             Axis::Columns => self.width,
@@ -108,10 +84,6 @@ impl Rect {
         }
     }
 
-    /// Whether the two overlap on the axis *perpendicular* to `axis`.
-    ///
-    /// This is what makes `<C-w>l` land somewhere sensible: of the windows to the right,
-    /// the ones worth considering are those that share some rows with this one.
     pub fn overlaps_across(self, other: Rect, axis: Axis) -> bool {
         match axis {
             Axis::Columns => self.y < other.bottom() && other.y < self.bottom(),
@@ -149,18 +121,15 @@ mod tests {
 
     #[test]
     fn overlap_is_measured_across_the_axis_not_along_it() {
-        // Two panes side by side, sharing every row: they overlap across Columns.
         let left = Rect::new(0, 0, 10, 20);
         let right = Rect::new(10, 0, 10, 20);
         assert!(left.overlaps_across(right, Axis::Columns));
 
-        // The same pair share no columns, so moving up or down between them is meaningless.
         assert!(!left.overlaps_across(right, Axis::Rows));
     }
 
     #[test]
     fn touching_edges_do_not_count_as_overlapping() {
-        // A pane ending at y=10 and one starting at y=10 share no row.
         let top = Rect::new(0, 0, 10, 10);
         let bottom = Rect::new(0, 10, 10, 10);
         assert!(!top.overlaps_across(bottom, Axis::Columns));

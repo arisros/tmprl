@@ -17,7 +17,6 @@ name = "tmprl"
 path = "src/main.rs"
 
 [dependencies]
-# Unique names for the scratch directory `<leader>e` writes payloads into.
 uuid.workspace = true
 tmprl-core.workspace = true
 tmprl-client.workspace = true

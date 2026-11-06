@@ -105,9 +105,6 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
             spans.extend([
                 Span::styled(format!("{:<SPEC$}", truncate(&s.spec, SPEC - 1)), t.ok),
                 Span::styled(
-                    // A paused schedule still has future times: the server computes them
-                    // from the spec, not from whether it will act on them. Blanking them is
-                    // what keeps a paused row from reading as one that is about to fire.
                     match (s.paused, app.times.is_absolute()) {
                         (true, _) => format!("{:>next_width$}", ""),
                         (false, true) => app.clock.stamp(s.next_run),
@@ -121,8 +118,6 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
             ]);
             Line::from(spans)
         })
-        // Repaint the search pattern last, over the finished row, so it survives
-        // whatever colouring and truncation the columns above applied.
         .map(|l| highlight(l, &app.search, match_style()))
         .collect();
 

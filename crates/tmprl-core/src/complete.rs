@@ -1,21 +1,8 @@
 //! Completing the clause being typed in the query bar.
-//!
-//! What gets completed is a whole *clause*, not a word. `ExecutionStatus = 'Running'` has
-//! two spaces in it, so completing the word under the cursor would leave the field name
-//! behind and produce `ExecutionStatus = ExecutionStatus = 'Running'`. The unit that can be
-//! replaced by an offer from the catalogue is everything since the last `AND` or `OR`.
-//!
-//! The query bar appends rather than editing in the middle, so the thing being typed is
-//! always at the end and there is no cursor to track.
 
 use crate::filter::Clause;
 use crate::fuzzy;
 
-/// Where the clause being typed begins, as a byte offset into `query`.
-///
-/// After the last `AND` or `OR` outside quotes, else the start of the string. Quoting is
-/// respected because a workflow id may well contain the word: `WorkflowId = 'send and
-/// forget'` is one clause, not two.
 pub fn clause_start(query: &str) -> usize {
     let bytes = query.as_bytes();
     let mut in_quote = false;
@@ -42,10 +29,6 @@ pub fn clause_start(query: &str) -> usize {
     start
 }
 
-/// Whether `kw` sits at `i`, case-insensitively, with a boundary either side.
-///
-/// The boundary check is what keeps `ORDER BY` from reading as an `OR`, which would leave
-/// every completion splicing itself into the middle of the ordering clause.
 fn at_keyword(query: &str, i: usize, kw: &str) -> bool {
     let bytes = query.as_bytes();
     let end = i + kw.len();
@@ -64,50 +47,30 @@ fn is_word_byte(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_'
 }
 
-/// The clause being typed: what an offer would replace.
-///
-/// Trimmed of the leading space that follows an `AND`, so typing `… AND exe` looks for
-/// `exe` rather than for ` exe`.
 pub fn fragment(query: &str) -> &str {
     query[clause_start(query)..].trim_start()
 }
 
-/// The query with the clause being typed replaced by `clause`.
-///
-/// Everything before the split is kept exactly as typed, including the `AND` and whatever
-/// spacing surrounds it: this is a completion, not a reformatting.
 pub fn apply(query: &str, clause: &str) -> String {
     let start = clause_start(query);
     let head = &query[..start];
     if head.is_empty() {
         return clause.to_string();
     }
-    // One space after the keyword, however many were typed.
     format!("{} {clause}", head.trim_end())
 }
 
-/// The offers under the query bar, ranked against what is being typed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Completion {
     items: Vec<Clause>,
     cursor: usize,
 }
 
-/// As many as fit under the bar without burying the list behind it. A completion nobody can
-/// see is worse than none: it moves the rows and answers nothing.
 pub const MAX_OFFERS: usize = 6;
 
 impl Completion {
-    /// Offers for `query`, or `None` when there is nothing worth showing.
-    ///
-    /// Nothing is offered for an empty fragment. A popup that appears the moment Insert mode
-    /// opens, listing every clause in the catalogue, is in the way of the far more common
-    /// case: typing a query you already know.
     pub fn new(query: &str, clauses: Vec<Clause>) -> Option<Self> {
         let tail = &query[clause_start(query)..];
-        // A trailing space says the clause is finished. Offering against a clause someone
-        // has already typed out puts the identical text at the top of a list that is now
-        // only in the way.
         if tail.ends_with(char::is_whitespace) {
             return None;
         }
@@ -145,8 +108,6 @@ impl Completion {
         self.items.get(self.cursor)
     }
 
-    /// Wrapping, because six offers are one screenful: running off the end and stopping
-    /// there is a dead key, and wrapping is what every completion list does.
     pub fn move_cursor(&mut self, delta: isize) {
         let len = self.items.len() as isize;
         if len == 0 {
@@ -182,8 +143,6 @@ mod tests {
 
     #[test]
     fn a_partly_typed_clause_is_replaced_whole_not_word_by_word() {
-        // The bug this module exists to avoid: completing the last word would leave the
-        // field name behind and produce `ExecutionStatus = ExecutionStatus = 'Running'`.
         let q = "ExecutionStatus = 'Run";
         assert_eq!(fragment(q), "ExecutionStatus = 'Run");
         assert_eq!(
@@ -242,7 +201,6 @@ mod tests {
 
     #[test]
     fn an_unbalanced_quote_does_not_run_off_the_end() {
-        // Half-typed literals are the normal state of a query bar.
         let q = "WorkflowId = 'half";
         assert_eq!(clause_start(q), 0);
         assert_eq!(fragment(q), q);
@@ -268,8 +226,6 @@ mod tests {
 
     #[test]
     fn a_finished_clause_is_left_alone() {
-        // The space says "done with that one". Without this the top offer is the text the
-        // reader just finished typing.
         assert!(Completion::new("ExecutionStatus = 'Running' ", catalogue()).is_none());
         assert!(Completion::new("ExecutionStatus = 'Runn", catalogue()).is_some());
     }
@@ -303,7 +259,6 @@ mod tests {
 
     #[test]
     fn the_list_is_capped_so_it_cannot_bury_the_rows() {
-        // `e` matches most of the catalogue.
         let c = Completion::new("e", catalogue()).expect("offers");
         assert!(c.items().len() <= MAX_OFFERS, "{}", c.items().len());
     }

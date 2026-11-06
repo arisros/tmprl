@@ -1,8 +1,4 @@
 //! The confirmation that stands in front of every destructive action.
-//!
-//! It shows **the equivalent `temporal` CLI command**, which is the whole design: you read
-//! exactly what is about to happen rather than trusting a verb, and if you would rather not
-//! trust a TUI with it you can copy the line and run it yourself.
 
 use ratatui::Frame;
 use ratatui::style::{Modifier, Style};
@@ -12,13 +8,10 @@ use tmprl_core::mutation::Confirm;
 
 use crate::theme::Theme;
 
-/// How many targets a batch confirmation lists before summarising the rest.
 const LISTED: usize = 8;
 
 pub fn render(frame: &mut Frame, confirm: &Confirm, t: &Theme) {
     let m = confirm.first();
-    // Destructive actions are outlined in the error colour. The border is doing real work
-    // here: it is the difference between "this changes something" and "this ends it".
     let accent = if m.destroys_history() {
         t.err
     } else if m.is_destructive() {
@@ -27,8 +20,6 @@ pub fn render(frame: &mut Frame, confirm: &Confirm, t: &Theme) {
         t.accent
     };
 
-    // A batch names the count, not one id: the number is what is at stake, and picking one
-    // row's id to stand for twelve would understate it.
     let heading = if confirm.is_batch() {
         format!("  {} {} {}", m.verb(), confirm.len(), m.subject_plural())
     } else {
@@ -41,8 +32,6 @@ pub fn render(frame: &mut Frame, confirm: &Confirm, t: &Theme) {
 
     if confirm.is_batch() {
         lines.push(Line::raw(""));
-        // Every target listed, up to a limit: a confirmation you cannot see the end of is
-        // one you cannot check, and checking it is the point.
         for target in confirm.mutations.iter().take(LISTED) {
             lines.push(Line::from(Span::styled(
                 format!("    {}", target.workflow_id()),
@@ -66,8 +55,6 @@ pub fn render(frame: &mut Frame, confirm: &Confirm, t: &Theme) {
         },
         t.faint,
     )));
-    // Wrapped rather than truncated: a command you can only see half of is not one you can
-    // check, and checking it is the point.
     for chunk in super::wrap(&m.cli(), 66) {
         lines.push(Line::from(Span::styled(format!("    {chunk}"), t.ok)));
     }

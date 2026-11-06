@@ -2,7 +2,6 @@
 
 use super::*;
 
-/// The pane stacked under the list, for tests about scrolling it rather than placing it.
 const BOTTOM: &str = "[layout]\npayload = \"bottom\"";
 
 #[test]
@@ -21,10 +20,8 @@ fn the_payload_pane_is_closed_until_asked_for() {
 
 #[test]
 fn the_payload_pane_shows_input_and_result_for_a_group() {
-    // A group's arguments live on the event that opened it and its result on the event
-    // that closed it, so the pane has to gather from both.
     let mut app = app_with_payloads();
-    app.run("motion.down", None); // the ChargeCard group
+    app.run("motion.down", None);
     app.run("history.detail", None);
 
     let out = draw(&mut app, 110, 20);
@@ -41,7 +38,7 @@ fn the_payload_pane_shows_input_and_result_for_a_group() {
 #[test]
 fn an_encrypted_payload_says_it_needs_a_codec_rather_than_showing_bytes() {
     let mut app = app_with_payloads();
-    app.run("motion.bottom", None); // the Secret group
+    app.run("motion.bottom", None);
     app.run("history.detail", None);
 
     let out = draw(&mut app, 110, 20);
@@ -68,7 +65,6 @@ fn the_payload_pane_opens_beside_the_list_by_default() {
     assert!(row <= 2, "the pane should start at the top:\n{out}");
     assert!(col >= 40, "the pane should be on the right:\n{out}");
 
-    // The list keeps its full height, and the cursor still drives the pane.
     app.run("motion.down", None);
     let out = draw(&mut app, 120, 20);
     assert!(
@@ -89,9 +85,8 @@ fn layout_payload_right_stacks_when_the_terminal_is_narrow() {
 
 #[test]
 fn a_row_carrying_nothing_says_so() {
-    // A pane showing only a title reads as broken; plenty of events carry no payload.
     let mut app = app_with_payloads();
-    app.run("motion.top", None); // the workflow group, no payloads in this fixture
+    app.run("motion.top", None);
     app.run("history.detail", None);
     let out = draw(&mut app, 110, 20);
     assert!(out.contains("no payloads on this group"), "{out}");
@@ -101,7 +96,6 @@ fn a_row_carrying_nothing_says_so() {
 fn a_tall_payload_scrolls_rather_than_clipping_silently() {
     use tmprl_core::payload::Payload;
     let mut app = app_with_payloads();
-    // A deep value: taller than any pane on a normal terminal.
     let big: String = (0..60).map(|i| format!("\"k{i}\":{i},")).collect();
     let json = format!("{{{}\"last\":1}}", big);
     if let Some(o) = app.view.history.value_mut() {
@@ -126,7 +120,6 @@ fn a_tall_payload_scrolls_rather_than_clipping_silently() {
         "an overflowing pane must say so:\n{out}"
     );
 
-    // And it actually scrolls.
     let before = app.view.detail_scroll;
     app.run("history.detail-down", Some(5));
     assert!(app.view.detail_scroll > before);
@@ -136,7 +129,6 @@ fn a_tall_payload_scrolls_rather_than_clipping_silently() {
 fn moving_the_cursor_restarts_the_payload_pane_at_the_top() {
     use tmprl_core::payload::Payload;
     let mut app = app_with_payloads();
-    // Only a payload taller than the pane can be scrolled at all.
     let big: String = (0..60).map(|i| format!("\"k{i}\":{i},")).collect();
     if let Some(o) = app.view.history.value_mut() {
         let mut events = o.events().to_vec();
@@ -149,7 +141,7 @@ fn moving_the_cursor_restarts_the_payload_pane_at_the_top() {
     }
     app.run("motion.down", None);
     app.run("history.detail", None);
-    let _ = draw(&mut app, 110, 20); // the renderer is what learns how far it can scroll
+    let _ = draw(&mut app, 110, 20);
     app.run("history.detail-down", Some(2));
     assert!(app.view.detail_scroll > 0);
 
@@ -162,7 +154,6 @@ fn moving_the_cursor_restarts_the_payload_pane_at_the_top() {
 
 #[test]
 fn an_encrypted_payload_points_at_the_config_when_no_codec_is_set() {
-    // "needs a codec server" is not actionable; naming the file and key is.
     let mut app = app_with_payloads();
     app.apply_config(None, None, Some(BOTTOM));
     app.run("motion.bottom", None);
@@ -175,7 +166,6 @@ fn an_encrypted_payload_points_at_the_config_when_no_codec_is_set() {
     );
 }
 
-/// Async because opening the pane with a codec configured spawns the decode request.
 #[tokio::test]
 async fn a_configured_codec_stops_claiming_one_is_needed() {
     let mut app = app_with_payloads();
@@ -196,8 +186,6 @@ async fn a_configured_codec_stops_claiming_one_is_needed() {
 
 #[test]
 fn a_filter_result_replaces_the_payloads_in_the_pane() {
-    // You asked to see the filtered value; showing it under the raw payloads would bury
-    // the thing you asked for.
     let mut app = app_with_payloads();
     app.run("motion.down", None);
     app.run("history.detail", None);
@@ -244,7 +232,6 @@ fn the_pipe_prompt_is_drawn_with_its_own_sigil() {
 
     let out = draw(&mut app, 110, 20);
     assert!(out.contains("!jq ."), "the ! prompt should show:\n{out}");
-    // `:` completions have no business appearing over a shell command.
     assert!(
         !out.contains("app.quit"),
         "a pipe prompt must not offer command completions:\n{out}"
@@ -263,7 +250,6 @@ fn k_on_a_retrying_activity_shows_where_it_is() {
     assert!(out.contains("PaymentDeclined"), "failure missing:\n{out}");
 }
 
-/// Whether the cell showing `symbol` on the row containing `row_text` is painted as a match.
 fn lit_on_row(app: &mut App, w: u16, h: u16, row_text: &str, symbol: &str) -> bool {
     let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
     term.draw(|f| render(f, app)).unwrap();
@@ -288,7 +274,6 @@ fn a_search_lights_up_its_value_in_the_payload_pane() {
 
 #[test]
 fn a_path_search_lights_up_the_value_the_pane_shows() {
-    // `currency=GBP` is the flattened form, never on screen; the value is.
     let mut app = app_with_payloads();
     app.run("motion.down", None);
     app.run("history.detail", None);
@@ -321,8 +306,6 @@ fn a_search_that_lands_scrolls_the_pane_to_the_match_once() {
     );
 }
 
-/// The second row carrying a payload far taller than any pane, with the pane open on it
-/// and drawn once, since the renderer is what learns how far the pane can scroll.
 fn app_on_a_tall_payload(config: Option<&str>, width: u16) -> App {
     use tmprl_core::payload::Payload;
     let mut app = app_with_payloads();
@@ -410,7 +393,6 @@ fn a_pane_beside_the_list_is_entered_sideways() {
     app.run("window.focus-left", None);
     assert!(!app.view.detail_focus);
 
-    // Too narrow to sit side by side, so the pane is stacked and down is the way in.
     let mut app = app_on_a_tall_payload(beside, 80);
     app.run("window.focus-right", None);
     assert!(!app.view.detail_focus);

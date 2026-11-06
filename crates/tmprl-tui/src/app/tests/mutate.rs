@@ -4,7 +4,6 @@ use super::*;
 
 #[test]
 fn a_mutation_key_only_opens_a_confirmation() {
-    // Nothing reaches the cluster until the reader says yes.
     let mut app = on_a_workflow();
     app.run("workflow.terminate", None);
     give_reason(&mut app);
@@ -17,9 +16,6 @@ fn a_mutation_key_only_opens_a_confirmation() {
 
 #[test]
 fn a_key_that_cannot_list_namespaces_still_lands_somewhere_usable() {
-    // Temporal Cloud: the key is scoped to one namespace, so ListNamespaces is refused
-    // while everything inside that namespace works. Stranding the reader on the opening
-    // screen would make tmprl unusable against Cloud for no good reason.
     let mut app = App::detached("sit", "lora-sit.ixing", unbounded_channel().0);
     app.handle(Msg::Namespaces(Err(
         "code: 'The caller does not have permission to execute the specified operation', \
@@ -42,8 +38,6 @@ fn a_key_that_cannot_list_namespaces_still_lands_somewhere_usable() {
 
 #[test]
 fn a_real_namespace_failure_is_still_an_error() {
-    // Only permission is special-cased; a transport failure must not be dressed up as a
-    // one-row list, which would look like a cluster with one namespace.
     let mut app = App::detached("sit", "lora-sit.ixing", unbounded_channel().0);
     app.handle(Msg::Namespaces(Err("transport error".into())));
 
@@ -53,8 +47,6 @@ fn a_real_namespace_failure_is_still_an_error() {
 
 #[test]
 fn a_readonly_profile_refuses_before_a_confirmation_opens() {
-    // The refusal costs one keystroke: a signal payload typed in full and then rejected
-    // teaches the reader nothing useful.
     let mut app = on_a_workflow();
     app.apply_config(None, None, Some("[profile.prod]\nreadonly = true"));
     assert!(
@@ -77,12 +69,9 @@ fn a_readonly_profile_refuses_before_a_confirmation_opens() {
 
 #[test]
 fn a_readonly_profile_refuses_at_the_wire_too() {
-    // The guard that matters: whatever route a mutation took to get here, this is the
-    // only path to the cluster.
     let mut app = on_a_workflow();
     app.apply_config(None, None, Some("[profile.prod]\nreadonly = true"));
 
-    // Batch and single share this path, so guarding it covers both.
     app.run_mutations(vec![Mutation::Terminate {
         namespace: "default".into(),
         workflow_id: "order-r1".into(),
@@ -110,7 +99,6 @@ fn a_profile_without_a_readonly_flag_still_mutates() {
 
 #[test]
 fn a_confirmation_owns_every_key_while_it_is_up() {
-    // Nothing bound elsewhere may fire while a destructive action is pending.
     let mut app = on_a_workflow();
     let before = app.view.cursor;
     app.run("workflow.terminate", None);
@@ -149,7 +137,6 @@ fn deleting_costs_a_word_and_nearly_is_not_enough() {
     let c = app.confirm.clone().unwrap();
     assert_eq!(c.typed_word.as_deref(), Some("delete"));
 
-    // Enter with the word unfinished is not a refusal, just not yet.
     for ch in "delet".chars() {
         app.handle(Msg::Key(Chord::ch(ch)));
     }
@@ -162,7 +149,7 @@ fn deleting_costs_a_word_and_nearly_is_not_enough() {
 
 #[test]
 fn a_mutation_needs_something_under_the_cursor() {
-    let mut app = app(); // namespace screen, nothing selected
+    let mut app = app();
     app.run("workflow.terminate", None);
     give_reason(&mut app);
     assert!(app.confirm.is_none());
@@ -199,7 +186,6 @@ fn a_mutation_over_a_selection_covers_every_selected_row() {
 
 #[test]
 fn without_a_selection_a_mutation_still_covers_one_row() {
-    // The batch path and the single path are the same code, so they cannot drift.
     let mut app = on_four_workflows();
     app.run("workflow.cancel", None);
     let c = app.confirm.clone().expect("confirmed");
@@ -224,7 +210,6 @@ fn a_selection_upwards_covers_the_same_rows_as_one_downwards() {
 
 #[test]
 fn a_destructive_batch_costs_the_count_rather_than_a_keypress() {
-    // One key is too cheap to end three workflows at once.
     let mut app = on_four_workflows();
     select(&mut app, 3);
     app.run("workflow.terminate", None);
@@ -242,7 +227,6 @@ fn a_destructive_batch_costs_the_count_rather_than_a_keypress() {
 
 #[test]
 fn a_batch_that_destroys_histories_still_costs_the_word() {
-    // Delete outranks the count: it destroys the record itself.
     let mut app = on_four_workflows();
     select(&mut app, 2);
     app.run("workflow.delete", None);
@@ -263,13 +247,10 @@ fn a_single_non_destructive_action_still_costs_nothing() {
 
 #[test]
 fn running_a_batch_spends_the_selection() {
-    // The rows it covered are about to change, so a second batch must not be one
-    // keypress away from a range that no longer means what it did.
     let mut app = on_four_workflows();
     select(&mut app, 2);
     assert!(app.view.selection().is_some());
     app.run("workflow.cancel", None);
-    // A cancel over two rows is destructive, so it owes the count first.
     app.handle(Msg::Key(Chord::ch('2')));
     app.handle(Msg::Key(Chord::plain(tmprl_core::Key::Enter)));
 
@@ -333,8 +314,6 @@ fn a_signal_asks_for_its_name_before_confirming() {
 
 #[test]
 fn a_reset_resolves_to_a_workflow_task_the_cursor_is_not_on() {
-    // The rows the server needs are exactly the ones the outline folds away, so "reset
-    // to here" walks back, and the confirmation shows which id it landed on.
     use tmprl_core::history::{Category as C, GroupRef as G, Outcome as O, Role as R};
     let mut app = on_a_workflow();
     app.run("nav.open", None);
@@ -351,7 +330,7 @@ fn a_reset_resolves_to_a_workflow_task_the_cursor_is_not_on() {
             Vec::new(),
         )),
     });
-    app.run("motion.bottom", None); // the activity group, not a workflow task
+    app.run("motion.bottom", None);
 
     app.run("workflow.reset", None);
 
@@ -367,7 +346,7 @@ fn a_reset_resolves_to_a_workflow_task_the_cursor_is_not_on() {
 
 #[test]
 fn a_reset_needs_a_history_and_says_so() {
-    let mut app = on_a_workflow(); // still on the workflow list
+    let mut app = on_a_workflow();
     app.run("workflow.reset", None);
     give_reason(&mut app);
     assert!(app.confirm.is_none());
@@ -470,8 +449,6 @@ fn a_failed_mutation_shows_the_servers_reason() {
 
 #[test]
 fn a_readonly_profile_refuses_the_schedule_form_before_it_opens() {
-    // The form is the longest input there is. Refusing only once it is filled in and
-    // confirmed is the same refusal, six fields later.
     let mut app = on_schedules();
     app.apply_config(None, None, Some("[profile.prod]\nreadonly = true"));
 
@@ -481,7 +458,6 @@ fn a_readonly_profile_refuses_the_schedule_form_before_it_opens() {
     assert!(text.contains("read-only"), "{text}");
     assert!(matches!(level, Note::Warn));
 
-    // Not swallowed by a form that is not there.
     app.handle(Msg::Key(Chord::ch('j')));
     assert!(app.form.is_none());
 }
@@ -519,7 +495,6 @@ fn creating_a_schedule_collects_every_field_then_confirms() {
 
 #[test]
 fn an_incomplete_schedule_sends_the_caret_to_the_field_that_is_missing() {
-    // Naming the field without going to it leaves the reader hunting for it.
     let mut app = on_schedules();
     app.run("schedule.create", None);
     for ch in "nightly".chars() {
@@ -537,7 +512,6 @@ fn an_incomplete_schedule_sends_the_caret_to_the_field_that_is_missing() {
 
 #[test]
 fn backspace_on_an_empty_field_steps_back_rather_than_closing_the_form() {
-    // A form is several fields deep, so losing all of them to one key would be a trap.
     let mut app = on_schedules();
     app.run("schedule.create", None);
     app.handle(Msg::Key(Chord::plain(tmprl_core::Key::Tab)));
@@ -549,7 +523,6 @@ fn backspace_on_an_empty_field_steps_back_rather_than_closing_the_form() {
 
 #[test]
 fn a_schedule_form_takes_literal_keys_rather_than_running_commands() {
-    // `j` and `q` are bound in Normal mode; inside a field they are text.
     let mut app = on_schedules();
     app.run("schedule.create", None);
     for ch in "jq".chars() {
@@ -586,8 +559,6 @@ fn a_backfill_asks_for_its_window_before_confirming() {
 
 #[test]
 fn an_unreadable_backfill_window_stops_at_the_prompt() {
-    // The server's answer to a bad range is less specific than the parser's, and
-    // confirming first would put a nonsense command in front of the reader.
     let mut app = on_schedules();
     app.run("schedule.backfill", None);
     for ch in "yesterday".chars() {
@@ -603,7 +574,6 @@ fn an_unreadable_backfill_window_stops_at_the_prompt() {
 
 #[test]
 fn pausing_toggles_towards_the_opposite_of_now() {
-    // One key does both, so the target state is whatever the schedule is not.
     let mut app = on_schedules();
     app.run("schedule.pause", None);
     let m = app.confirm.clone().unwrap().first().clone();
@@ -620,8 +590,6 @@ fn pausing_toggles_towards_the_opposite_of_now() {
 
 #[test]
 fn a_paused_schedule_shows_the_new_state_before_the_list_catches_up() {
-    // ListSchedules is eventually consistent, so a refresh straight after the patch can
-    // return the old state and contradict the message beside it.
     let mut app = on_schedules();
     app.handle(Msg::Mutated {
         mutation: Box::new(Mutation::PauseSchedule {
@@ -647,7 +615,7 @@ fn deleting_a_schedule_costs_the_typed_word() {
 
 #[test]
 fn schedule_keys_need_a_schedule_under_the_cursor() {
-    let mut app = app(); // namespace screen
+    let mut app = app();
     app.run("schedule.trigger", None);
     assert!(app.confirm.is_none());
     assert!(matches!(app.note, Some((_, Note::Warn))));

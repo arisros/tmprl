@@ -50,7 +50,6 @@ impl App {
                 self.cycle_completion(chord.key == Key::Tab)
             }
             _ => match prompt.buf.key(chord) {
-                // Backspace on an empty line closes the prompt, as it does in vim.
                 Edit::Emptied => {
                     self.awaiting_reason.clear();
                     self.close_prompt();
@@ -123,8 +122,6 @@ impl App {
         self.mode = Mode::Normal;
     }
 
-    /// Resolve what was typed at `:` and run it. Accepts a unique prefix, the way vim
-    /// accepts `:q` for `:quit`.
     pub(super) fn run_typed_command(&mut self, entered: &str) {
         if matches!(entered, "q" | "q!" | "qa" | "qa!" | "quit") {
             self.run("app.quit", None);
@@ -148,8 +145,6 @@ impl App {
         }
     }
 
-    /// Completions for whatever is typed at `:`. A `!` prompt takes a shell command, which
-    /// tmprl has no business completing.
     pub fn cmdline_matches(&self) -> Vec<&tmprl_core::Command> {
         match &self.prompt {
             Some(p) if p.kind == PromptKind::Command => {
