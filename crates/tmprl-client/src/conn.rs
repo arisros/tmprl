@@ -192,7 +192,7 @@ const DEFAULT_NAMESPACE: &str = "default";
 /// here therefore gets the same treatment as one in the file: a bare `host:port` takes
 /// `https` when the profile has TLS or an API key, and both are kept. Patching the built
 /// options instead would mean choosing the scheme a second time, differently.
-/// The SDK's default is none, so an address behind a dropped VPN hangs the opening screen.
+// The SDK sets no connect timeout by default.
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 fn options_from(

@@ -425,7 +425,6 @@ impl App {
 }
 
 impl App {
-    /// `gc`: the child workflow of the group under the cursor.
     pub(super) fn open_child(&mut self) {
         if self.view.screen != Screen::History {
             self.note = Some(("a child is opened from a history".into(), Note::Warn));
@@ -453,7 +452,6 @@ impl App {
         self.find_related(namespace, workflow_id, run_id);
     }
 
-    /// `gp`: the workflow that started this one.
     pub(super) fn open_parent(&mut self) {
         if self.view.screen != Screen::History {
             self.note = Some(("a parent is opened from a history".into(), Note::Warn));
@@ -475,8 +473,6 @@ impl App {
         self.find_related(namespace, workflow_id, run_id);
     }
 
-    /// Look the workflow up rather than open it from the ids alone, so the header has its
-    /// type and status like any other.
     fn find_related(
         &mut self,
         namespace: Option<String>,
@@ -526,8 +522,7 @@ impl App {
         match result {
             Ok(rows) => match rows.into_iter().max_by_key(|row| row.start_time) {
                 Some(row) => self.open_row(row),
-                // Visibility trails the history by a moment, so a child that has only just
-                // started may not be listed yet.
+                // Visibility lags the history, so a child that just started may not be listed yet.
                 None => {
                     self.note = Some((format!("{id} is not listed yet, try again"), Note::Warn))
                 }

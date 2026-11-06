@@ -61,10 +61,6 @@ impl App {
         }
     }
 
-    /// Text that arrived as one paste rather than as keys.
-    ///
-    /// Into whatever line is open. With none, a paste is almost always an id copied from a
-    /// log or an alert, so it goes to the workflow finder rather than being run as keys.
     pub(super) fn paste(&mut self, text: String) {
         if self.picker.is_some() {
             let line = text.lines().next().unwrap_or_default().trim().to_string();
@@ -91,7 +87,6 @@ impl App {
         }
     }
 
-    /// `<Tab>` at `:`: fill in the next completion, `<S-Tab>` the one before.
     fn cycle_completion(&mut self, forward: bool) {
         let ids: Vec<&'static str> = self.cmdline_matches().iter().map(|c| c.id).collect();
         let Some(prompt) = self.prompt.as_mut() else {

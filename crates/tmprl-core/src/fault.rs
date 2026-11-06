@@ -153,8 +153,6 @@ impl Fault {
     /// The code is the answer where there is one. The two sentences are Temporal Cloud's,
     /// kept because which status it sends them under has not been confirmed, and missing
     /// the refusal strands a namespace-scoped key on the opening screen.
-    /// Whether the same call may well succeed if made again: the network or the server had
-    /// a bad moment, rather than the request being wrong.
     pub fn is_transient(&self) -> bool {
         matches!(
             self.code,
@@ -212,8 +210,6 @@ impl From<&str> for Fault {
     }
 }
 
-/// How long to wait before retry `attempt`, counting from 1: doubling from a second, capped
-/// at thirty.
 pub fn retry_after(attempt: u32) -> std::time::Duration {
     let secs = 1u64 << attempt.saturating_sub(1).min(5);
     std::time::Duration::from_secs(secs.min(30))

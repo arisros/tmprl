@@ -25,8 +25,7 @@ use tmprl_core::payload::Payload;
 
 use super::OpError;
 
-/// reqwest has no timeout by default, so a codec server that stops answering left every
-/// payload saying "decoding…" for good.
+// reqwest sets no timeout by default.
 const CODEC_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// A configured codec server.

@@ -325,8 +325,7 @@ pub struct Config {
     /// `[input] mouse`. Off unless asked for: a terminal that reports the mouse to tmprl no
     /// longer selects text with a plain drag.
     pub mouse: bool,
-    /// `[display] colors`. `None` decides from `NO_COLOR` and `COLORTERM`; a setting wins
-    /// over both, as no-color.org asks of user configuration.
+    /// `[display] colors`. A setting wins over `NO_COLOR`, as no-color.org asks.
     pub colors: Option<crate::theme::ColorDepth>,
 }
 

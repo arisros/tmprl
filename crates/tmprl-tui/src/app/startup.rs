@@ -16,7 +16,6 @@ pub struct Startup {
     pub readonly: bool,
     /// `--dashboard`: open the dashboard instead of the namespace list.
     pub dashboard: bool,
-    /// `--log`: a file to append every message and the client library's warnings to.
     pub log: Option<String>,
 }
 

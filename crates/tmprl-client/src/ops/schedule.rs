@@ -56,12 +56,9 @@ impl Conn {
     }
 }
 
-/// Past this a schedule list is not something to scroll through, and the next page is
-/// another round trip each.
 const SCHEDULE_CAP: usize = 10_000;
 
 impl Conn {
-    /// Every schedule in each namespace, page after page, ordered by namespace then id.
     pub async fn list_all_schedules(
         &self,
         namespaces: &[String],

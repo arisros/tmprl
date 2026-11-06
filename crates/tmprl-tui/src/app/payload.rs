@@ -32,8 +32,6 @@ impl App {
         }
     }
 
-    /// A readable payload as the pane shows it, formatted once and then kept. `None` for
-    /// one that is not text: null, opaque bytes or ciphertext.
     pub fn shown_text(&self, p: &Payload) -> Option<Arc<ShownText>> {
         let key = Self::payload_key(p);
         if let Some(hit) = self.shown.borrow().get(&key) {
@@ -416,8 +414,6 @@ const SHOWN_CACHE: usize = 64;
 pub(crate) const PANE_MAX_LINES: usize = 5_000;
 const PANE_MAX_LINE_CHARS: usize = 4_000;
 
-/// Past these limits a terminal cannot usefully show a payload, and wrapping it is what
-/// costs: one long line can be a megabyte of base64.
 pub(crate) fn cut_for_pane(text: &str) -> ShownText {
     let mut lines = Vec::new();
     let mut total = 0;

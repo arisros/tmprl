@@ -677,7 +677,6 @@ async fn a_query_nothing_answers_fails_within_the_deadline() {
     );
 }
 
-/// Paging one at a time has to find the same schedules as one large page.
 #[tokio::test]
 async fn every_schedule_is_listed_across_pages() {
     let Some(c) = conn().await else { return };

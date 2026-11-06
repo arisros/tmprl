@@ -126,7 +126,6 @@ pub fn release_terminal(mouse: bool) {
     ratatui::restore();
 }
 
-/// Without it a paste arrives as keys, and in Normal mode each one runs as a command.
 pub fn bracketed_paste(on: bool) -> std::io::Result<()> {
     use crossterm::event::{DisableBracketedPaste, EnableBracketedPaste};
     if on {

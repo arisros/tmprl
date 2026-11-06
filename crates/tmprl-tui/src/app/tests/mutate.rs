@@ -724,7 +724,6 @@ fn escape_at_the_reason_terminates_nothing() {
     assert!(app.confirm.is_none());
     assert!(app.prompt.is_none());
 
-    // And a later, unrelated prompt does not pick the abandoned terminate back up.
     app.run("search.open", None);
     type_chars(&mut app, "x");
     app.handle(Msg::Key(Chord::plain(tmprl_core::Key::Enter)));

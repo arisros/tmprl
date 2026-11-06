@@ -109,7 +109,6 @@ impl Mutation {
 }
 
 impl Mutation {
-    /// The reason recorded in the history, for the mutations that carry one.
     pub fn reason_mut(&mut self) -> Option<&mut String> {
         match self {
             Mutation::Terminate { reason, .. } | Mutation::Reset { reason, .. } => Some(reason),

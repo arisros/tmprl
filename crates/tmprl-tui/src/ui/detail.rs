@@ -436,8 +436,7 @@ fn hidden_line<'a>(hidden: usize, t: &Theme) -> Line<'a> {
     ))
 }
 
-/// Only the rows on screen. `Paragraph::scroll` takes a `u16`, which wraps past 65,535
-/// rows, and laying out rows nobody sees is wasted work.
+/// `Paragraph::scroll` takes a `u16`, which wraps past 65,535 rows.
 fn visible_rows(lines: Vec<Line<'_>>, scroll: usize, height: u16) -> Vec<Line<'_>> {
     lines
         .into_iter()

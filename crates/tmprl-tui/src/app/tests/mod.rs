@@ -265,7 +265,6 @@ fn on_schedules() -> App {
     app
 }
 
-/// Accept the reason a terminate or reset asks for, if it asked.
 fn give_reason(app: &mut App) {
     if app
         .prompt

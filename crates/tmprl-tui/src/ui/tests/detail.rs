@@ -878,7 +878,6 @@ fn a_huge_payload_is_cut_and_says_where_the_rest_is() {
 
 #[test]
 fn a_pane_taller_than_65535_rows_scrolls_to_its_end() {
-    // `Paragraph::scroll` takes a u16; past it the pane showed some row near the top.
     use tmprl_core::payload::Payload;
     let mut app = app_with_payloads();
     let text: String = (0..5_000)

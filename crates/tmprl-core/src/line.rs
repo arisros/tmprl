@@ -1,8 +1,4 @@
 //! One line of editable text: the prompts, the `:` line and the query bar.
-//!
-//! The keys are the shell's (readline's), not vim's: every prompt here is a line typed into
-//! once and then sent, which is what the shell bindings are for, and they are the ones a
-//! terminal user already has in their fingers.
 
 use std::collections::VecDeque;
 
@@ -15,12 +11,10 @@ pub struct LineEdit {
     at: usize,
 }
 
-/// What a key did to the line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Edit {
     Changed,
     Moved,
-    /// Backspace with nothing left to delete, which closes a prompt as it does in vim.
     Emptied,
     Unhandled,
 }
@@ -80,7 +74,6 @@ impl LineEdit {
         self.text.is_empty()
     }
 
-    /// Replace the text and put the cursor at its end.
     pub fn set(&mut self, text: impl Into<String>) {
         *self = Self::from(text.into());
     }
@@ -94,8 +87,6 @@ impl LineEdit {
         self.at += c.len_utf8();
     }
 
-    /// Pasted text, on one line. A newline becomes a space: a query or an id pasted from a
-    /// log often carries one at its end, and a prompt has nowhere to put it.
     pub fn paste(&mut self, text: &str) {
         let clean: String = text
             .trim_end_matches(['\n', '\r'])
@@ -193,8 +184,6 @@ impl LineEdit {
             .map_or(self.at, |c| self.at + c.len_utf8())
     }
 
-    /// The start of the word before the cursor, skipping the spaces in between, as `M-b`
-    /// does.
     fn word_left(&self) -> usize {
         let before = self.before();
         let trimmed = before.trim_end_matches(|c: char| !is_word(c));
@@ -218,20 +207,16 @@ fn is_word(c: char) -> bool {
     c.is_alphanumeric() || c == '_' || c == '-'
 }
 
-/// What was entered at one prompt this session, newest last, for `<Up>` and `<Down>`.
 #[derive(Debug, Clone, Default)]
 pub struct LineHistory {
     entries: VecDeque<String>,
-    /// Which entry `<Up>` has reached; `None` while editing a fresh line.
     at: Option<usize>,
-    /// The line being typed before `<Up>` was first pressed, which `<Down>` comes back to.
     draft: String,
 }
 
 const HISTORY_CAP: usize = 200;
 
 impl LineHistory {
-    /// Remember a line that was entered. Entering one again moves it to the newest.
     pub fn push(&mut self, line: &str) {
         let line = line.trim();
         self.at = None;
@@ -245,7 +230,6 @@ impl LineHistory {
         }
     }
 
-    /// `<Up>`: the entry before the one shown, or `None` at the oldest.
     pub fn older(&mut self, current: &str) -> Option<&str> {
         let next = match self.at {
             None if self.entries.is_empty() => return None,
@@ -260,7 +244,6 @@ impl LineHistory {
         self.entries.get(next).map(String::as_str)
     }
 
-    /// `<Down>`: the entry after the one shown, then back to what was being typed.
     pub fn newer(&mut self) -> Option<&str> {
         let i = self.at?;
         if i + 1 < self.entries.len() {

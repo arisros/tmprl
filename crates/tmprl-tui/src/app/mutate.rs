@@ -189,8 +189,6 @@ impl App {
         self.confirm = Some(Confirm::batch(mutations));
     }
 
-    /// The reason goes into the workflow's history, where the next person to read it will
-    /// want more than "terminated from tmprl". Pre-filled, so Enter keeps the old default.
     fn ask_reason(&mut self, mutations: Vec<Mutation>, default: &str) {
         self.awaiting_reason = mutations;
         self.prompt = Some(Prompt {

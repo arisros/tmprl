@@ -4,7 +4,6 @@
 use super::*;
 
 impl App {
-    /// Schedules for every namespace in scope, every page of each.
     pub fn load_schedules(&mut self) {
         self.view.generation = self.view.generation.wrapping_add(1);
         self.view.schedules.begin_refresh();
@@ -196,9 +195,6 @@ impl App {
 
     /// Re-describe on a timer for as long as a follow runs, because the history long poll
     /// has nothing to wake on while an activity retries.
-    ///
-    /// A refusal stops it, so it warns once rather than every few seconds. A network
-    /// failure keeps it polling, and warns only on the first of a run of them.
     pub(super) fn start_pending_poll(&mut self) {
         let (Some(row), Some(conn)) = (self.view.viewing.clone(), self.conn.clone()) else {
             return;

@@ -5,7 +5,6 @@ use std::sync::Mutex;
 
 use tracing_subscriber::EnvFilter;
 
-/// The SDK's and gRPC's warnings, and tmprl's own messages at every level.
 const DEFAULT_FILTER: &str = "warn,tmprl=info";
 
 pub fn start(path: &str) -> std::io::Result<()> {

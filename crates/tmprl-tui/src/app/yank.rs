@@ -35,8 +35,6 @@ impl App {
         }
     }
 
-    /// On a group line, its id where it has one (an activity's, a child's), else the thing
-    /// it is about; on an event line, the event's own name.
     pub(super) fn history_field_under_cursor(&self) -> String {
         let Some(outline) = self.view.history.value() else {
             return String::new();
@@ -202,8 +200,6 @@ impl App {
     /// A single match is yanked unwrapped: `<leader>yr` on an ordinary activity should give
     /// the result itself, ready to paste, not `{"result": …}`. Several are yanked as the
     /// keyed object, because then the labels are what tells `input[0]` from `input[1]`.
-    /// The workflow on screen: the row under the cursor on a list, the one open on a
-    /// history.
     pub(super) fn yank_execution(&mut self, pick: fn(&WorkflowRow) -> &String) {
         match self.execution_field(pick) {
             Some(value) => self.yank(value),

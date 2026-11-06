@@ -221,7 +221,6 @@ pub enum PromptKind {
     Backfill,
     /// The name of a query handler, when the workflow could not list its own.
     Query,
-    /// Why a terminate or reset is being done, recorded in the workflow's history.
     Reason,
 }
 
@@ -247,11 +246,9 @@ impl Prompt {
     }
 }
 
-/// A readable payload as the pane draws it, cut to what a terminal can show.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct ShownText {
     pub lines: Vec<String>,
-    /// Lines past the cut, which `$EDITOR`, `!` and the yanks still get.
     pub hidden: usize,
 }
 
@@ -270,8 +267,6 @@ pub enum DecodeState {
     Failed(String),
 }
 
-/// Which line a history belongs to. The prompts that take a typed command, pattern or
-/// name each keep their own; one shared list would offer a `jq` filter at `/`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum History {
     Prompt(PromptKind),
@@ -292,7 +287,6 @@ pub enum InsertTarget {
 #[derive(Debug)]
 pub enum Msg {
     Key(Chord),
-    /// Text the terminal delivered as one paste.
     Paste(String),
     Mouse(Mouse),
     Tick,
@@ -362,7 +356,6 @@ pub enum Msg {
         search: u64,
         result: Result<Vec<WorkflowRow>, Fault>,
     },
-    /// The runs a child or parent lookup found, for the history it was asked from.
     Related {
         from: (String, String),
         id: String,
@@ -389,7 +382,6 @@ pub enum Msg {
         generation: u64,
         result: Result<Vec<PendingActivity>, Fault>,
     },
-    /// The follow long poll failed in a way worth retrying, and will again after `wait`.
     FollowRetrying {
         generation: u64,
         error: Fault,
@@ -496,8 +488,6 @@ pub struct App {
     decoding: HashSet<u64>,
     /// Why a decode failed, by payload. Cleared by `R`, which is the retry.
     decode_failed: HashMap<u64, String>,
-    /// Pretty-printed payload text, by payload. The pane is drawn on every key press, and
-    /// formatting a multi-megabyte payload each time is what made scrolling it hang.
     shown: std::cell::RefCell<HashMap<u64, Arc<ShownText>>>,
     codec: Option<Arc<Codec>>,
     pub views: Vec<SavedView>,
@@ -532,11 +522,8 @@ pub struct App {
     /// `Some` while a multi-field form is open, for the inputs a single line cannot carry.
     pub form: Option<Form>,
     pub insert_buf: LineEdit,
-    /// What was entered at each prompt and at the query bar this session.
     histories: HashMap<History, LineHistory>,
-    /// A terminate or reset waiting for its reason to be typed.
     awaiting_reason: Vec<Mutation>,
-    /// While `<Tab>` cycles the `:` completions: what was typed, and which one is in.
     cmdline_cycle: Option<(String, usize)>,
     pub insert_target: InsertTarget,
     /// `Some` while a `<leader>f` picker is open. It owns the keyboard while it is, the
@@ -578,7 +565,6 @@ pub struct App {
     /// The palette every frame is drawn with. Built once, by [`App::apply_theme`]: what the
     /// terminal can show does not change while tmprl runs.
     pub theme: Theme,
-    /// `theme.toml`, kept so `[display] colors` can rebuild the theme at another depth.
     theme_overrides: ThemeOverrides,
 
     pub note: Option<(String, Note)>,

@@ -438,7 +438,6 @@ fn a_retry_notice_for_a_follow_already_stopped_is_dropped() {
     assert!(app.note.is_none());
 }
 
-/// `events` long, three to an activity, every input carrying `payload_bytes` of JSON.
 fn long_history(events: usize, payload_bytes: usize) -> Vec<NormalizedEvent> {
     use tmprl_core::history::{Category as C, GroupRef as G, Outcome as O, Role as R};
     let input = format!(r#"{{"blob":"{}"}}"#, "x".repeat(payload_bytes));
@@ -475,8 +474,6 @@ fn load_in_pages(events: Vec<NormalizedEvent>) -> std::time::Duration {
     t.elapsed()
 }
 
-/// `cargo test --release -p tmprl -- --ignored bench_ --nocapture`. Timings, not asserts:
-/// a machine's speed is not a property of the code.
 #[test]
 #[ignore]
 fn bench_a_100k_event_history_loads_in_pages() {

@@ -316,8 +316,6 @@ impl Group {
         ends
     }
 
-    /// The fields that name this group, from any of its events, first value per name:
-    /// what a CLI command or a search wants pasted, rather than the type on the row.
     pub fn ids<'a>(&self, events: &'a [NormalizedEvent]) -> Vec<(&'static str, &'a str)> {
         let mut out: Vec<(&'static str, &'a str)> = Vec::new();
         for id in &self.events {
@@ -337,7 +335,6 @@ impl Group {
         out
     }
 
-    /// A field's value from the first of this group's events that carries it.
     pub fn field<'a>(&self, events: &'a [NormalizedEvent], name: &str) -> Option<&'a str> {
         self.events.iter().find_map(|id| {
             let e = events.iter().find(|e| e.id == *id)?;
@@ -348,7 +345,6 @@ impl Group {
         })
     }
 
-    /// The one id that names this group, for `y`.
     pub fn id<'a>(&self, events: &'a [NormalizedEvent]) -> Option<&'a str> {
         self.ids(events)
             .into_iter()
@@ -377,8 +373,6 @@ const PRIMARY_IDS: [&str; 3] = ["activityId", "workflowId", "updateId"];
 /// nothing at all.
 pub fn group_events(events: &[NormalizedEvent]) -> Vec<Group> {
     let mut groups: Vec<Group> = Vec::new();
-    // A history has a group per activity, so tens of thousands of them: a linear lookup
-    // here made a 100k-event history take most of a minute to load.
     let mut index: std::collections::HashMap<GroupRef, usize> = std::collections::HashMap::new();
 
     for ev in events {

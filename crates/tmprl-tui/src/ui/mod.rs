@@ -386,7 +386,6 @@ fn gutter(i: usize, cursor: usize) -> String {
 }
 
 /// Shorten to `max` characters, on a character boundary, with an ellipsis.
-/// A line being edited, with its cursor, scrolled sideways to keep the cursor in `width`.
 pub(crate) fn edit_spans(
     line: &tmprl_core::line::LineEdit,
     width: usize,

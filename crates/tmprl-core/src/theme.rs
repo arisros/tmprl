@@ -26,7 +26,6 @@ impl ColorDepth {
     ///
     /// `TERM` is deliberately not consulted. It says what the terminal emulates, not what it
     /// can paint, and guessing 24-bit from it is how a palette ends up unreadable.
-    /// `[display] colors`. `auto` is `None`: decide from the environment.
     pub fn parse_setting(s: &str) -> Option<Option<Self>> {
         match s {
             "auto" => Some(None),

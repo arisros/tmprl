@@ -40,7 +40,6 @@ pub fn by_id(text: &str) -> Option<String> {
     Some(format!("WorkflowId = '{text}' OR RunId = '{text}'"))
 }
 
-/// One run when the run id is known, else every run of the workflow id.
 pub fn by_execution(workflow_id: &str, run_id: Option<&str>) -> Option<String> {
     let workflow_id = quotable(workflow_id)?;
     Some(match run_id {

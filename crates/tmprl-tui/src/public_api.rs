@@ -1,8 +1,4 @@
 //! What a release promises not to break: every command id, default binding and flag.
-//!
-//! `docs/public-api.txt` is the promise written down. The test below fails when the code
-//! drifts from it, so a rename is a decision someone made rather than one that slipped in.
-//! `TMPRL_UPDATE_API=1 cargo test -p tmprl public_api` rewrites it.
 
 #[cfg(test)]
 mod tests {

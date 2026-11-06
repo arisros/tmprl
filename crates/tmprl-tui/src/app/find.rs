@@ -220,7 +220,6 @@ impl App {
         self.schedule_picker_search();
     }
 
-    /// Pasted text into the picker's prompt, as if typed but searched once.
     pub(super) fn picker_paste(&mut self, text: &str) {
         let Some(p) = self.picker.as_mut() else {
             return;
