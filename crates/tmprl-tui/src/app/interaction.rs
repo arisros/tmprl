@@ -84,7 +84,7 @@ impl App {
                 self.mode = Mode::Command;
                 self.prompt = Some(Prompt {
                     kind: PromptKind::Query,
-                    buf: String::new(),
+                    buf: LineEdit::default(),
                 });
             }
         }

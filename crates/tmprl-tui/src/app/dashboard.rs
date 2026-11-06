@@ -338,13 +338,10 @@ async fn fetch(conn: &Conn, source: &Source, now_ms: i64) -> Result<SourceData, 
                 rows,
                 more: !tokens.is_empty(),
             }),
-        // One namespace, for the reason `load_schedules` gives.
-        Source::Schedules { namespaces } => {
-            let namespace = namespaces.first().map_or("", String::as_str);
-            conn.list_schedules(namespace, PAGE_SIZE, Vec::new())
-                .await
-                .map(|page| SourceData::Schedules(page.rows))
-        }
+        Source::Schedules { namespaces } => conn
+            .list_all_schedules(namespaces, SCAN_PAGE_SIZE)
+            .await
+            .map(SourceData::Schedules),
         Source::Queue { namespace, name } => {
             let (workflow, activity) = tokio::try_join!(
                 conn.describe_task_queue(namespace, name, TaskQueueKind::Workflow),

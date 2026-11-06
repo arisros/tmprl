@@ -846,3 +846,80 @@ fn a_stack_trace_is_drawn_as_lines() {
         "second line missing:\n{out}"
     );
 }
+
+fn with_input(app: &mut App, p: tmprl_core::payload::Payload) {
+    if let Some(o) = app.view.history.value_mut() {
+        let mut events = o.events().to_vec();
+        events[1].payloads = vec![("input".into(), p)];
+        let groups = tmprl_core::history::group_events(&events);
+        o.replace(events, groups);
+    }
+    app.run("motion.down", None);
+    app.run("history.detail", None);
+}
+
+#[test]
+fn a_huge_payload_is_cut_and_says_where_the_rest_is() {
+    use tmprl_core::payload::Payload;
+    let mut app = app_with_payloads();
+    let text: String = (0..6_000).map(|i| format!("line {i}\n")).collect();
+    with_input(&mut app, Payload::new("text/plain", text.into_bytes()));
+
+    app.view.detail_scroll = usize::MAX;
+    let out = draw(&mut app, 110, 20);
+    assert!(out.contains("line 4999"), "the last line kept:\n{out}");
+    assert!(!out.contains("line 5000"), "past the cut:\n{out}");
+    assert!(
+        out.contains("1000 more lines"),
+        "the cut must say so:\n{out}"
+    );
+    assert!(out.contains("$EDITOR"), "and where the rest is:\n{out}");
+}
+
+#[test]
+fn a_pane_taller_than_65535_rows_scrolls_to_its_end() {
+    // `Paragraph::scroll` takes a u16; past it the pane showed some row near the top.
+    use tmprl_core::payload::Payload;
+    let mut app = app_with_payloads();
+    let text: String = (0..5_000)
+        .map(|i| format!("{} END{i}\n", "x".repeat(1_000)))
+        .collect();
+    with_input(&mut app, Payload::new("text/plain", text.into_bytes()));
+
+    app.view.detail_scroll = usize::MAX;
+    let out = draw(&mut app, 110, 20);
+    assert!(
+        app.view.detail_max_scroll > 65_535,
+        "the setup is not tall enough"
+    );
+    assert!(out.contains("END4999"), "not at the end:\n{out}");
+}
+
+#[test]
+fn one_enormous_line_is_cut_rather_than_wrapped_for_ever() {
+    let shown = crate::app::cut_for_pane(&"y".repeat(10_000));
+    assert_eq!(shown.lines.len(), 1);
+    assert!(
+        shown.lines[0].ends_with("… 6000 more characters"),
+        "{}",
+        shown.lines[0]
+    );
+}
+
+#[test]
+fn an_activity_shows_its_activity_id_and_task_queue_on_the_group() {
+    let mut app = app_with_payloads();
+    if let Some(o) = app.view.history.value_mut() {
+        let mut events = o.events().to_vec();
+        events[1].fields.push(("activityId", "charge-1".into()));
+        events[1].fields.push(("taskQueue", "payments".into()));
+        let groups = tmprl_core::history::group_events(&events);
+        o.replace(events, groups);
+    }
+    app.run("motion.down", None);
+    app.run("history.detail", None);
+
+    let out = draw(&mut app, 110, 20);
+    assert!(out.contains("activityId = charge-1"), "{out}");
+    assert!(out.contains("taskQueue = payments"), "{out}");
+}

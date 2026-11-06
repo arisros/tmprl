@@ -11,6 +11,45 @@
   already open decodes what is under the cursor, a refresh or a followed page no longer
   turns a decoded payload back into ciphertext, and a pane in a split gets its decoded
   values even when the reply lands after the focus moved.
+- **A multi-megabyte payload scrolls without hanging.** The pane formats a payload once
+  rather than on every key press, and shows its first 5,000 lines with lines cut at 4,000
+  characters; a note at the end says how much more there is, and `<Space>e`, `!` and the
+  yanks still get all of it. Scrolling past 65,535 rows no longer jumps back to the top.
+- **Follow survives a dropped connection.** `F` retries a long poll that failed for a
+  network or server reason, waiting 1s, then 2s and up to 30s, and says so, instead of
+  stopping for good. The retrying-activity check keeps polling through the same failures
+  and warns once, not every few seconds.
+- **Every schedule is listed**, from every namespace in scope, rather than the first 50 of
+  the first one, on the schedules screen and in the dashboard's schedules panel. With
+  more than one namespace the schedules screen shows which one each belongs to.
+- **An unreachable cluster or codec server fails instead of hanging.** Connecting gives up
+  after 10 seconds when nothing answers, and a codec server that stops responding is
+  reported after 30 seconds instead of leaving the payload "decoding…" for good.
+- **Ids where you need them.** An activity's group shows its activity id and task queue
+  in the payload pane, a child's its workflow and run id, and `y` on such a group copies
+  the id rather than the type. `<Space>yw` and `<Space>yR` copy the workflow id and run
+  id, of the row on a list or of the history open.
+- **Go to a child or the parent**: `gc` on a child workflow's row opens its history, `gp`
+  opens the workflow that started this one, and `<C-o>` comes back. No second tmprl and
+  no copying ids between them.
+- **Every prompt edits like a shell line.** The `/` `:` `!` prompts and the query bar
+  have a cursor that moves (`<Left>`, `<M-b>`, `<C-a>`, …), delete by word and to either
+  end (`<C-w>`, `<C-u>`, `<C-k>`), and recall what was entered before with `<Up>`. `<Tab>`
+  fills in the commands `:` offers, and `:q` quits.
+- **A paste is text, not keys.** Pasted into a prompt it lands at the cursor on one line;
+  pasted with nothing open it goes to the workflow finder, instead of each character
+  running as a command.
+- **Terminate and reset ask why.** The reason prompt opens pre-filled with the old
+  default, so Enter changes nothing, and what you type is recorded in the workflow's
+  history on every row of a batch.
+- **`--log <FILE>`** appends every message tmprl shows, with the gRPC status behind an
+  error, and the client library's warnings, to a file you can attach to a bug report.
+  `RUST_LOG` widens it.
+- **`[display] colors`** in `config.toml` forces `"truecolor"`, `"16"` or `"none"` where
+  the environment does not say, such as over `ssh` without `COLORTERM`.
+- **Long histories load in seconds, not a minute.** Grouping looked each event's group up
+  one by one, so a 100k-event history took 52 seconds to arrive and stalled the screen as
+  it did; it now takes about 1.5.
 
 ## 0.4.2 — 2026-10-16
 

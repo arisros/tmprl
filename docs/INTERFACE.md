@@ -366,6 +366,26 @@ Where a pane is boxed, the help overlay, the bar rides the border and costs noth
 lists are not boxed, and their rightmost column holds the age, so there the bar takes a
 column of its own rather than painting over a value.
 
+### Editing a line
+
+Every line typed into, the `/` `:` `!` prompts, the query bar and the name prompts, edits the
+same way, with the shell's keys rather than vim's: each is typed once and sent. **live**
+
+| Key | |
+|---|---|
+| `<Left>` `<Right>`, `<C-b>` `<C-f>` | a character |
+| `<M-b>` `<M-f>`, `<C-Left>` `<C-Right>` | a word |
+| `<Home>` `<End>`, `<C-a>` `<C-e>` | start / end |
+| `<C-w>`, `<M-BS>` | delete the word before the cursor |
+| `<C-u>` / `<C-k>` | delete to the start / to the end |
+| `<Del>`, `<C-d>` | delete the character under the cursor |
+| `<Up>` / `<Down>` | what was entered at this prompt before, this session; each prompt keeps its own |
+| `<Tab>` / `<S-Tab>` | at `:`, fill in the next / previous command offered |
+
+`:q`, `:q!`, `:qa` and `:quit` quit. A paste arrives as text, not keys: into the line that is
+open, or, with none open, into the workflow finder, since what gets pasted is almost always
+an id from a log or an alert.
+
 ### Windows
 
 | Key | Action | |
@@ -477,7 +497,8 @@ closed is refused with a message instead of polling for events that can never ar
 
 | Key | Action | |
 |---|---|---|
-| `y` / `Y` | yank field / whole record as JSON | **live** |
+| `y` / `Y` | yank field / whole record as JSON. On a group the field is its id: an activity's activity id, a child's workflow id | **live** |
+| `<leader>yw` / `<leader>yR` | yank the workflow id / run id, of the row or of the history open | **live** |
 | `za` | fold a history group open or shut | **live** |
 | `zR` / `zM` | expand / collapse every group | **live** |
 | `zp` | show or hide the workflow-task plumbing | **live** |
@@ -493,6 +514,7 @@ closed is refused with a message instead of polling for events that can never ar
 | `<C-w>j` (`<C-w>l` when the pane is beside the list) | focus the payload pane: `j` `k` `<C-d>` `<C-u>` `<C-f>` `<C-b>` `gg` `G` scroll it, `<C-w>k` (`<C-w>h`) or `<Esc>` goes back | **live** |
 | `<leader>e` | open the payloads in `$EDITOR`, read-only | **live** |
 | `gf` | go to the source of the focused event, through the resolver `[source] command` names | **live** |
+| `gc` / `gp` | open the child workflow under the cursor / the parent of this one; `<C-o>` comes back | **live** |
 
 ### Acting
 
@@ -507,10 +529,10 @@ closed is refused with a message instead of polling for events that can never ar
 | `<leader>q` / `<C-c>` | quit | **live** |
 | `<C-q>` | send selection to the quickfix list | planned |
 | `<leader>mc` | cancel this workflow, or the selection | **live** |
-| `<leader>mt` | terminate this workflow, or the selection | **live** |
+| `<leader>mt` | terminate this workflow, or the selection, asking for the reason first | **live** |
 | `<leader>ms` | signal this workflow, or the selection | **live** |
 | `<leader>md` | delete this workflow, or the selection | **live** |
-| `<leader>mr` | reset to the event under the cursor | **live** |
+| `<leader>mr` | reset to the event under the cursor, asking for the reason first | **live** |
 | `<leader>mp` | pause or resume a schedule | **live** |
 | `<leader>mg` | run a schedule now | **live** |
 | `<leader>mD` | delete a schedule | **live** |
@@ -615,6 +637,7 @@ on the namespace list.
 | `--dashboard` | open on the dashboard, of the profile's namespace or the one `-n` names |
 | `--address <HOST:PORT>` | connect to this server instead of the profile's address |
 | `--readonly` | refuse every mutation for this run |
+| `--log <FILE>` | append every message, with its gRPC status, and the client library's warnings to `FILE`; `RUST_LOG` widens it, for example `RUST_LOG=debug` |
 | `--temporal-config <PATH>` | read connection profiles from this file (alias: `--config`) |
 | `--config-path` | print every file `tmprl` reads and whether it exists, then exit |
 | `-h`, `--help` / `-V`, `--version` | print the usage, or the version, then exit |
@@ -652,11 +675,12 @@ colour at all.
 
 ### How much colour
 
-Decided once, at startup, from two environment variables. tmprl cannot see the terminal's
+Decided once, at startup, from `config.toml` and two environment variables. tmprl cannot see the terminal's
 background, so the fallback is the palette that does not need to.
 
 | Environment | Palette |
 |---|---|
+| `[display] colors` in `config.toml`, when not `"auto"` | what it says: `"truecolor"`, `"16"` or `"none"` |
 | `NO_COLOR` set to anything but the empty string | none: bold, dim, underline and reverse video only |
 | otherwise, `COLORTERM` is `truecolor` or `24bit` | 24-bit RGB, tuned for a dark background |
 | otherwise | the terminal's own 16 named colours |
@@ -666,7 +690,8 @@ and cyan for the mode indicator). Text is the terminal's own foreground, chrome 
 foreground dimmed, and the cursor row is reverse video, so it reads on a light background
 as well as a dark one and follows whatever theme the terminal has. `TERM` is not consulted:
 it says what a terminal emulates, not what it can paint. A truecolor terminal that does not
-export `COLORTERM`, which is common over `ssh`, therefore gets 16 colours until it does.
+export `COLORTERM`, which is common over `ssh`, therefore gets 16 colours until it does, or
+until `[display] colors = "truecolor"` says so.
 
 Without colour the things that were told apart by colour are told apart by weight: the cursor
 row and a selection are reverse video (the cursor row bold as well), the focused pane's border

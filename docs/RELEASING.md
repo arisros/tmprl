@@ -70,6 +70,12 @@ Keys, commands, `config.toml` / `keys.toml` / `views.toml` / `theme.toml` / `das
 keys and CLI flags are the public
 API here; Rust types are not. All four crates share one version, so any release moves them all.
 
+`docs/public-api.txt` lists every command id, default binding and flag, and a test fails when
+the code no longer matches it. A change to it is a change to the API: rerun with
+`TMPRL_UPDATE_API=1 cargo test -p tmprl public_api`, say so in the changelog, and bump as the
+table above says. Config keys are not in it, because they are parsed by hand; they are
+promised by `docs/INTERFACE.md`.
+
 ## Before a release
 
 ```sh

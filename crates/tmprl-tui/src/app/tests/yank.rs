@@ -166,3 +166,66 @@ fn the_yank_file_is_readable_by_its_owner_only() {
     assert_eq!(mode(path.parent().unwrap()), 0o700);
     std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
 }
+
+fn on_the_charge_group(app: &mut App) {
+    for at in 0..app.row_count() {
+        app.set_cursor(at);
+        let outline = app.view.history.value().unwrap();
+        if let Some(Row::Group { group, .. }) = outline.row_at(at)
+            && outline.group(group).is_some_and(|g| g.subject == "Charge")
+        {
+            return;
+        }
+    }
+    panic!("no Charge group on screen");
+}
+
+#[test]
+fn yank_on_an_activity_takes_its_activity_id() {
+    let mut app = app();
+    loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
+    app.run("nav.open", None);
+    let mut events = history_events();
+    events[3].fields.push(("activityId", "charge-1".into()));
+    app.handle(Msg::History {
+        generation: app.view.generation,
+        result: Ok((events, Vec::new())),
+    });
+
+    on_the_charge_group(&mut app);
+    assert_eq!(app.field_under_cursor(), "charge-1");
+}
+
+#[test]
+fn yank_on_a_group_with_no_id_still_takes_its_subject() {
+    let mut app = app();
+    loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
+    app.run("nav.open", None);
+    app.handle(Msg::History {
+        generation: app.view.generation,
+        result: Ok((history_events(), Vec::new())),
+    });
+
+    on_the_charge_group(&mut app);
+    assert_eq!(app.field_under_cursor(), "Charge");
+}
+
+#[test]
+fn the_workflow_and_run_id_can_be_yanked_from_a_history() {
+    let mut app = app();
+    loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
+    app.run("nav.open", None);
+
+    assert_eq!(
+        app.execution_field(|w| &w.workflow_id).as_deref(),
+        Some("order-r1")
+    );
+    assert_eq!(app.execution_field(|w| &w.run_id).as_deref(), Some("r1"));
+}
+
+#[test]
+fn the_run_id_can_be_yanked_from_the_workflow_list() {
+    let mut app = app();
+    loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
+    assert_eq!(app.execution_field(|w| &w.run_id).as_deref(), Some("r1"));
+}

@@ -109,6 +109,14 @@ impl Mutation {
 }
 
 impl Mutation {
+    /// The reason recorded in the history, for the mutations that carry one.
+    pub fn reason_mut(&mut self) -> Option<&mut String> {
+        match self {
+            Mutation::Terminate { reason, .. } | Mutation::Reset { reason, .. } => Some(reason),
+            _ => None,
+        }
+    }
+
     /// What the confirmation calls it.
     pub fn verb(&self) -> &'static str {
         match self {
@@ -916,5 +924,24 @@ mod tests {
             line, other,
             "the same namespace on two clusters must differ"
         );
+    }
+
+    #[test]
+    fn only_terminate_and_reset_carry_a_reason() {
+        let mut t = Mutation::Terminate {
+            namespace: "d".into(),
+            workflow_id: "w".into(),
+            run_id: "r".into(),
+            reason: "old".into(),
+        };
+        *t.reason_mut().unwrap() = "bad deploy".into();
+        assert!(matches!(t, Mutation::Terminate { ref reason, .. } if reason == "bad deploy"));
+
+        let mut c = Mutation::Cancel {
+            namespace: "d".into(),
+            workflow_id: "w".into(),
+            run_id: "r".into(),
+        };
+        assert!(c.reason_mut().is_none());
     }
 }

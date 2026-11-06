@@ -11,7 +11,7 @@ impl App {
     /// applied. Used by the tests and by anything that needs the focused pane's query.
     pub fn query_display(&self) -> &str {
         if self.is_editing_query() {
-            &self.insert_buf
+            self.insert_buf.as_str()
         } else {
             &self.view.query
         }
@@ -98,10 +98,6 @@ impl App {
         use tmprl_core::{Key, Mods};
         for c in flushed {
             match c.key {
-                Key::Backspace if c.mods.is_none() => {
-                    self.insert_buf.pop();
-                    self.recompute_completion();
-                }
                 // Enter applies the query rather than accepting an offer. The offer is on
                 // `<Tab>`, so a query you typed in full is never diverted by a list you
                 // were not reading.
@@ -109,9 +105,20 @@ impl App {
                 Key::Tab if c.mods.is_none() => self.accept_completion(),
                 Key::Char('n') if c.mods == Mods::CTRL => self.move_completion(1),
                 Key::Char('p') if c.mods == Mods::CTRL => self.move_completion(-1),
+                Key::Up | Key::Down if self.insert_target == InsertTarget::Query => {
+                    let history = self.histories.entry(History::Query).or_default();
+                    let recalled = if c.key == Key::Up {
+                        history.older(self.insert_buf.as_str())
+                    } else {
+                        history.newer()
+                    };
+                    if let Some(text) = recalled {
+                        self.insert_buf.set(text);
+                        self.completion = None;
+                    }
+                }
                 _ => {
-                    if let Some(ch) = c.as_insertable() {
-                        self.insert_buf.push(ch);
+                    if self.insert_buf.key(c) == Edit::Changed {
                         self.recompute_completion();
                     }
                 }
@@ -130,7 +137,7 @@ impl App {
             return;
         }
         let clauses = self.filter_clauses();
-        self.completion = Completion::new(&self.insert_buf, clauses);
+        self.completion = Completion::new(self.insert_buf.as_str(), clauses);
     }
 
     fn move_completion(&mut self, delta: isize) {
@@ -152,7 +159,8 @@ impl App {
         else {
             return;
         };
-        self.insert_buf = complete::apply(&self.insert_buf, &clause);
+        self.insert_buf
+            .set(complete::apply(self.insert_buf.as_str(), &clause));
         // A fresh list for the text as it now stands: what was being typed is complete, so
         // there is nothing left to offer for it.
         self.completion = None;
@@ -163,7 +171,11 @@ impl App {
         if self.insert_target != InsertTarget::Query {
             return;
         }
-        self.view.query = self.insert_buf.clone();
+        self.view.query = self.insert_buf.as_str().to_string();
+        self.histories
+            .entry(History::Query)
+            .or_default()
+            .push(&self.view.query);
         self.mode = Mode::Normal;
         self.insert_target = InsertTarget::Scratch;
         self.insert_buf.clear();

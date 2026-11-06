@@ -59,6 +59,7 @@ use tmprl_core::filter::{self, SearchAttribute};
 use tmprl_core::form::Form;
 use tmprl_core::history::{NormalizedEvent, group_events, merge_events};
 use tmprl_core::jumplist::Jumplist;
+use tmprl_core::line::{Edit, LineEdit, LineHistory};
 use tmprl_core::mutation::{Confirm, Mutation};
 use tmprl_core::outline::{Outline, Row};
 use tmprl_core::payload::Payload;
@@ -76,6 +77,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::theme::Theme;
 use crate::view::View;
 pub use messages::Logged;
+pub(crate) use payload::cut_for_pane;
 use tmprl_ui::{Axis, Direction, Rect as UiRect, Tabs, ViewId};
 
 /// Rows fetched per namespace per page. Large enough that scrolling rarely waits, small
@@ -203,7 +205,7 @@ pub struct SourceRequest {
 /// Both prompts edit identically, the same keys, the same backspace-on-empty-closes rule,
 /// and differ only in what Enter does with the text. Sharing the editing is what keeps them
 /// from drifting apart.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PromptKind {
     /// `:`, a command id, with completions.
     Command,
@@ -219,12 +221,14 @@ pub enum PromptKind {
     Backfill,
     /// The name of a query handler, when the workflow could not list its own.
     Query,
+    /// Why a terminate or reset is being done, recorded in the workflow's history.
+    Reason,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Prompt {
     pub kind: PromptKind,
-    pub buf: String,
+    pub buf: LineEdit,
 }
 
 impl Prompt {
@@ -238,8 +242,17 @@ impl Prompt {
             PromptKind::Update => "update:",
             PromptKind::Backfill => "backfill:",
             PromptKind::Query => "query:",
+            PromptKind::Reason => "reason:",
         }
     }
+}
+
+/// A readable payload as the pane draws it, cut to what a terminal can show.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct ShownText {
+    pub lines: Vec<String>,
+    /// Lines past the cut, which `$EDITOR`, `!` and the yanks still get.
+    pub hidden: usize,
 }
 
 /// Where an encrypted payload has got to.
@@ -257,6 +270,14 @@ pub enum DecodeState {
     Failed(String),
 }
 
+/// Which line a history belongs to. The prompts that take a typed command, pattern or
+/// name each keep their own; one shared list would offer a `jq` filter at `/`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum History {
+    Prompt(PromptKind),
+    Query,
+}
+
 /// What Insert mode is editing.
 ///
 /// On the workflow list, Insert mode edits the visibility query: the only text
@@ -271,6 +292,8 @@ pub enum InsertTarget {
 #[derive(Debug)]
 pub enum Msg {
     Key(Chord),
+    /// Text the terminal delivered as one paste.
+    Paste(String),
     Mouse(Mouse),
     Tick,
     Redraw,
@@ -339,6 +362,12 @@ pub enum Msg {
         search: u64,
         result: Result<Vec<WorkflowRow>, Fault>,
     },
+    /// The runs a child or parent lookup found, for the history it was asked from.
+    Related {
+        from: (String, String),
+        id: String,
+        result: Result<Vec<WorkflowRow>, Fault>,
+    },
     /// What the server has for the id `-w` named at startup.
     StartupWorkflow {
         generation: u64,
@@ -359,6 +388,12 @@ pub enum Msg {
     Pending {
         generation: u64,
         result: Result<Vec<PendingActivity>, Fault>,
+    },
+    /// The follow long poll failed in a way worth retrying, and will again after `wait`.
+    FollowRetrying {
+        generation: u64,
+        error: Fault,
+        wait: std::time::Duration,
     },
     /// What `__temporal_workflow_metadata` answered, already through the codec.
     QueryHandlers {
@@ -461,6 +496,9 @@ pub struct App {
     decoding: HashSet<u64>,
     /// Why a decode failed, by payload. Cleared by `R`, which is the retry.
     decode_failed: HashMap<u64, String>,
+    /// Pretty-printed payload text, by payload. The pane is drawn on every key press, and
+    /// formatting a multi-megabyte payload each time is what made scrolling it hang.
+    shown: std::cell::RefCell<HashMap<u64, Arc<ShownText>>>,
     codec: Option<Arc<Codec>>,
     pub views: Vec<SavedView>,
     /// The layout `dashboard.toml` asks for. `None` leaves the dashboard to the builtin one.
@@ -493,7 +531,13 @@ pub struct App {
     pub confirm: Option<Confirm>,
     /// `Some` while a multi-field form is open, for the inputs a single line cannot carry.
     pub form: Option<Form>,
-    pub insert_buf: String,
+    pub insert_buf: LineEdit,
+    /// What was entered at each prompt and at the query bar this session.
+    histories: HashMap<History, LineHistory>,
+    /// A terminate or reset waiting for its reason to be typed.
+    awaiting_reason: Vec<Mutation>,
+    /// While `<Tab>` cycles the `:` completions: what was typed, and which one is in.
+    cmdline_cycle: Option<(String, usize)>,
     pub insert_target: InsertTarget,
     /// `Some` while a `<leader>f` picker is open. It owns the keyboard while it is, the
     /// way a prompt does.
@@ -534,6 +578,8 @@ pub struct App {
     /// The palette every frame is drawn with. Built once, by [`App::apply_theme`]: what the
     /// terminal can show does not change while tmprl runs.
     pub theme: Theme,
+    /// `theme.toml`, kept so `[display] colors` can rebuild the theme at another depth.
+    theme_overrides: ThemeOverrides,
 
     pub note: Option<(String, Note)>,
     /// Every note this session, newest last, because the note line forgets on the next key.
@@ -628,6 +674,7 @@ impl App {
             decoded: HashMap::new(),
             decoding: HashSet::new(),
             decode_failed: HashMap::new(),
+            shown: Default::default(),
             codec: None,
             views: Vec::new(),
             dashboard_layout: None,
@@ -643,7 +690,10 @@ impl App {
             prompt: None,
             confirm: None,
             form: None,
-            insert_buf: String::new(),
+            insert_buf: LineEdit::default(),
+            histories: HashMap::new(),
+            cmdline_cycle: None,
+            awaiting_reason: Vec::new(),
             insert_target: InsertTarget::Scratch,
             picker: None,
             picker_found: Vec::new(),
@@ -657,6 +707,7 @@ impl App {
             times: TimeFormat::default(),
             clock: Clock::system(),
             theme: Theme::default(),
+            theme_overrides: ThemeOverrides::default(),
             note: None,
             messages: VecDeque::new(),
             note_fault: None,
@@ -699,6 +750,9 @@ impl App {
                     self.dashboard_refresh = cfg.dashboard_refresh;
                     self.yank_max = cfg.yank_max;
                     self.source_command = cfg.source.clone();
+                    if let Some(depth) = cfg.colors {
+                        self.theme = Theme::new(depth, &self.theme_overrides);
+                    }
                     // Already validated by `parse_config`, so this cannot be the zone
                     // failing; unwrapping to the system zone here would be unreachable.
                     if let Ok(clock) = Clock::from_config(cfg.timezone.as_deref()) {
@@ -744,6 +798,7 @@ impl App {
             }
         };
         self.theme = Theme::new(depth, &overrides);
+        self.theme_overrides = overrides;
     }
 
     /// Install the user's `dashboard.toml`. A file that does not parse is reported and set
@@ -869,6 +924,7 @@ impl App {
                     Err(e) => self.fail(e, Note::Error),
                 }
             }
+            Msg::Paste(text) => self.paste(text),
             Msg::Piped(result) => {
                 self.view.piped = Some(result);
                 self.view.detail_scroll = 0;
@@ -1025,6 +1081,7 @@ impl App {
                     Err(e) => self.fail_as(format!("workflow search: {e}"), e, Note::Warn),
                 }
             }
+            Msg::Related { from, id, result } => self.related_found(from, id, result),
             Msg::StartupWorkflow {
                 generation,
                 id,
@@ -1038,6 +1095,20 @@ impl App {
                 name,
                 result,
             } => self.queried_reply(generation, name, result),
+            Msg::FollowRetrying {
+                generation,
+                error,
+                wait,
+            } => {
+                if generation != self.view.generation || !self.view.following {
+                    return;
+                }
+                self.fail_as(
+                    format!("follow: {error}, retrying in {}s", wait.as_secs()),
+                    error,
+                    Note::Warn,
+                );
+            }
             Msg::Pending { generation, result } => {
                 if generation != self.view.generation {
                     return;
@@ -1158,7 +1229,7 @@ impl App {
             Action::OpenCommandLine => {
                 self.prompt = Some(Prompt {
                     kind: PromptKind::Command,
-                    buf: String::new(),
+                    buf: LineEdit::default(),
                 });
                 self.mode = Mode::Command;
             }
@@ -1279,7 +1350,7 @@ impl App {
                 // edit, not a retype.
                 if self.view.screen == Screen::Workflows {
                     self.insert_target = InsertTarget::Query;
-                    self.insert_buf = self.view.query.clone();
+                    self.insert_buf.set(self.view.query.clone());
                 } else {
                     self.insert_target = InsertTarget::Scratch;
                     self.insert_buf.clear();
@@ -1311,6 +1382,8 @@ impl App {
             Action::YankPayloadAll => self.yank_payload(PayloadPart::All),
             Action::YankPayloadInput => self.yank_payload(PayloadPart::Input),
             Action::YankPayloadResult => self.yank_payload(PayloadPart::Result),
+            Action::YankWorkflowId => self.yank_execution(|w| &w.workflow_id),
+            Action::YankRunId => self.yank_execution(|w| &w.run_id),
 
             Action::LoadMore => self.load_more(),
             Action::SelectView(key) => self.select_view(key),
@@ -1387,6 +1460,8 @@ impl App {
             Action::OpenPipe => self.open_pipe(),
             Action::OpenEditor => self.open_editor(),
             Action::OpenSource => self.open_source(),
+            Action::OpenChild => self.open_child(),
+            Action::OpenParent => self.open_parent(),
 
             Action::CancelWorkflow => self.confirm_mutation(MutationKind::Cancel),
             Action::TerminateWorkflow => self.confirm_mutation(MutationKind::Terminate),

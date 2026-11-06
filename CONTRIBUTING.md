@@ -64,6 +64,18 @@ The tests connect with the default profile, so `TEMPORAL_ADDRESS` points them at
 another port. CI runs them against two dev servers, the latest `temporal` CLI and an older one
 pinned in `.github/workflows/ci.yml`.
 
+## Benchmarks
+
+Timings rather than tests, so they are ignored by default and run in release:
+
+```sh
+cargo test --release -p tmprl -- --ignored bench_ --nocapture
+```
+
+They load a 100k-event history and one at Temporal's 50 MB history limit, page by page as
+the server sends them. Run them before and after a change to how a history is merged,
+grouped or drawn.
+
 ## A cluster worth looking at
 
 Three seeded workflows prove the connection layer and nothing about how a screen reads at

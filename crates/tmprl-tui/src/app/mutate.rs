@@ -69,7 +69,7 @@ impl App {
                 // prompt comes back.
                 self.prompt = Some(Prompt {
                     kind: PromptKind::Backfill,
-                    buf: String::new(),
+                    buf: LineEdit::default(),
                 });
                 self.mode = Mode::Command;
                 return;
@@ -116,7 +116,7 @@ impl App {
                 } else {
                     PromptKind::Update
                 },
-                buf: String::new(),
+                buf: LineEdit::default(),
             });
             self.mode = Mode::Command;
             return;
@@ -138,13 +138,16 @@ impl App {
                 ));
                 return;
             };
-            self.confirm = Some(Confirm::new(Mutation::Reset {
-                namespace: row.namespace,
-                workflow_id: row.workflow_id,
-                run_id: row.run_id,
-                event_id,
-                reason: "reset from tmprl".into(),
-            }));
+            self.ask_reason(
+                vec![Mutation::Reset {
+                    namespace: row.namespace,
+                    workflow_id: row.workflow_id,
+                    run_id: row.run_id,
+                    event_id,
+                    reason: String::new(),
+                }],
+                "reset from tmprl",
+            );
             return;
         }
 
@@ -163,9 +166,7 @@ impl App {
                         namespace,
                         workflow_id,
                         run_id,
-                        // A reason is required by the API and useful in the history. Editing
-                        // it before confirming is not built; a default beats an empty string.
-                        reason: "terminated from tmprl".into(),
+                        reason: String::new(),
                     },
                     MutationKind::Delete => Mutation::Delete {
                         namespace,
@@ -180,8 +181,35 @@ impl App {
                     },
                 }
             })
-            .collect();
+            .collect::<Vec<_>>();
+        if matches!(kind, MutationKind::Terminate) {
+            self.ask_reason(mutations, "terminated from tmprl");
+            return;
+        }
         self.confirm = Some(Confirm::batch(mutations));
+    }
+
+    /// The reason goes into the workflow's history, where the next person to read it will
+    /// want more than "terminated from tmprl". Pre-filled, so Enter keeps the old default.
+    fn ask_reason(&mut self, mutations: Vec<Mutation>, default: &str) {
+        self.awaiting_reason = mutations;
+        self.prompt = Some(Prompt {
+            kind: PromptKind::Reason,
+            buf: LineEdit::from(default),
+        });
+        self.mode = Mode::Command;
+    }
+
+    pub(super) fn confirm_with_reason(&mut self, reason: String) {
+        let mut mutations = std::mem::take(&mut self.awaiting_reason);
+        for m in &mut mutations {
+            if let Some(r) = m.reason_mut() {
+                *r = reason.clone();
+            }
+        }
+        if !mutations.is_empty() {
+            self.confirm = Some(Confirm::batch(mutations));
+        }
     }
 
     /// Turn a typed signal or update name into a confirmation.

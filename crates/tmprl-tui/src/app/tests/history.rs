@@ -398,3 +398,95 @@ fn a_failure_jump_shows_the_workflow_tasks_to_reach_a_failed_one() {
     app.run("history.plumbing", None);
     assert_eq!(app.row_count(), 1, "zp still hides them");
 }
+
+#[test]
+fn a_dropped_follow_says_it_is_retrying_and_keeps_following() {
+    use tmprl_core::fault::{Code, Fault};
+    let mut app = viewing_running();
+    app.run("history.follow", None);
+
+    app.handle(Msg::FollowRetrying {
+        generation: app.view.generation,
+        error: Fault::rpc(
+            "GetWorkflowExecutionHistory",
+            Code::Unavailable,
+            "connection reset",
+        ),
+        wait: std::time::Duration::from_secs(4),
+    });
+
+    assert!(app.view.following);
+    let (msg, kind) = app.note.clone().unwrap();
+    assert_eq!(kind, Note::Warn);
+    assert!(msg.contains("retrying in 4s"), "got {msg}");
+}
+
+#[test]
+fn a_retry_notice_for_a_follow_already_stopped_is_dropped() {
+    use tmprl_core::fault::{Code, Fault};
+    let mut app = viewing_running();
+    app.run("history.follow", None);
+    app.run("history.follow", None);
+    app.note = None;
+
+    app.handle(Msg::FollowRetrying {
+        generation: app.view.generation,
+        error: Fault::rpc("GetWorkflowExecutionHistory", Code::Unavailable, ""),
+        wait: std::time::Duration::from_secs(1),
+    });
+
+    assert!(app.note.is_none());
+}
+
+/// `events` long, three to an activity, every input carrying `payload_bytes` of JSON.
+fn long_history(events: usize, payload_bytes: usize) -> Vec<NormalizedEvent> {
+    use tmprl_core::history::{Category as C, GroupRef as G, Outcome as O, Role as R};
+    let input = format!(r#"{{"blob":"{}"}}"#, "x".repeat(payload_bytes));
+    let mut all = vec![hev(1, G::Workflow, R::Opens, C::Workflow).with_subject("Order")];
+    let mut id = 2;
+    while all.len() < events {
+        let mut s = hev(id, G::Opened(id), R::Opens, C::Activity).with_subject("Charge");
+        s.payloads.push((
+            "input".into(),
+            Payload::new("json/plain", input.clone().into_bytes()),
+        ));
+        all.push(s);
+        all.push(hev(id + 1, G::Opened(id), R::Continues, C::Activity));
+        all.push(hev(id + 2, G::Opened(id), R::Closes, C::Activity).with_outcome(O::Completed));
+        id += 3;
+    }
+    all
+}
+
+fn load_in_pages(events: Vec<NormalizedEvent>) -> std::time::Duration {
+    let mut app = app();
+    loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
+    app.run("nav.open", None);
+    let pages: Vec<Vec<_>> = events.chunks(500).map(<[_]>::to_vec).collect();
+    let last = pages.len() - 1;
+    let t = std::time::Instant::now();
+    for (i, page) in pages.into_iter().enumerate() {
+        let token = if i == last { Vec::new() } else { vec![1] };
+        app.handle(Msg::History {
+            generation: app.view.generation,
+            result: Ok((page, token)),
+        });
+    }
+    t.elapsed()
+}
+
+/// `cargo test --release -p tmprl -- --ignored bench_ --nocapture`. Timings, not asserts:
+/// a machine's speed is not a property of the code.
+#[test]
+#[ignore]
+fn bench_a_100k_event_history_loads_in_pages() {
+    let took = load_in_pages(long_history(100_000, 64));
+    eprintln!("100k events in 200 pages: {took:?}");
+}
+
+#[test]
+#[ignore]
+fn bench_a_history_at_temporals_50_mb_limit_loads_in_pages() {
+    let took = load_in_pages(long_history(20_000, 7_500));
+    eprintln!("20k events, 50 MB of inputs, in 40 pages: {took:?}");
+}

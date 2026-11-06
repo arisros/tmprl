@@ -63,9 +63,9 @@ project testable:
 
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
-| `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 89 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 457 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 511 |
+| `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 92 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 475 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 546 |
 | `tmprl-ui` | built | Plain unit tests over the layout tree | 47 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -123,6 +123,7 @@ Every file opens with a `//!` line saying what it is; this is those lines, gathe
 | `command.rs` | **the command registry: every action tmprl can take, by id** |
 | `key.rs`, `keymap.rs`, `mode.rs` | keys, the default bindings, modes |
 | `picker.rs`, `fuzzy.rs`, `form.rs`, `jumplist.rs` | the pickers, their matching, multi-field input, `<C-o>` |
+| `line.rs` | one editable line and its history: the prompts, `:` and the query bar |
 | `config.rs`, `clock.rs`, `loadable.rs` | config parsing, wall-clock rendering, four-state remote data |
 | `fault.rs` | a failed request: the call, the gRPC code, the server's message, and what to try |
 | `theme.rs` | colour depth from the environment, `theme.toml`, hex to the nearest of 16 |

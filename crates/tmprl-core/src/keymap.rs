@@ -290,6 +290,8 @@ pub fn default_keymap() -> Keymap {
         bind(mode, "<leader>ya", "yank.payload");
         bind(mode, "<leader>yi", "yank.payload-input");
         bind(mode, "<leader>yr", "yank.payload-result");
+        bind(mode, "<leader>yw", "yank.workflow-id");
+        bind(mode, "<leader>yR", "yank.run-id");
 
         // Windows and tabs, with vim's bindings. `<C-w>` prefixes focus movement, never
         // bare `<C-h/j/k/l>`, which tmux's vim-tmux-navigator swallows before any
@@ -351,6 +353,8 @@ pub fn default_keymap() -> Keymap {
     bind(Mode::Normal, "<leader>xm", "app.messages");
     bind(Mode::Normal, "<leader>e", "payload.edit");
     bind(Mode::Normal, "gf", "history.source");
+    bind(Mode::Normal, "gc", "history.child");
+    bind(Mode::Normal, "gp", "history.parent");
 
     bind(Mode::Normal, "i", "mode.insert");
     bind(Mode::Normal, "v", "mode.visual");
