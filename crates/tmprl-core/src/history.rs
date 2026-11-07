@@ -287,11 +287,6 @@ pub fn group_events(events: &[NormalizedEvent]) -> Vec<Group> {
     grouping.into_groups()
 }
 
-/// The fold behind [`group_events`], kept so a later page can go on from it.
-///
-/// A page boundary routinely falls inside a group, and a signal joins the workflow's own
-/// group from anywhere in the run, so holding the index is what lets a page cost what the
-/// page holds rather than what the whole history does.
 #[derive(Debug, Clone, Default)]
 pub struct Grouping {
     groups: Vec<Group>,

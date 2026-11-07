@@ -40,7 +40,6 @@ impl Outline {
         self.reindex();
     }
 
-    /// Fold one further page in, instead of regrouping every event read so far.
     pub fn append(&mut self, page: &[NormalizedEvent]) {
         if page.is_empty() {
             return;
