@@ -1,6 +1,6 @@
 //! The collapsible view over a grouped history, and the virtualisation that makes it
 
-use crate::history::{Category, Group, NormalizedEvent, Outcome};
+use crate::history::{Category, Group, Grouping, NormalizedEvent, Outcome};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Row {
@@ -10,7 +10,7 @@ pub enum Row {
 
 pub struct Outline {
     events: Vec<NormalizedEvent>,
-    groups: Vec<Group>,
+    grouping: Grouping,
     expanded: Vec<bool>,
     visible: Vec<usize>,
     offsets: Vec<usize>,
@@ -22,7 +22,7 @@ impl Outline {
         let expanded = vec![false; groups.len()];
         let mut o = Self {
             events,
-            groups,
+            grouping: Grouping::from_groups(groups),
             expanded,
             visible: Vec::new(),
             offsets: Vec::new(),
@@ -36,16 +36,36 @@ impl Outline {
         self.expanded.resize(groups.len(), false);
         self.expanded.truncate(groups.len());
         self.events = events;
-        self.groups = groups;
+        self.grouping = Grouping::from_groups(groups);
+        self.reindex();
+    }
+
+    /// Fold one further page in, instead of regrouping every event read so far.
+    pub fn append(&mut self, page: &[NormalizedEvent]) {
+        if page.is_empty() {
+            return;
+        }
+        for ev in page {
+            self.grouping.push(ev);
+        }
+        self.events.extend_from_slice(page);
+        self.expanded.resize(self.grouping.len(), false);
         self.reindex();
     }
 
     pub fn groups(&self) -> &[Group] {
-        &self.groups
+        self.grouping.groups()
     }
 
     pub fn events(&self) -> &[NormalizedEvent] {
         &self.events
+    }
+
+    /// Decoding swaps payload values only, so it cannot change how events group.
+    pub fn payloads_mut(&mut self) -> impl Iterator<Item = &mut crate::payload::Payload> {
+        self.events
+            .iter_mut()
+            .flat_map(|e| e.payloads.iter_mut().map(|(_, p)| p))
     }
 
     pub fn show_plumbing(&self) -> bool {
@@ -76,7 +96,7 @@ impl Outline {
                 expanded: self.expanded[group],
             }
         } else {
-            let event_id = self.groups[group].events[local - 1];
+            let event_id = self.grouping.groups()[group].events[local - 1];
             Row::Event {
                 group,
                 event: self.event_index(event_id).unwrap_or(0),
@@ -91,7 +111,7 @@ impl Outline {
     }
 
     pub fn group(&self, index: usize) -> Option<&Group> {
-        self.groups.get(index)
+        self.grouping.groups().get(index)
     }
 
     pub fn event(&self, index: usize) -> Option<&NormalizedEvent> {
@@ -134,14 +154,14 @@ impl Outline {
 
     pub fn next_failing(&self, from: usize, retrying: impl Fn(&Group) -> bool) -> Option<usize> {
         let (current, _) = self.position(from)?;
-        (current + 1..self.groups.len()).find(|g| self.is_failing(*g, &retrying))
+        (current + 1..self.grouping.groups().len()).find(|g| self.is_failing(*g, &retrying))
     }
 
     pub fn prev_failing(&self, from: usize, retrying: impl Fn(&Group) -> bool) -> Option<usize> {
         let end = match self.position(from) {
             Some((group, true)) => group,
             Some((group, false)) => group + 1,
-            None => self.groups.len(),
+            None => self.grouping.groups().len(),
         };
         (0..end).rev().find(|g| self.is_failing(*g, &retrying))
     }
@@ -149,7 +169,8 @@ impl Outline {
     pub fn is_shown(&self, group: usize) -> bool {
         self.show_plumbing
             || self
-                .groups
+                .grouping
+                .groups()
                 .get(group)
                 .is_some_and(|g| !g.category.is_plumbing())
     }
@@ -162,7 +183,7 @@ impl Outline {
     }
 
     fn is_failing(&self, group: usize, retrying: &impl Fn(&Group) -> bool) -> bool {
-        let g = &self.groups[group];
+        let g = &self.grouping.groups()[group];
         if !self.is_shown(group) {
             return g.outcome == Outcome::Failed;
         }
@@ -174,7 +195,7 @@ impl Outline {
         self.offsets.clear();
 
         let mut total = 0usize;
-        for (i, g) in self.groups.iter().enumerate() {
+        for (i, g) in self.grouping.groups().iter().enumerate() {
             if !self.show_plumbing && g.category.is_plumbing() {
                 continue;
             }
@@ -252,6 +273,43 @@ mod tests {
         ];
         let groups = group_events(&events);
         Outline::new(events, groups)
+    }
+
+    #[test]
+    fn paging_a_history_in_lands_where_one_full_regroup_would() {
+        let all: Vec<NormalizedEvent> = outline().events().to_vec();
+
+        for page in 1..=all.len() {
+            let mut o = Outline::new(Vec::new(), Vec::new());
+            for chunk in all.chunks(page) {
+                o.append(chunk);
+            }
+            assert_eq!(
+                o.groups(),
+                group_events(&all),
+                "pages of {page} grouped differently"
+            );
+            assert_eq!(o.events(), all, "pages of {page} lost or reordered events");
+        }
+    }
+
+    #[test]
+    fn a_group_left_open_by_one_page_is_closed_by_the_next() {
+        let all: Vec<NormalizedEvent> = outline().events().to_vec();
+        let mut o = Outline::new(Vec::new(), Vec::new());
+
+        o.append(&all[..5]);
+        let charge = o.groups().iter().find(|g| g.subject == "Charge").unwrap();
+        assert!(charge.is_open(), "activity 4 has not closed yet at event 5");
+
+        o.append(&all[5..]);
+        let charge = o.groups().iter().find(|g| g.subject == "Charge").unwrap();
+        assert_eq!(charge.outcome, Outcome::Completed);
+        assert_eq!(
+            charge.events,
+            vec![4, 5, 6],
+            "event 6 joined the open group"
+        );
     }
 
     #[test]
