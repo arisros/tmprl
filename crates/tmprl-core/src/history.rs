@@ -280,14 +280,50 @@ const ID_FIELDS: [&str; 5] = ["activityId", "workflowId", "runId", "updateId", "
 const PRIMARY_IDS: [&str; 3] = ["activityId", "workflowId", "updateId"];
 
 pub fn group_events(events: &[NormalizedEvent]) -> Vec<Group> {
-    let mut groups: Vec<Group> = Vec::new();
-    let mut index: std::collections::HashMap<GroupRef, usize> = std::collections::HashMap::new();
-
+    let mut grouping = Grouping::default();
     for ev in events {
-        let at = match index.get(&ev.group) {
+        grouping.push(ev);
+    }
+    grouping.into_groups()
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Grouping {
+    groups: Vec<Group>,
+    index: std::collections::HashMap<GroupRef, usize>,
+}
+
+impl Grouping {
+    pub fn from_groups(groups: Vec<Group>) -> Self {
+        let mut index = std::collections::HashMap::with_capacity(groups.len());
+        for (at, g) in groups.iter().enumerate() {
+            index.entry(g.key).or_insert(at);
+        }
+        Self { groups, index }
+    }
+
+    pub fn groups(&self) -> &[Group] {
+        &self.groups
+    }
+
+    pub fn into_groups(self) -> Vec<Group> {
+        self.groups
+    }
+
+    pub fn len(&self) -> usize {
+        self.groups.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.groups.is_empty()
+    }
+
+    /// Events must arrive in history order and once each; filter replays with [`merge_events`].
+    pub fn push(&mut self, ev: &NormalizedEvent) -> usize {
+        let at = match self.index.get(&ev.group) {
             Some(&at) => at,
             None => {
-                groups.push(Group {
+                self.groups.push(Group {
                     key: ev.group,
                     category: ev.category,
                     subject: ev.subject.clone(),
@@ -298,11 +334,11 @@ pub fn group_events(events: &[NormalizedEvent]) -> Vec<Group> {
                     attempts: 1,
                     failure: None,
                 });
-                index.insert(ev.group, groups.len() - 1);
-                groups.len() - 1
+                self.index.insert(ev.group, self.groups.len() - 1);
+                self.groups.len() - 1
             }
         };
-        let g = &mut groups[at];
+        let g = &mut self.groups[at];
 
         g.events.push(ev.id);
         if let Some(n) = ev.attempt {
@@ -318,9 +354,8 @@ pub fn group_events(events: &[NormalizedEvent]) -> Vec<Group> {
             g.ended_at = ev.time;
             g.outcome = ev.outcome;
         }
+        at
     }
-
-    groups
 }
 
 pub fn merge_events(existing: &mut Vec<NormalizedEvent>, incoming: Vec<NormalizedEvent>) -> usize {

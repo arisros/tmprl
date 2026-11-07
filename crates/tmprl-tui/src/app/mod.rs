@@ -796,12 +796,14 @@ impl App {
                                 Some(("workflow closed, follow stopped".into(), Note::Info));
                         }
                         self.view.history_token = token;
-                        merge_events(&mut self.view.history_events, events);
-                        let groups = group_events(&self.view.history_events);
-                        let events = self.view.history_events.clone();
+                        let added = merge_events(&mut self.view.history_events, events);
+                        let page =
+                            &self.view.history_events[self.view.history_events.len() - added..];
                         match self.view.history.value_mut() {
-                            Some(outline) => outline.replace(events, groups),
+                            Some(outline) => outline.append(page),
                             None => {
+                                let events = page.to_vec();
+                                let groups = group_events(&events);
                                 self.view.history = Loadable::loaded(Outline::new(events, groups))
                             }
                         }
