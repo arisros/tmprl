@@ -797,10 +797,15 @@ impl App {
                         }
                         self.view.history_token = token;
                         let added = merge_events(&mut self.view.history_events, events);
-                        let page =
-                            &self.view.history_events[self.view.history_events.len() - added..];
+                        let total = self.view.history_events.len();
+                        let page = &self.view.history_events[total - added..];
                         match self.view.history.value_mut() {
-                            Some(outline) => outline.append(page),
+                            Some(outline) if added < total => outline.append(page),
+                            Some(outline) => {
+                                let events = page.to_vec();
+                                let groups = group_events(&events);
+                                outline.replace(events, groups);
+                            }
                             None => {
                                 let events = page.to_vec();
                                 let groups = group_events(&events);
