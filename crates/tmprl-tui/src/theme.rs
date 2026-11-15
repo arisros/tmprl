@@ -132,6 +132,44 @@ impl Theme {
         })
     }
 
+    pub fn is_mono(&self) -> bool {
+        self.depth == ColorDepth::Mono
+    }
+
+    pub fn pill(&self, accent: Accent) -> Style {
+        match self.depth {
+            ColorDepth::TrueColor => {
+                let (r, g, b) = match accent {
+                    Accent::Red => (0xe0, 0x52, 0x52),
+                    Accent::Green => (0xa7, 0xb8, 0x79),
+                    Accent::Yellow => (0xf0, 0xc6, 0x74),
+                    Accent::Blue => (0x6b, 0x99, 0xe8),
+                    Accent::Magenta => (0xc6, 0x78, 0xdd),
+                    Accent::Cyan => (0x56, 0xb6, 0xc2),
+                };
+                Style::new()
+                    .fg(PILL_INK)
+                    .bg(Color::Rgb(r, g, b))
+                    .add_modifier(Modifier::BOLD)
+            }
+            ColorDepth::Ansi16 | ColorDepth::Mono => badge(self.profile_accent(accent).fg),
+        }
+    }
+
+    pub fn lock_pill(&self) -> Style {
+        match self.depth {
+            ColorDepth::TrueColor => Style::new()
+                .fg(Color::Rgb(0xd8, 0xdc, 0xe4))
+                .bg(Color::Rgb(0x3a, 0x40, 0x4b))
+                .add_modifier(Modifier::BOLD),
+            ColorDepth::Ansi16 => Style::new()
+                .fg(Color::White)
+                .bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+            ColorDepth::Mono => Style::new().add_modifier(Modifier::BOLD),
+        }
+    }
+
     pub fn mode_badge(&self, mode: Mode) -> Style {
         badge(match mode {
             Mode::Normal => self.mode_normal,
@@ -172,6 +210,8 @@ impl Theme {
         }
     }
 }
+
+const PILL_INK: Color = Color::Rgb(0x14, 0x16, 0x1b);
 
 fn badge(color: Option<Color>) -> Style {
     match color {

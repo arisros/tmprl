@@ -262,15 +262,15 @@ fn a_pending_reply_for_a_history_since_left_is_dropped() {
     app.load_history();
     let stale = app.view.generation.wrapping_sub(1);
 
-    app.handle(Msg::Pending {
+    app.handle(Msg::Described {
         generation: stale,
-        result: Ok(vec![PendingActivity::default()]),
+        result: Ok(described(vec![PendingActivity::default()])),
     });
     assert!(app.view.pending.is_empty());
 
-    app.handle(Msg::Pending {
+    app.handle(Msg::Described {
         generation: app.view.generation,
-        result: Ok(vec![PendingActivity::default()]),
+        result: Ok(described(vec![PendingActivity::default()])),
     });
     assert_eq!(app.view.pending.len(), 1);
 }
@@ -289,7 +289,7 @@ fn opening_another_run_forgets_the_last_ones_pending_activities() {
 fn a_failed_describe_warns_and_keeps_what_was_known() {
     let mut app = app();
     app.view.pending = vec![PendingActivity::default()];
-    app.handle(Msg::Pending {
+    app.handle(Msg::Described {
         generation: app.view.generation,
         result: Err("permission denied".into()),
     });

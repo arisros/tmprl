@@ -2,13 +2,23 @@
 
 use super::yank::{json_string, write_yank_file};
 use super::*;
+use tmprl_client::Described;
+use tmprl_core::pending::PendingActivity;
 use tmprl_core::{Key, WorkflowStatus};
 use tokio::sync::mpsc::unbounded_channel;
+
+fn described(pending: Vec<PendingActivity>) -> Box<Described> {
+    Box::new(Described {
+        pending,
+        ..Default::default()
+    })
+}
 
 mod config;
 mod dashboard;
 mod find;
 mod history;
+mod info;
 mod interaction;
 mod messages;
 mod mutate;

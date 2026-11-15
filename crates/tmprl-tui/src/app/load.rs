@@ -119,11 +119,10 @@ impl App {
             self.view.generation = self.view.generation.wrapping_add(1);
             self.view.history.begin_refresh();
             self.view.pending.clear();
+            self.view.info.begin_refresh();
+            self.load_describe();
         }
         self.view.loading_more = true;
-        if first_page && row.status.is_running() {
-            self.load_pending();
-        }
 
         let Some(conn) = self.conn.clone() else {
             return;
@@ -148,16 +147,17 @@ impl App {
         });
     }
 
-    fn load_pending(&mut self) {
+    fn load_describe(&mut self) {
         let (Some(row), Some(conn)) = (self.view.viewing.clone(), self.conn.clone()) else {
             return;
         };
         let (tx, generation) = (self.tx.clone(), self.view.generation);
         tokio::spawn(async move {
             let result = conn
-                .pending_activities(&row.namespace, &row.workflow_id, &row.run_id)
-                .await;
-            let _ = tx.send(Msg::Pending { generation, result });
+                .describe(&row.namespace, &row.workflow_id, &row.run_id)
+                .await
+                .map(Box::new);
+            let _ = tx.send(Msg::Described { generation, result });
         });
     }
 
@@ -172,15 +172,16 @@ impl App {
             loop {
                 every.tick().await;
                 let result = conn
-                    .pending_activities(&row.namespace, &row.workflow_id, &row.run_id)
-                    .await;
+                    .describe(&row.namespace, &row.workflow_id, &row.run_id)
+                    .await
+                    .map(Box::new);
                 let (quiet, last) = match &result {
                     Ok(_) => (false, false),
                     Err(e) if e.is_transient() => (failing, false),
                     Err(_) => (false, true),
                 };
                 failing = result.is_err();
-                if !quiet && tx.send(Msg::Pending { generation, result }).is_err() {
+                if !quiet && tx.send(Msg::Described { generation, result }).is_err() {
                     return;
                 }
                 if last {

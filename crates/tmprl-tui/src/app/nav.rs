@@ -150,6 +150,7 @@ impl App {
         self.view.history_resume.clear();
         self.view.handlers = None;
         self.view.queried = None;
+        self.view.info = Loadable::NotAsked;
     }
 
     pub(super) fn here(&self) -> Jump {

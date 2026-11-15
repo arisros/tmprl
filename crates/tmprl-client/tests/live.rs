@@ -465,6 +465,41 @@ async fn typed_history_normalises_a_real_workflow() {
 }
 
 #[tokio::test]
+async fn a_describe_agrees_with_the_list_row_it_came_from() {
+    let Some(c) = conn().await else { return };
+    let ns = c.namespace().to_string();
+
+    let page = c
+        .list_workflows(&ns, "", 1, Vec::new())
+        .await
+        .expect("list");
+    let Some(row) = page.rows.first() else {
+        eprintln!("SKIP: no workflows to describe");
+        return;
+    };
+
+    let info = c
+        .describe(&ns, &row.workflow_id, &row.run_id)
+        .await
+        .expect("describe")
+        .info;
+    assert_eq!(info.workflow_id, row.workflow_id);
+    assert_eq!(info.run_id, row.run_id);
+    assert_eq!(info.workflow_type, row.workflow_type);
+    assert_eq!(info.task_queue, row.task_queue);
+    assert_eq!(info.status, row.status);
+    assert_eq!(info.start_time, row.start_time);
+    assert!(
+        !info.first_run_id.is_empty(),
+        "every run knows the first run of its chain"
+    );
+    assert!(
+        info.task_timeout_ms.is_some_and(|ms| ms > 0),
+        "the server fills in a workflow task timeout when none was set"
+    );
+}
+
+#[tokio::test]
 async fn a_real_history_groups_consistently_with_the_list() {
     use tmprl_core::history::{GroupRef, Outcome, group_events};
 

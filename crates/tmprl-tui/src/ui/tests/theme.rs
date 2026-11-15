@@ -233,19 +233,72 @@ fn a_hex_in_the_theme_is_a_named_colour_on_sixteen_colours() {
 }
 
 #[test]
-fn a_profile_accent_survives_sixteen_colours_and_is_bold_without_any() {
-    let accent = |depth| {
+fn a_profile_accent_fills_the_pill_and_reverses_without_colour() {
+    let pill = |depth, config: &str| {
         let mut app = app_with_rows();
-        app.apply_config(None, None, Some("[profile.prod]\naccent = \"red\""));
+        app.apply_config(None, None, Some(config));
         app.apply_theme(depth, None);
         let buf = buffer(&mut app, 100, 12);
-        cells_of(&buf, "prod")[0].clone()
+        cells_of(&buf, "PROD")[0].clone()
     };
-    assert_eq!(accent(ColorDepth::TrueColor).fg, Color::Red);
-    assert_eq!(accent(ColorDepth::Ansi16).fg, Color::Red);
-    let mono = accent(ColorDepth::Mono);
-    assert_eq!(mono.fg, Color::Reset);
-    assert!(mono.modifier.contains(Modifier::BOLD));
+    let chosen = "[profile.prod]\naccent = \"cyan\"";
+    let ansi = pill(ColorDepth::Ansi16, chosen);
+    assert_eq!(
+        ansi.bg,
+        Color::Cyan,
+        "sixteen colours follow the terminal's palette"
+    );
+    assert_eq!(ansi.fg, Color::Black);
+    assert!(ansi.modifier.contains(Modifier::BOLD));
+    let truecolor = pill(ColorDepth::TrueColor, chosen);
+    assert_eq!(
+        truecolor.bg,
+        Color::Rgb(0x56, 0xb6, 0xc2),
+        "tmprl's own palette"
+    );
+    assert!(truecolor.modifier.contains(Modifier::BOLD));
+    let mono = pill(ColorDepth::Mono, chosen);
+    assert_eq!(mono.bg, Color::Reset);
+    assert!(mono.modifier.contains(Modifier::REVERSED));
+}
+
+#[test]
+fn a_profile_without_an_accent_gets_one_from_its_name() {
+    let mut app = app_with_rows();
+    app.apply_theme(ColorDepth::Ansi16, None);
+    let buf = buffer(&mut app, 100, 12);
+    assert_eq!(cells_of(&buf, "PROD")[0].bg, Color::Red);
+}
+
+#[test]
+fn production_is_red_from_tmprls_palette_in_truecolor() {
+    let mut app = app_with_rows();
+    app.apply_theme(ColorDepth::TrueColor, None);
+    let buf = buffer(&mut app, 100, 12);
+    assert_eq!(cells_of(&buf, "PROD")[0].bg, Color::Rgb(0xe0, 0x52, 0x52));
+}
+
+#[test]
+fn read_only_is_a_neutral_pill_of_its_own() {
+    let mut app = app_with_rows();
+    app.apply_config(None, None, Some("[profile.prod]\nreadonly = true"));
+    app.apply_theme(ColorDepth::TrueColor, None);
+    let buf = buffer(&mut app, 100, 12);
+    let profile = cells_of(&buf, "PROD")[0].bg;
+    let lock = cells_of(&buf, " RO ")[1].bg;
+    assert_ne!(
+        profile, lock,
+        "read-only must not take the profile's colour"
+    );
+    assert_eq!(lock, Color::Rgb(0x3a, 0x40, 0x4b));
+}
+
+#[test]
+fn without_colour_the_pill_is_bracketed() {
+    let mut app = app_with_rows();
+    app.apply_theme(ColorDepth::Mono, None);
+    let buf = buffer(&mut app, 100, 12);
+    cells_of(&buf, "[PROD]");
 }
 
 #[test]

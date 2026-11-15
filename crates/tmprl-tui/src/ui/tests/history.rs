@@ -76,12 +76,36 @@ fn folding_a_group_open_reveals_its_events_indented() {
 }
 
 #[test]
-fn the_history_header_names_the_workflow_and_counts_failures() {
+fn the_workflow_bar_names_the_workflow_and_counts_failures_not_the_header() {
     let mut app = app_with_history();
     let out = draw(&mut app, 110, 12);
-    let header = out.lines().next().unwrap();
-    assert!(header.contains("order-1001"), "workflow id missing:\n{out}");
-    assert!(header.contains("failed"), "failure tally missing:\n{out}");
+    let mut lines = out.lines();
+    let header = lines.next().unwrap();
+    let bar = lines.next().unwrap();
+    assert!(
+        header.contains("› history"),
+        "the header says where:\n{out}"
+    );
+    assert!(
+        !header.contains("order-1001"),
+        "the id belongs to the bar:\n{out}"
+    );
+    assert!(bar.contains("order-1001"), "workflow id missing:\n{out}");
+    assert!(bar.contains("failed"), "failure tally missing:\n{out}");
+    assert!(bar.contains("gi info"), "the key that opens more:\n{out}");
+}
+
+#[test]
+fn a_narrow_workflow_bar_keeps_the_status_the_id_and_the_failures() {
+    let mut app = app_with_history();
+    let out = draw(&mut app, 44, 12);
+    let bar = out.lines().nth(1).unwrap();
+    assert!(bar.contains("order-1001"), "{bar}");
+    assert!(bar.contains("failed"), "{bar}");
+    assert!(
+        !bar.contains("events"),
+        "the least needed goes first:\n{bar}"
+    );
 }
 
 #[test]

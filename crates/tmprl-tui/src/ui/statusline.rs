@@ -2,50 +2,71 @@
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
+use tmprl_core::config::Accent;
 
 use super::status_style;
 use crate::app::{App, Note, Screen};
 use crate::theme::Theme;
 
+const BRAND: &str = " tmprl ";
+const CRUMB: &str = " › ";
+const MIN_SCOPE: usize = 8;
+
 pub fn render_header(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
-    let right = match app.view.screen {
+    let screen = app.view.screen;
+    let mut right = match screen {
         Screen::Profiles => profile_summary(app, t),
         Screen::Namespaces => namespace_summary(app, t),
         Screen::Workflows => workflow_summary(app, t),
-        Screen::History => history_summary(app, t),
+        Screen::History => Vec::new(),
         Screen::Schedules => schedule_summary(app, t),
         Screen::Dashboard => dashboard_summary(app, t),
     };
-    let right_width: usize = right.iter().map(|s| s.content.chars().count()).sum();
+    let pill = pill_spans(app, t);
+    let pill_width = spans_width(&pill);
+    let scope = scope_label(app);
+    let mut address = format!(" {}", short_address(app.address()));
+    let mut place = screen_name(screen, false);
 
-    let ro = if app.readonly() { " [ro]" } else { "" };
-
-    let fixed = " tmprl profile=  ns=".len() + app.profile().chars().count() + ro.chars().count();
-    let address = format!(" ({})", short_address(app.address()));
-    let room = (area.width as usize).saturating_sub(right_width + fixed + 3);
-    let address = if room >= address.chars().count() + MIN_SCOPE {
-        address
-    } else {
-        String::new()
+    let width = area.width as usize;
+    let need = |address: &str, place: &str, right: &[Span]| {
+        BRAND.len()
+            + pill_width
+            + chars(address)
+            + 2 * CRUMB.chars().count()
+            + chars(&scope).min(MIN_SCOPE)
+            + chars(place)
+            + spans_width(right)
+            + 2
     };
-    let budget = room.saturating_sub(address.chars().count()).max(8);
-    let scope = super::truncate(&scope_label(app), budget);
+    if need(&address, place, &right) > width {
+        address.clear();
+    }
+    if need(&address, place, &right) > width {
+        right.clear();
+    }
+    if need(&address, place, &right) > width {
+        place = screen_name(screen, true);
+    }
+    let fixed = need(&address, place, &right) - chars(&scope).min(MIN_SCOPE);
+    let scope = elide_middle(&scope, width.saturating_sub(fixed).max(MIN_SCOPE));
 
-    let left = Line::from(vec![
-        Span::styled(" tmprl ", t.accent.add_modifier(Modifier::BOLD)),
-        Span::styled("profile=", t.faint),
-        Span::styled(app.profile().to_string(), profile_style(app, t)),
-        Span::styled(ro, profile_style(app, t)),
+    let mut left = vec![Span::styled(BRAND, t.accent.add_modifier(Modifier::BOLD))];
+    left.extend(pill);
+    left.extend([
         Span::styled(address, t.faint),
-        Span::styled("  ns=", t.faint),
+        Span::styled(CRUMB, t.faint),
         Span::styled(scope, t.fg),
+        Span::styled(CRUMB, t.faint),
+        Span::styled(place, t.accent),
     ]);
-    frame.render_widget(Paragraph::new(left), area);
+    frame.render_widget(Paragraph::new(Line::from(left)), area);
 
-    if area.width as usize > right_width + 2 {
+    let right_width = spans_width(&right);
+    if right_width > 0 && width > right_width + 2 {
         let r = Rect {
             x: area.x + area.width - right_width as u16 - 1,
             y: area.y,
@@ -56,23 +77,71 @@ pub fn render_header(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
     }
 }
 
-const MIN_SCOPE: usize = 16;
+pub(super) fn pill_accent(app: &App) -> Accent {
+    app.accent()
+        .unwrap_or_else(|| Accent::guess(app.profile(), app.address()))
+}
+
+fn pill_spans<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
+    let name = app.profile().to_uppercase();
+    let profile = t.pill(pill_accent(app));
+    match (t.is_mono(), app.readonly()) {
+        (true, false) => vec![Span::styled(format!("[{name}]"), profile)],
+        (true, true) => vec![Span::styled(format!("[{name} RO]"), profile)],
+        (false, false) => vec![Span::styled(format!(" {name} "), profile)],
+        (false, true) => vec![
+            Span::styled(format!(" {name} "), profile),
+            Span::styled(" RO ", t.lock_pill()),
+        ],
+    }
+}
+
+fn screen_name(screen: Screen, short: bool) -> &'static str {
+    match (screen, short) {
+        (Screen::Profiles, false) => "profiles",
+        (Screen::Profiles, true) => "prof",
+        (Screen::Namespaces, false) => "namespaces",
+        (Screen::Namespaces, true) => "ns",
+        (Screen::Workflows, false) => "workflows",
+        (Screen::Workflows, true) => "wf",
+        (Screen::History, false) => "history",
+        (Screen::History, true) => "hist",
+        (Screen::Schedules, false) => "schedules",
+        (Screen::Schedules, true) => "sched",
+        (Screen::Dashboard, false) => "dashboard",
+        (Screen::Dashboard, true) => "dash",
+    }
+}
+
+fn chars(s: &str) -> usize {
+    s.chars().count()
+}
+
+fn spans_width(spans: &[Span]) -> usize {
+    spans.iter().map(|s| chars(&s.content)).sum()
+}
+
+pub(super) fn elide_middle(s: &str, max: usize) -> String {
+    let n = chars(s);
+    if n <= max {
+        return s.to_string();
+    }
+    let keep = max.saturating_sub(1);
+    let head = keep.div_ceil(2);
+    let tail = keep - head;
+    let start: String = s.chars().take(head).collect();
+    let end: String = s.chars().skip(n - tail).collect();
+    format!("{start}…{end}")
+}
 
 pub(super) fn short_address(url: &str) -> &str {
     let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
     rest.strip_suffix('/').unwrap_or(rest)
 }
 
-fn profile_style(app: &App, t: &Theme) -> Style {
-    match app.accent() {
-        None => t.fg,
-        Some(a) => t.profile_accent(a).add_modifier(Modifier::BOLD),
-    }
-}
-
 fn scope_label(app: &App) -> String {
     if let Some(w) = &app.view.viewing {
-        return format!("{}  {}", w.namespace, w.workflow_id);
+        return w.namespace.clone();
     }
     match app.view.scope.len() {
         0 | 1 => app.namespace().to_string(),
@@ -143,43 +212,6 @@ fn workflow_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
         ));
     }
     spans.push(Span::styled(format!("{} total", counts.total), t.dim));
-    spans
-}
-
-fn history_summary<'a>(app: &App, t: &Theme) -> Vec<Span<'a>> {
-    let Some(outline) = app.view.history.value() else {
-        return vec![Span::styled(
-            if app.view.history.is_loading() {
-                "loading history…"
-            } else {
-                ""
-            },
-            t.faint,
-        )];
-    };
-    let s = tmprl_core::outline::summarize(outline.groups());
-
-    let mut spans = Vec::new();
-    if s.failures > 0 {
-        spans.push(Span::styled(
-            format!("✗ {} failed  ", s.failures),
-            t.err.add_modifier(Modifier::BOLD),
-        ));
-    }
-    if s.in_flight > 0 {
-        spans.push(Span::styled(
-            format!("● {} running  ", s.in_flight),
-            t.accent,
-        ));
-    }
-    spans.push(Span::styled(
-        format!(
-            "{} activities  {} events",
-            s.activities,
-            outline.events().len()
-        ),
-        t.dim,
-    ));
     spans
 }
 

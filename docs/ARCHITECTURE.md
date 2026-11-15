@@ -63,9 +63,9 @@ project testable:
 
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
-| `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 92 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 477 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 547 |
+| `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 94 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 491 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 572 |
 | `tmprl-ui` | built | Plain unit tests over the layout tree | 47 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -112,6 +112,7 @@ Every file opens with a `//!` line saying what it is; this is those lines, gathe
 | `history.rs` | the event log folded into groups: an activity is one row, not three |
 | `outline.rs` | the collapsible, virtualised view over those groups |
 | `pending.rs` | what a run is doing *now*: the retry the history has no event for yet |
+| `info.rs` | a workflow's own state from `DescribeWorkflowExecution`, laid out as the info card |
 | `timeline.rs` | the time axis behind the timeline view, idle gaps folded |
 | `workflow.rs` | the workflow list: rows, paging, ordering, counts |
 | `query.rs`, `search.rs` | visibility query strings; `/` over what is on screen |
@@ -135,7 +136,8 @@ Every file opens with a `//!` line saying what it is; this is those lines, gathe
 API (`workflow`, `history`, `schedule`, `namespace`, `mutate`, `codec`, `describe`,
 `attributes`, `taskqueue`, `query`).
 `ops/history.rs` is where protobuf events become `tmprl-core` events, `ops/describe.rs`
-reads the mutable state they cannot carry, the activities still being retried, and
+reads the mutable state they cannot carry, the workflow's own info and the activities still
+being retried, and
 `ops/attributes.rs` asks the cluster what can be filtered on at all.
 
 **`tmprl-ui`**, the window tree: `tree.rs` (one tab's splits), `tabs.rs`, and `tracks.rs`

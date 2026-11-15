@@ -12,6 +12,7 @@ mod chrome;
 mod dashboard;
 mod detail;
 mod history;
+mod info;
 mod messages;
 mod profiles;
 mod schedules;

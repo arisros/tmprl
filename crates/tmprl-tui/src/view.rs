@@ -5,6 +5,7 @@ use std::cell::{Cell, RefCell};
 use tmprl_client::{NamespaceInfo, ProfileSummary};
 use tmprl_core::dashboard::{Board, Item, Pacer};
 use tmprl_core::history::NormalizedEvent;
+use tmprl_core::info::WorkflowInfo;
 use tmprl_core::outline::{Outline, Row};
 use tmprl_core::payload::{FlatCache, Payload};
 use tmprl_core::pending::PendingActivity;
@@ -123,6 +124,8 @@ pub struct View {
     pub follow_task: Option<tokio::task::JoinHandle<()>>,
     pub pending: Vec<PendingActivity>,
     pub pending_task: Option<tokio::task::JoinHandle<()>>,
+    pub info: Loadable<WorkflowInfo>,
+    pub show_info: bool,
     pub loading_more: bool,
     pub detail_seek: bool,
     flat: RefCell<FlatCache>,
@@ -174,6 +177,8 @@ impl View {
             follow_task: None,
             pending: Vec::new(),
             pending_task: None,
+            info: Loadable::NotAsked,
+            show_info: false,
             loading_more: false,
             detail_seek: false,
             flat: RefCell::default(),
@@ -187,6 +192,7 @@ impl View {
         out.query = self.query.clone();
         out.viewing = self.viewing.clone();
         out.show_detail = self.show_detail;
+        out.show_info = self.show_info;
         out.timeline = self.timeline;
         out.timeline_gaps_open = self.timeline_gaps_open;
         out.namespace_cursor = self.namespace_cursor;

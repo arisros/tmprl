@@ -41,12 +41,29 @@ fn the_gutter_is_absolute_on_the_cursor_and_relative_elsewhere() {
 }
 
 #[test]
-fn header_shows_profile_and_namespace() {
+fn header_reads_profile_namespace_and_screen_as_a_path() {
     let mut app = app_with_rows();
-    let out = draw(&mut app, 90, 12);
-    assert!(out.contains("prod"), "profile missing:\n{out}");
-    assert!(out.contains("default"), "namespace missing:\n{out}");
-    assert!(out.contains('3'), "row count missing:\n{out}");
+    let header = draw(&mut app, 90, 12).lines().next().unwrap().to_string();
+    assert!(header.contains(" PROD "), "profile pill missing:\n{header}");
+    assert!(
+        header.contains("default › namespaces"),
+        "breadcrumb missing:\n{header}"
+    );
+    assert!(header.contains('3'), "row count missing:\n{header}");
+}
+
+#[test]
+fn a_narrow_header_drops_the_address_then_the_summary_then_shortens_the_screen() {
+    let mut app = app_with_rows();
+    let header = |app: &mut App, w| draw(app, w, 8).lines().next().unwrap().to_string();
+    assert!(header(&mut app, 90).contains("detached"));
+    let mid = header(&mut app, 50);
+    assert!(!mid.contains("detached"), "{mid}");
+    assert!(mid.contains("namespaces"), "{mid}");
+    let narrow = header(&mut app, 30);
+    assert!(narrow.contains("PROD"), "{narrow}");
+    assert!(narrow.contains("› ns"), "{narrow}");
+    assert!(!narrow.contains("namespaces"), "{narrow}");
 }
 
 #[test]
@@ -55,7 +72,7 @@ fn a_readonly_profile_says_so_in_the_header() {
     app.apply_config(None, None, Some("[profile.prod]\nreadonly = true"));
     let out = draw(&mut app, 90, 12);
     assert!(
-        out.contains("prod [ro]"),
+        out.contains(" PROD  RO "),
         "read-only marker missing:\n{out}"
     );
 }
@@ -69,7 +86,7 @@ fn the_readonly_flag_carries_the_same_marker() {
     });
     let out = draw(&mut app, 90, 12);
     assert!(
-        out.contains("prod [ro]"),
+        out.contains(" PROD  RO "),
         "read-only marker missing:\n{out}"
     );
 }
@@ -78,7 +95,7 @@ fn the_readonly_flag_carries_the_same_marker() {
 fn a_writable_profile_carries_no_marker() {
     let mut app = app_with_rows();
     let out = draw(&mut app, 90, 12);
-    assert!(!out.contains("[ro]"), "unexpected marker:\n{out}");
+    assert!(!out.contains(" RO "), "unexpected marker:\n{out}");
 }
 
 #[test]

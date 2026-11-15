@@ -10,6 +10,7 @@ pub mod filter;
 pub mod form;
 pub mod fuzzy;
 pub mod history;
+pub mod info;
 pub mod interaction;
 pub mod jumplist;
 pub mod key;

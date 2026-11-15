@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **A header that says where you are**: ` tmprl  PROD  RO  address › namespace › screen`.
+  The profile is a filled pill in its `accent`, and a profile without one is coloured from
+  its name: red for `prod`, yellow for `uat` / `sit` / `staging`, green for `dev`, `local`
+  or a local address. Read-only is a grey pill of its own. The profile pill is the one thing
+  a narrow terminal never drops.
+- **A workflow bar on every history**: status, type, id, task queue (when it differs from
+  the type), how long it has run, failures, open groups and the event count, on the line
+  under the header, where the workflow id used to crowd the header.
+- **Workflow info**, `gi` in a history: a short card under the workflow bar that starts with
+  what the workflow is waiting on, naming the activity, its age, its attempt and its last
+  failure, then the run, when it started, the timeouts that are set, its parent and root,
+  its memo and its search attributes. What is absent is folded into one faint line. It
+  stays open as you move through the history and from one history to the next, refreshes
+  under `F`, and leaves the payload pane alone.
 - **Query a workflow**, `<Space>cq` in a history: a picker over the queries the workflow
   lists, with their descriptions, and the answer in the payload pane, where `!`, the yanks
   and `$EDITOR` work on it. An older SDK that cannot list its queries still gives a picker
