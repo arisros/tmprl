@@ -61,22 +61,28 @@ pub fn render(frame: &mut Frame, app: &mut App, t: &Theme) {
     let scroll = app.overlay_scroll.min(app.overlay_max_scroll);
     app.overlay_scroll = scroll;
 
-    let title = if app.overlay_max_scroll == 0 {
-        " help (Esc to close) ".to_string()
+    let hint = if app.overlay_max_scroll == 0 {
+        "Esc to close".to_string()
     } else {
         format!(
-            " help (j/k to scroll, {}/{}, Esc to close) ",
+            "j/k to scroll, {}/{}, Esc to close",
             scroll + 1,
             app.overlay_max_scroll + 1
         )
     };
+    let mut title = vec![Span::raw(" ")];
+    title.extend(super::brand::wordmark(t));
+    title.push(Span::styled(
+        format!(" {} · help ({hint}) ", env!("CARGO_PKG_VERSION")),
+        t.accent,
+    ));
 
     let total = lines.len();
     frame.render_widget(Clear, area);
     frame.render_widget(
         Paragraph::new(lines).scroll((scroll as u16, 0)).block(
             Block::bordered()
-                .title(Span::styled(title, t.accent))
+                .title(Line::from(title))
                 .border_style(t.faint),
         ),
         area,

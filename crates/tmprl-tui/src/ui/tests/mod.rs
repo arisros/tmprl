@@ -8,6 +8,7 @@ use tmprl_client::NamespaceInfo;
 use tmprl_core::{Chord, Loadable, StatusCounts, WorkflowList, WorkflowRow, WorkflowStatus};
 use tokio::sync::mpsc::unbounded_channel;
 
+mod brand;
 mod chrome;
 mod dashboard;
 mod detail;

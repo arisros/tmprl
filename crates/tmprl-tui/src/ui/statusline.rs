@@ -11,7 +11,7 @@ use super::status_style;
 use crate::app::{App, Note, Screen};
 use crate::theme::Theme;
 
-const BRAND: &str = " tmprl ";
+const BRAND_WIDTH: usize = 8;
 const CRUMB: &str = " › ";
 const MIN_SCOPE: usize = 8;
 
@@ -33,7 +33,7 @@ pub fn render_header(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
 
     let width = area.width as usize;
     let need = |address: &str, place: &str, right: &[Span]| {
-        BRAND.len()
+        BRAND_WIDTH
             + pill_width
             + chars(address)
             + 2 * CRUMB.chars().count()
@@ -54,7 +54,9 @@ pub fn render_header(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
     let fixed = need(&address, place, &right) - chars(&scope).min(MIN_SCOPE);
     let scope = elide_middle(&scope, width.saturating_sub(fixed).max(MIN_SCOPE));
 
-    let mut left = vec![Span::styled(BRAND, t.accent.add_modifier(Modifier::BOLD))];
+    let mut left = vec![Span::raw(" ")];
+    left.extend(super::brand::wordmark(t));
+    left.push(Span::raw(" "));
     left.extend(pill);
     left.extend([
         Span::styled(address, t.faint),

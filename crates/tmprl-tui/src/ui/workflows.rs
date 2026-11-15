@@ -8,6 +8,7 @@ use ratatui::widgets::Paragraph;
 use tmprl_core::clock::STAMP_WIDTH;
 use tmprl_core::workflow::humanize_age_ms;
 
+use super::brand;
 use super::{highlight, match_style};
 use super::{status_style, truncate};
 use crate::app::{App, now_ms};
@@ -28,6 +29,12 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
     let rows = view.workflow_rows();
 
     if rows.is_empty() {
+        let fresh = !view.workflows.is_loading()
+            && view.workflows.error().is_none()
+            && view.query.trim().is_empty();
+        if fresh && empty_namespace(frame, area, t) {
+            return;
+        }
         let msg = if view.workflows.is_loading() {
             "loading workflows…".to_string()
         } else if let Some(e) = view.workflows.error() {
@@ -141,4 +148,34 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
         first,
     }));
     frame.render_widget(Paragraph::new(lines), area);
+}
+
+fn empty_namespace(frame: &mut Frame, area: Rect, t: &Theme) -> bool {
+    if t.mark_colors().is_none() {
+        return false;
+    }
+    let side = vec![
+        Line::from(Span::styled("no workflows in this namespace", t.fg)),
+        Line::default(),
+        Line::from(Span::styled("start one:", t.faint)),
+        Line::from(Span::styled(
+            "temporal workflow start --type Hello --task-queue demo",
+            t.accent,
+        )),
+        Line::default(),
+        Line::from(Span::styled("or <Space>N for another namespace", t.faint)),
+    ];
+    let width = brand::lockup_width(&side) as u16;
+    let height = brand::MARK_HEIGHT as u16;
+    if area.width < width + 4 || area.height < height + 2 {
+        return false;
+    }
+    let block = Rect {
+        x: area.x + (area.width - width) / 2,
+        y: area.y + (area.height - height) / 3,
+        width,
+        height,
+    };
+    frame.render_widget(Paragraph::new(brand::lockup(t, side)), block);
+    true
 }

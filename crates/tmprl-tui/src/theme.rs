@@ -170,6 +170,26 @@ impl Theme {
         }
     }
 
+    pub fn brand_cursor(&self) -> Style {
+        match self.depth {
+            ColorDepth::TrueColor => Style::new().fg(Color::Rgb(0xff, 0x00, 0x7c)),
+            ColorDepth::Ansi16 => Style::new().fg(Color::Magenta),
+            ColorDepth::Mono => Style::new(),
+        }
+    }
+
+    pub fn mark_colors(&self) -> Option<[Color; 3]> {
+        match self.depth {
+            ColorDepth::TrueColor => Some([
+                Color::Rgb(0x2c, 0x33, 0x40),
+                Color::Rgb(0xd8, 0xdc, 0xe4),
+                Color::Rgb(0xff, 0x00, 0x7c),
+            ]),
+            ColorDepth::Ansi16 => Some([Color::DarkGray, Color::White, Color::Magenta]),
+            ColorDepth::Mono => None,
+        }
+    }
+
     pub fn mode_badge(&self, mode: Mode) -> Style {
         badge(match mode {
             Mode::Normal => self.mode_normal,

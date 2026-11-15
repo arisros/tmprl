@@ -12,8 +12,12 @@ mod theme;
 mod ui;
 mod view;
 
+use std::io::IsTerminal;
+
 use cli::Cli;
+use ratatui::text::{Line, Span};
 use tmprl_client::Conn;
+use tmprl_core::theme::ThemeOverrides;
 use tokio::sync::mpsc::unbounded_channel;
 
 #[tokio::main]
@@ -60,12 +64,32 @@ async fn main() -> std::process::ExitCode {
         profile.ignore_env = !resolved.env;
     }
 
+    let splash = Splash::new(&profile);
+    let drawn = splash.show(vec![Line::from(Span::styled(
+        "connecting…",
+        splash.theme.faint,
+    ))]);
     let conn = match Conn::connect(&profile).await {
-        Ok(c) => c,
+        Ok(c) => {
+            Splash::erase(drawn);
+            c
+        }
         Err(e) => {
-            eprintln!("tmprl: {e}");
-            eprintln!("\nIs a server reachable? Try `temporal server start-dev`,");
-            eprintln!("or point tmprl at one with `--profile <name>` or `--address <host:port>`.");
+            Splash::erase(drawn);
+            let hint = [
+                "Is a server reachable? Try `temporal server start-dev`,",
+                "or point tmprl at one with `--profile <name>` or `--address <host:port>`.",
+            ];
+            let mut status = vec![
+                Line::from(Span::styled(e.to_string(), splash.theme.err)),
+                Line::default(),
+            ];
+            status.extend(hint.map(|h| Line::from(Span::styled(h, splash.theme.faint))));
+            if splash.show(status) == 0 {
+                eprintln!("tmprl: {e}");
+                eprintln!("\n{}", hint[0]);
+                eprintln!("{}", hint[1]);
+            }
             return std::process::ExitCode::FAILURE;
         }
     };
@@ -117,6 +141,46 @@ async fn main() -> std::process::ExitCode {
         Err(e) => {
             eprintln!("tmprl: {e}");
             std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+struct Splash {
+    theme: theme::Theme,
+    place: String,
+    on: bool,
+}
+
+impl Splash {
+    fn new(profile: &tmprl_client::ProfileRef) -> Self {
+        let place = match (&profile.address, &profile.name) {
+            (Some(address), _) => address.clone(),
+            (None, Some(name)) => format!("profile {name}"),
+            (None, None) => "the default profile".to_string(),
+        };
+        Self {
+            theme: theme::Theme::new(theme::depth_from_env(), &ThemeOverrides::default()),
+            place,
+            on: std::io::stderr().is_terminal(),
+        }
+    }
+
+    fn show(&self, status: Vec<Line<'static>>) -> usize {
+        let columns = crossterm::terminal::size().map_or(0, |(w, _)| w as usize);
+        match ui::brand::splash(&self.theme, &self.place, status, columns) {
+            Some((width, lines)) if self.on && width < columns => {
+                for line in &lines {
+                    eprintln!("{line}");
+                }
+                lines.len()
+            }
+            _ => 0,
+        }
+    }
+
+    fn erase(lines: usize) {
+        if lines > 0 {
+            eprint!("\x1b[{lines}A\r\x1b[J");
         }
     }
 }
