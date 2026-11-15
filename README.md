@@ -231,7 +231,7 @@ TMPRL_REQUIRE_SERVER=1 cargo test  # what CI runs
 
 | Next | |
 |---|---|
-| 0.5 | a deadline on every request and reconnect, help that knows the screen |
+| 0.5 | help that knows the screen, saving the query bar as a view |
 | 0.6 | a workflow info pane, retry policies, run chains, signal and update payloads, task queues and pollers, build ids, reset options, batch over a query |
 | 0.7 | export, a history opened from a file, headless `--exec` with JSON output |
 | 0.8 | quickfix, marks, diff, macros |

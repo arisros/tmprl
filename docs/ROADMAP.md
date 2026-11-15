@@ -28,15 +28,15 @@ broken.
 
 | Item | Today | Effort |
 |---|---|---|
-| Request deadlines and reconnect | Partly done: connecting gives up after 10 seconds, the codec after 30, a query after 15, and follow and the retrying-activity poll retry through a dropped connection. Still wanted: a deadline on every other RPC, and proof that the connection comes back after a VPN drop without a restart | M |
 | Help that knows the screen | `?` and which-key list every command everywhere; a command that does not apply refuses when run. Wanted: commands declare where they apply | M |
 | Query bar views | Saving the current query as a view needs `views.toml` edited by hand | S |
+| ✓ Request deadlines and reconnect | Done. The SDK already gives each RPC a 30s deadline (70s for a long poll), keepalive, and a channel that reconnects; the connect and the codec client now time out too, and follow and the retrying-activity poll retry with backoff instead of stopping | M |
 | ✓ Errors that say what happened | Done. A failure keeps its gRPC code to the UI, names what to try, and `:messages` keeps every note of the session | M |
-| ✓ Large histories | Done: each page is folded into the outline, so 100k events arrive in about 1.5 seconds instead of 52, held by a test. A multi-megabyte payload is formatted once and scrolls without hanging | M |
+| ✓ Large histories | Done: each page is folded into the outline, so 100k events arrive in about 1.5 seconds instead of 52, with opt-in benchmarks (`cargo test -- --ignored bench_`) at 100k events and at the 50 MB history limit. A multi-megabyte payload is formatted once and scrolls without hanging | M |
 | ✓ Paste and line editing | Done: every prompt and the query bar have a cursor, word and line deletes, and history. A paste is text, and with nothing open it goes to the workflow finder | S |
 | ✓ Colours | Done: `theme.toml`, `NO_COLOR`, a 16-colour palette that follows the terminal's own theme, and `[display] colors` to force the depth | M |
 | ✓ CLI flags | Done: `--namespace`, `--query`, `--workflow`, `--address`, `--readonly`, `--log` | S |
-| ✓ `:` command line | Done: `<Tab>` completes, `<Up>` recalls, `:q` quits | S |
+| ✓ `:` command line | Done: `<Tab>` and `<S-Tab>` fill in the offers, `<Up>` recalls, `:q` quits | S |
 | ✓ Schedules | Done: every schedule, from every namespace in scope | S |
 | ✓ Reasons | Done: terminate and reset ask for the reason, pre-filled with the old default | S |
 | ✓ Read-only gaps | Done. The create-schedule form refuses before it opens | S |
