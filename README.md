@@ -227,12 +227,13 @@ TMPRL_REQUIRE_SERVER=1 cargo test  # what CI runs
 - [x] search that reaches the server, pickers, jumplist, splits and tabs
 - [x] mutations, schedules, batch over a selection of rows
 - [x] a dashboard: counts, recent failures, failing types, activities retrying, task queues in use, schedules
+- [x] line editing and paste in every prompt, child and parent navigation, queries and the call stack
 
 | Next | |
 |---|---|
-| 0.5 | timeouts and reconnect, large histories, paste, line editing in prompts and the query bar |
-| 0.6 | a workflow info pane, signal and update payloads, query input, every handler at once and one query over a selection, run chains, batch over a query |
-| 0.7 | task queues and pollers, a history opened from a file, export, headless `--exec` with JSON output |
+| 0.5 | help that knows the screen, saving the query bar as a view |
+| 0.6 | a workflow info pane, retry policies, run chains, signal and update payloads, task queues and pollers, build ids, reset options, batch over a query |
+| 0.7 | export, a history opened from a file, headless `--exec` with JSON output |
 | 0.8 | quickfix, marks, diff, macros |
 
 [docs/ROADMAP.md](docs/ROADMAP.md) has each item, and what is not planned and why. Nexus
