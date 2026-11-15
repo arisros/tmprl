@@ -15,7 +15,9 @@ start again at 0.5.
 | 0.7 | Infrastructure and sharing | "Is anything polling this queue?" and "send me what you are looking at" have answers |
 | 0.8 | Editor depth | The vim model is finished rather than suggested |
 
-Effort is S (days), M (a week or two) or L (several weeks).
+Effort is S (days), M (a week or two) or L (several weeks). Within a release, open rows are
+in the order they will be built: how often the item is reached for while debugging, against
+what it costs.
 
 ---
 
@@ -26,17 +28,17 @@ broken.
 
 | Item | Today | Effort |
 |---|---|---|
-| Request deadlines and reconnect | No timeout on any RPC or on the codec HTTP client. One connection, made at startup, never re-made. The pending-activity poll stops at its first error | M |
-| ✓ Errors that say what happened | Done. A failure keeps its gRPC code to the UI, names what to try, and `:messages` keeps every note of the session | M |
-| Large histories | Each arriving page re-merges, regroups and clones every event loaded so far. No benchmark exists. Wanted: incremental paging, and benchmarks at 100k events and with multi-megabyte payloads | M |
-| Paste and line editing | Prompts append and backspace only. Bracketed paste is not handled, so text pasted in Normal mode runs as keys | S |
-| ✓ Colours | Done: `theme.toml`, `NO_COLOR`, and a 16-colour palette that follows the terminal's own theme. Still wanted: a key to force the depth where `COLORTERM` is not exported | M |
-| ✓ CLI flags | Done: `--namespace`, `--query`, `--workflow`, `--address`, `--readonly`. Still wanted: `--log` | S |
-| `:` command line | The completion list cannot be navigated and `<Tab>` does nothing. No history, no `:q` | S |
+| Request deadlines and reconnect | Partly done: connecting gives up after 10 seconds, the codec after 30, a query after 15, and follow and the retrying-activity poll retry through a dropped connection. Still wanted: a deadline on every other RPC, and proof that the connection comes back after a VPN drop without a restart | M |
 | Help that knows the screen | `?` and which-key list every command everywhere; a command that does not apply refuses when run. Wanted: commands declare where they apply | M |
-| Query bar | No cursor movement inside the line, no history, no way to save the current query as a view | S |
-| Schedules | Only the first 50 are fetched, and only from the first namespace in scope | S |
-| Reasons | Terminate and reset send a fixed reason | S |
+| Query bar views | Saving the current query as a view needs `views.toml` edited by hand | S |
+| ✓ Errors that say what happened | Done. A failure keeps its gRPC code to the UI, names what to try, and `:messages` keeps every note of the session | M |
+| ✓ Large histories | Done: each page is folded into the outline, so 100k events arrive in about 1.5 seconds instead of 52, held by a test. A multi-megabyte payload is formatted once and scrolls without hanging | M |
+| ✓ Paste and line editing | Done: every prompt and the query bar have a cursor, word and line deletes, and history. A paste is text, and with nothing open it goes to the workflow finder | S |
+| ✓ Colours | Done: `theme.toml`, `NO_COLOR`, a 16-colour palette that follows the terminal's own theme, and `[display] colors` to force the depth | M |
+| ✓ CLI flags | Done: `--namespace`, `--query`, `--workflow`, `--address`, `--readonly`, `--log` | S |
+| ✓ `:` command line | Done: `<Tab>` completes, `<Up>` recalls, `:q` quits | S |
+| ✓ Schedules | Done: every schedule, from every namespace in scope | S |
+| ✓ Reasons | Done: terminate and reset ask for the reason, pre-filled with the old default | S |
 | ✓ Read-only gaps | Done. The create-schedule form refuses before it opens | S |
 | ✓ Project hygiene | Done. `CONTRIBUTING.md`, `SECURITY.md`, issue forms, and CI against two server versions | S |
 
@@ -44,39 +46,39 @@ broken.
 
 | Item | Today | Effort |
 |---|---|---|
-| Workflow info pane | `DescribeWorkflowExecution` is already called and everything but the pending activities is discarded. Wanted on the history screen: status, type, run id, task queue, times, timeouts, memo, search attributes, parent and root, pending children, the pending workflow task | M |
-| Filter by an attribute's value | A workflow's own search attributes are never shown. With the pane above, a row becomes a filter clause. `/` on the workflow list also matches memo and search attribute values, which the list already carries | S |
-| Signal and update payloads | Both send a name and no input. An update's result is discarded | M |
-| Query | Built: `<leader>cq` picks a handler from the workflow's own `__temporal_workflow_metadata`, falls back to the names an older SDK's refusal lists, then to a typed name, and shows the answer in the payload pane. `<leader>cs` shows the call stack through `__stack_trace`. Still wanted: `<leader>cQ` runs every handler and shows one object keyed by name; `<leader>cq` on a `V` selection runs one handler on each workflow, of one type, capped. Input waits for signal and update payloads and codec encode | M |
-| Codec encode | The codec client only decodes, so anything sent to an encrypted namespace would go out as plaintext. Outgoing payloads need `/encode` first | S |
-| Run chain | `newRunId` and `firstRunId` are shown as text. Wanted: next and previous run, and every run of an id as a list | S |
-| Child and parent navigation | A child's ids are shown as text. Wanted: `Enter` on a child group opens its history, and a key goes to the parent | S |
-| Reset options | No choice of what to reapply, and no statement of which events are discarded | S |
+| Workflow info pane | `DescribeWorkflowExecution` is already called and everything but the pending activities is discarded. Wanted on the history screen: status, type, run id, task queue, times, timeouts, memo, search attributes, parent and root, pending children, the pending workflow task. The next three rows read the same reply | M |
 | Retry policy | Attempts, backoff and the last failure are shown. The policy itself is not, and heartbeat and last-started times are fetched but never drawn | S |
+| Run chain | `newRunId` and `firstRunId` are shown as text. Wanted: next and previous run, and every run of an id as a list | S |
+| Filter by an attribute's value | A workflow's own search attributes are never shown. With the pane above, a row becomes a filter clause. `/` on the workflow list also matches memo and search attribute values, which the list already carries | S |
+| Signal and update payloads | Both send a name and no input. An update's result is discarded. Ships with codec encode, never before it | M |
+| Codec encode | The codec client only decodes, so anything sent to an encrypted namespace would go out as plaintext. Outgoing payloads need `/encode` first | S |
+| Task queue describe | The dashboard shows backlog, its age and the poller count for queues with running workflows. Wanted: a view of one queue, with each poller and the rates, reached from the info pane's task queue or a typed name. A stuck workflow with nothing polling its queue is the most common stall | M |
+| Build id display | Nothing. Shown on the info pane and on pollers; no browser, see below | S |
+| Reset options | No choice of what to reapply, and no statement of which events are discarded | S |
+| Query | Built: `<leader>cq` picks a handler from the workflow's own `__temporal_workflow_metadata`, falls back to the names an older SDK's refusal lists, then to a typed name, and shows the answer in the payload pane. `<leader>cs` shows the call stack through `__stack_trace`. Still wanted: `<leader>cQ` runs every handler and shows one object keyed by name; `<leader>cq` on a `V` selection runs one handler on each workflow, of one type, capped. Input waits for signal and update payloads and codec encode | M |
 | Batch over a query | Temporal's server-side batch, with a `CountWorkflowExecutions` dry run and the count typed to confirm | M |
+| ✓ Child and parent navigation | Done: `gc` on a child's row opens its history, `gp` opens the parent, `<C-o>` comes back | S |
 
 ## 0.7 · Infrastructure and sharing
 
 | Item | Today | Effort |
 |---|---|---|
-| Dashboard | Built, `gd` or `--dashboard`: counts by status, recent failures, the types failing most, activities being retried, task queues in use and schedules, each item one `Enter` from the workflows it stands for, laid out by `dashboard.toml`, or by what the namespace shows when there is none. Refreshes itself, `[refresh] dashboard`. Shows each task queue's backlog and pollers. Still wanted: arranging panels in the app | L |
-| Task queue describe | The dashboard shows backlog, its age and the poller count for queues with running workflows. Still wanted: a view of one queue, with each poller and the rates, reached from a workflow's task queue or a typed name | M |
-| Build id display | Nothing. Shown on the info pane and on pollers; no browser, see below | S |
-| Open a history from a file | The app cannot start without a server. Wanted: `tmprl --history <file>` and a capture command. This also gives a demo with no server and fixtures for tests | M to L |
 | Export | `Y` yanks JSON, and past the yank limit writes it to a file in the temp directory. Wanted: a Markdown summary of a workflow and JSON to a file | M |
-| ✓ Switch profile in the app | Done: `<leader>P`, or `-` from the namespace list, and the cluster address is in the header. Still one profile per process; a pane on its own profile is the table across clusters below | M |
-| Stricter confirmation per profile | Three tiers exist. Wanted: an opt-in that asks for more on a named profile | S |
+| Open a history from a file | The app cannot start without a server. Wanted: `tmprl --history <file>` and a capture command. This also gives a demo with no server and fixtures for tests | M to L |
 | Headless `--exec` | No non-interactive mode. Every action already runs through one dispatch point. Wanted: JSON output of what only tmprl computes, the grouped history and the dashboard, which is also the interface for agents | M |
+| Stricter confirmation per profile | Three tiers exist. Wanted: an opt-in that asks for more on a named profile | S |
+| Dashboard | Built, `gd` or `--dashboard`: counts by status, recent failures, the types failing most, activities being retried, task queues in use and schedules, each item one `Enter` from the workflows it stands for, laid out by `dashboard.toml`, or by what the namespace shows when there is none. Refreshes itself, `[refresh] dashboard`. Shows each task queue's backlog and pollers. Still wanted: arranging panels in the app | L |
+| ✓ Switch profile in the app | Done: `<leader>P`, or `-` from the namespace list, and the cluster address is in the header. Still one profile per process; a pane on its own profile is the table across clusters below | M |
 
 ## 0.8 · Editor depth
 
 | Item | Today | Effort |
 |---|---|---|
-| Quickfix | A visible, editable list of workflows to step through with `]q` and `[q`, and to batch over | M |
-| Marks | The jumplist exists, marks do not | S |
 | Diff | Two histories aligned by group with linked scrolling, in two splits | L |
 | A cursor inside a payload | Folding, yanking a path or a sub-value. Today the pane scrolls and wraps, and nothing more | L |
-| Pipe polish | Yank the output of `!`, and a history for its prompt | S |
+| Quickfix | A visible, editable list of workflows to step through with `]q` and `[q`, and to batch over | M |
+| Marks | The jumplist exists, marks do not | S |
+| Pipe polish | Yank the output of `!` | S |
 | Macros and `.` | Recorded as command ids | M |
 
 ---
