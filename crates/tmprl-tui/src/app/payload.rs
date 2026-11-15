@@ -377,11 +377,22 @@ fn apply_decoded_to(decoded: &HashMap<u64, Payload>, view: &mut View) {
     if !changed {
         return;
     }
-    let groups = group_events(&view.history_events);
-    let events = view.history_events.clone();
     match view.history.value_mut() {
-        Some(outline) => outline.replace(events, groups),
-        None => view.history = Loadable::loaded(Outline::new(events, groups)),
+        Some(outline) => {
+            for p in outline.payloads_mut() {
+                if !p.needs_codec() {
+                    continue;
+                }
+                if let Some(plain) = decoded.get(&App::payload_key(p)) {
+                    *p = plain.clone();
+                }
+            }
+        }
+        None => {
+            let events = view.history_events.clone();
+            let groups = group_events(&events);
+            view.history = Loadable::loaded(Outline::new(events, groups));
+        }
     }
 }
 

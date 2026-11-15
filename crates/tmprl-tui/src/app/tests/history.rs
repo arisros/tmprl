@@ -109,6 +109,20 @@ fn a_second_history_page_is_appended_and_regrouped() {
 }
 
 #[test]
+fn refreshing_a_history_replaces_it_rather_than_appending_twice() {
+    let mut app = viewing_history();
+    app.run("app.refresh", None);
+    app.handle(Msg::History {
+        generation: app.view.generation,
+        result: Ok((history_events(), Vec::new())),
+    });
+    let outline = app.view.history.value().unwrap();
+    assert_eq!(outline.events().len(), history_events().len());
+    assert_eq!(outline.groups(), group_events(&history_events()));
+    assert_eq!(app.row_count(), 3);
+}
+
+#[test]
 fn a_stale_history_reply_is_dropped() {
     let mut app = viewing_history();
     let stale = app.view.generation;
