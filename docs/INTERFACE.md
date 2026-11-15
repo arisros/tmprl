@@ -472,12 +472,35 @@ what the query bar is for.
 
 A retry in progress is not in the history at all. Temporal writes `ActivityTaskStarted`, the
 event carrying the attempt and the last failure, only when the activity closes, so a retrying
-activity is a bare `ActivityTaskScheduled`. For a running workflow tmprl therefore also calls
+activity is a bare `ActivityTaskScheduled`. tmprl therefore also calls
 `DescribeWorkflowExecution` and matches its pending activities to the open rows by activity id:
 the row shows `×4/10` (attempt and maximum, `∞` when unlimited), `retry in 12s` while backing
 off, and the last failure; `K` adds the state, the next attempt time and the last worker. This
 is fetched when the history opens and on `R`, and every 5 seconds under `F`, because a retry
 writes no event for the follow long poll to wake on.
+
+The same reply feeds the top of a history. One line, the workflow bar, is always there: status,
+type, workflow id, task queue, how long it has run (or `took` once closed), failures, groups
+in flight and the event count, dropping from the right on a narrow pane while the status, the
+id and the failures stay. Until the describe answers it shows the list row it was opened from.
+
+`gi` opens the info card under the bar, and `gi` again closes it. It is about the workflow
+rather than the row, so it stays while the cursor moves, stays open from one history to the
+next, and under `F` refreshes with the pending activities. It never touches the payload pane,
+and it does not repeat the bar: the workflow id, type, queue and status are up there.
+
+The card is ordered by what a debugging session asks first:
+
+| Row | Shown |
+|---|---|
+| waiting on | always first: each pending activity by name with its age or `retry in`, its attempt and its last failure, the pending workflow task and how long it has waited, pending children by type and id. Three at most, then `+N more`. Yellow while something is retrying, faint when nothing is pending or the workflow is closed |
+| run, started, history | always. `started` carries its age while the workflow runs |
+| first run, first task, closed, timeouts, parent, root | only when they say something: after a continue-as-new, a delayed start, a close, a timeout that is set, a parent |
+| memo, search | one key per row with the value on one line, three at most, then `+N more` |
+| last line | what is absent, faint, in one line: `no parent · no memo · no children · no execution or run timeout` |
+
+Facts pair up in two columns from 100 columns, one below that. Memo and search attribute
+values are payloads, so an encrypted memo goes through the codec like any other.
 
 `]f` / `[f` stop on such an activity too, one that has failed at least once and is still being
 retried, since its row is the failure even though no event says so yet. They also find a failed
@@ -515,6 +538,7 @@ closed is refused with a message instead of polling for events that can never ar
 | `<leader>e` | open the payloads in `$EDITOR`, read-only | **live** |
 | `gf` | go to the source of the focused event, through the resolver `[source] command` names | **live** |
 | `gc` / `gp` | open the child workflow under the cursor / the parent of this one; `<C-o>` comes back | **live** |
+| `gi` | show or hide the workflow info card under the workflow bar: identity, timing, limits, what it is waiting on, lineage, memo, search attributes. The payload pane is left as it is | **live** |
 
 ### Acting
 
@@ -661,11 +685,18 @@ says so, rather than exiting.
 come from the profile, and a bare `host:port` is dialled with TLS exactly when the profile
 would have used it. It outranks `TEMPORAL_ADDRESS`, as `-n` outranks `TEMPORAL_NAMESPACE`.
 
-`--readonly` is `readonly = true` from `config.toml` for one run: the header reads
-`prod [ro]`, and a mutation is refused before its prompt, form or confirmation opens. The flag
+`--readonly` is `readonly = true` from `config.toml` for one run: the header's pill reads
+a second, grey `RO` pill beside the profile, and a mutation is refused before its prompt, form or confirmation opens. The flag
 can only add the restriction; nothing on the command line lifts a profile's own.
 
 ## Theming
+
+The header reads as a path: ` tmprl  PROD  RO  address › namespace › screen`, with the
+screen's own tally on the right (counts by status on the workflow list, paused schedules,
+panels on the dashboard). On a history the workflow itself is in the workflow bar under it,
+not in the header. When the terminal is narrow the address goes first, then the tally, then
+the screen name shortens (`wf`, `hist`, `sched`, `dash`), then the namespace is elided in
+the middle. The profile pill is never dropped.
 
 Status is encoded in shape as well as hue. Every execution status has its own glyph, `●`
 running, `✓` completed, `✗` failed, `■` terminated, `⊘` cancelled, `◔` timed out, `↻`
@@ -733,8 +764,28 @@ not applied.
 The loader is strict, like the others: a key that is not a slot, or a value that is not a
 colour, is reported in the statusline at startup and the whole file is set aside, rather than
 the line being skipped. A profile's `accent` in `config.toml` is separate from the `accent`
-slot: it colours the profile name in the header, always in a named colour, so production
-stays unmistakable whatever the theme says.
+slot: it fills the profile pill in the header, always a named colour, so production stays
+unmistakable whatever the theme says, and named colours follow the terminal's own palette.
+
+A profile with no `accent` gets one from its name, matched a whole word at a time (`-`, `_`
+and `.` split words, so `prodigy` is not production):
+
+| Word in the profile name | Pill |
+|---|---|
+| `prod`, `production`, `prd`, `live` | red |
+| `uat`, `sit`, `stg`, `staging`, `preprod` | yellow |
+| `dev`, `local`, or an address on `127.0.0.1` / `localhost` | green |
+| anything else | magenta |
+
+`default` is not on the list: it is the name `temporal.toml` gives a profile nobody named,
+and it points at a production cloud as often as at a laptop. It is green on a local address
+and magenta anywhere else.
+
+On a truecolor terminal the pill takes tmprl's own shade of the named colour (red `#e05252`,
+yellow `#f0c674`, green `#a7b879`, blue `#6b99e8`, magenta `#c678dd`, cyan `#56b6c2`) with
+dark ink; on sixteen colours it is the terminal's named colour. `RO` is a pill of its own in
+grey, so it never takes the profile's colour. Without colour both are bracketed, `[PROD RO]`,
+in reverse video.
 
 The timeline's colours are Temporal's web UI's and are not slots. They go through the same
 depth rule: nearest named colour on 16, none under `NO_COLOR`.

@@ -81,6 +81,13 @@ impl Clock {
         }
     }
 
+    pub fn moment(&self, ms: i64) -> String {
+        match self.zoned(Some(ms)) {
+            None => NO_TIME.to_string(),
+            Some(z) => z.strftime("%m-%d %H:%M:%S").to_string(),
+        }
+    }
+
     pub fn time_of_day(&self, ms: i64) -> String {
         match self.zoned(Some(ms)) {
             None => NO_TIME.to_string(),

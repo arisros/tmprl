@@ -42,17 +42,24 @@ impl App {
     }
 
     pub(super) fn maybe_decode(&mut self) {
-        if !self.view.show_detail || self.view.screen != Screen::History {
+        if self.view.screen != Screen::History || !(self.view.show_detail || self.view.show_info) {
             return;
         }
         let Some(codec) = self.codec.clone() else {
             return;
         };
 
-        let wanted: Vec<Payload> = self
-            .payloads_under_cursor()
+        let mut candidates: Vec<Payload> = Vec::new();
+        if self.view.show_detail {
+            candidates.extend(self.payloads_under_cursor().into_iter().map(|(_, p)| p));
+        }
+        if self.view.show_info
+            && let Some(info) = self.view.info.value()
+        {
+            candidates.extend(info.payloads().cloned());
+        }
+        let wanted: Vec<Payload> = candidates
             .into_iter()
-            .map(|(_, p)| p)
             .filter(|p| p.needs_codec())
             .filter(|p| {
                 let key = Self::payload_key(p);
@@ -369,6 +376,13 @@ fn cut_line(line: &str) -> String {
 fn apply_decoded_to(decoded: &HashMap<u64, Payload>, view: &mut View) {
     for queried in view.queried.iter_mut() {
         swap_decoded(decoded, queried);
+    }
+    if let Some(info) = view.info.value_mut() {
+        for p in info.payloads_mut() {
+            if let Some(plain) = decoded.get(&App::payload_key(p)) {
+                *p = plain.clone();
+            }
+        }
     }
     let mut changed = false;
     for event in &mut view.history_events {

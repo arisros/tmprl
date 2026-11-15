@@ -1,0 +1,153 @@
+//! The workflow bar and the info card `gi` opens under it.
+
+use super::*;
+use tmprl_core::info::WorkflowInfo;
+use tmprl_core::payload::Payload;
+use tmprl_core::pending::{PendingActivity, PendingState};
+
+fn described() -> WorkflowInfo {
+    WorkflowInfo {
+        workflow_id: "order-1001".into(),
+        run_id: "r-42".into(),
+        workflow_type: "OrderWorkflow".into(),
+        status: WorkflowStatus::Running,
+        task_queue: "orders".into(),
+        start_time: Some(0),
+        run_timeout_ms: Some(3_600_000),
+        task_timeout_ms: Some(10_000),
+        memo: vec![(
+            "note".into(),
+            Payload::new("json/plain", b"\"vip\"".to_vec()),
+        )],
+        search_attributes: vec![(
+            "Tenant".into(),
+            Payload::new("json/plain", b"\"acme\"".to_vec()),
+        )],
+        ..Default::default()
+    }
+}
+
+fn opened(width: u16, height: u16) -> String {
+    let mut app = app_with_payloads();
+    app.view.info = Loadable::loaded(described());
+    app.run("history.info", None);
+    draw(&mut app, width, height)
+}
+
+fn line_with<'a>(out: &'a str, needle: &str) -> &'a str {
+    out.lines()
+        .find(|l| l.contains(needle))
+        .unwrap_or_else(|| panic!("no line with {needle}:\n{out}"))
+}
+
+#[test]
+fn the_card_is_closed_until_gi() {
+    let mut app = app_with_payloads();
+    app.view.info = Loadable::loaded(described());
+    let out = draw(&mut app, 120, 24);
+    assert!(!out.contains("waiting on"), "{out}");
+    assert!(out.contains("gi info"), "{out}");
+}
+
+#[test]
+fn gi_opens_the_card_under_the_bar_and_it_starts_with_what_it_waits_on() {
+    let out = opened(140, 30);
+    let lines: Vec<&str> = out.lines().collect();
+    assert!(lines[1].contains("gi hide"), "{out}");
+    assert!(lines[2].contains(" info "), "{out}");
+    assert!(lines[2].contains("<Space>yR run"), "{out}");
+    assert!(lines[3].contains("waiting on"), "{out}");
+    assert!(lines[3].contains("nothing pending"), "{out}");
+}
+
+#[test]
+fn the_card_lists_only_what_is_there_and_folds_the_rest_into_one_line() {
+    let out = opened(140, 30);
+    for want in [
+        "r-42",
+        "run 1h · workflow task 10s",
+        "memo",
+        "note \"vip\"",
+        "search",
+        "Tenant \"acme\"",
+        "no parent · no children",
+    ] {
+        assert!(out.contains(want), "{want} missing:\n{out}");
+    }
+    assert!(!out.contains("this run"), "{out}");
+    assert!(!out.contains("closed"), "{out}");
+}
+
+#[test]
+fn the_card_does_not_repeat_the_bar() {
+    let out = opened(140, 30);
+    let card: String = out.lines().skip(3).take(8).collect::<Vec<_>>().join("\n");
+    assert!(!card.contains("order-1001 "), "{card}");
+    assert!(!card.contains("orders"), "{card}");
+}
+
+#[test]
+fn a_wide_card_pairs_facts_and_a_narrow_one_stacks_them() {
+    let wide = opened(140, 30);
+    assert!(line_with(&wide, "r-42").contains("started"), "{wide}");
+    let narrow = opened(90, 40);
+    assert!(!line_with(&narrow, "r-42").contains("started"), "{narrow}");
+}
+
+#[test]
+fn a_pending_activity_is_named_in_the_first_line() {
+    let mut app = app_with_payloads();
+    app.view.info = Loadable::loaded(described());
+    app.view.pending = vec![PendingActivity {
+        activity_type: "ChargeCard".into(),
+        state: PendingState::Started,
+        attempt: 2,
+        maximum_attempts: 5,
+        ..Default::default()
+    }];
+    app.run("history.info", None);
+    let out = draw(&mut app, 140, 30);
+    let first = line_with(&out, "waiting on");
+    assert!(first.contains("activity ChargeCard"), "{out}");
+    assert!(first.contains("attempt 2/5"), "{out}");
+}
+
+#[test]
+fn a_bar_whose_queue_is_the_type_names_it_once() {
+    let mut app = app_with_history();
+    let mut info = described();
+    info.task_queue = info.workflow_type.clone();
+    app.view.info = Loadable::loaded(info);
+    let bar = draw(&mut app, 140, 12).lines().nth(1).unwrap().to_string();
+    assert_eq!(bar.matches("OrderWorkflow").count(), 1, "{bar}");
+}
+
+#[test]
+fn the_payload_pane_stays_open_beside_the_card() {
+    let mut app = app_with_payloads();
+    app.view.info = Loadable::loaded(described());
+    app.run("motion.down", None);
+    app.run("history.detail", None);
+    app.run("history.info", None);
+    let out = draw(&mut app, 140, 40);
+    assert!(out.contains("waiting on"), "{out}");
+    assert!(out.contains("payloads"), "{out}");
+    assert!(out.contains("\"amount\": 100"), "{out}");
+}
+
+#[test]
+fn the_card_says_it_is_describing_until_the_reply_lands() {
+    let mut app = app_with_payloads();
+    app.view.info = Loadable::Loading;
+    app.run("history.info", None);
+    let out = draw(&mut app, 120, 20);
+    assert!(out.contains("describing"), "{out}");
+}
+
+#[test]
+fn the_bar_shows_the_list_row_before_describe_answers() {
+    let mut app = app_with_history();
+    app.view.info = Loadable::Loading;
+    let bar = draw(&mut app, 120, 12).lines().nth(1).unwrap().to_string();
+    assert!(bar.contains("order-1001"), "{bar}");
+}

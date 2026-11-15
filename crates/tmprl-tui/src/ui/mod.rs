@@ -9,6 +9,7 @@ mod form;
 mod help;
 mod highlight;
 mod history;
+mod info;
 mod messages;
 mod namespaces;
 mod picker;
@@ -55,13 +56,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         } else {
             rect
         };
-        let inner = pane_body(
-            rect,
-            app.view.screen,
-            app.view.show_detail,
-            app.payload_pane(),
-            app.payload_size(),
-        );
+        let inner = pane_body(rect, &app.view, app.payload_pane(), app.payload_size());
         app.view.page = inner.list.height.saturating_sub(1) as usize;
         match inner.detail {
             Some(detail) => {
@@ -158,23 +153,20 @@ const MIN_SIDE_BY_SIDE_WIDTH: u16 = 100;
 
 fn pane_body(
     area: ratatui::layout::Rect,
-    screen: Screen,
-    show_detail: bool,
+    view: &View,
     payload: PayloadPane,
     size: u16,
 ) -> PaneAreas {
+    let screen = view.screen;
     let query_height = match screen {
         Screen::Workflows => 1,
-        Screen::Profiles
-        | Screen::Namespaces
-        | Screen::History
-        | Screen::Schedules
-        | Screen::Dashboard => 0,
+        Screen::History => info::height(view, area.width).min(area.height.saturating_sub(3)),
+        Screen::Profiles | Screen::Namespaces | Screen::Schedules | Screen::Dashboard => 0,
     };
     let [query, rest] =
         Layout::vertical([Constraint::Length(query_height), Constraint::Min(1)]).areas(area);
 
-    if screen == Screen::History && show_detail {
+    if screen == Screen::History && view.show_detail {
         let [list, detail] =
             if payload == PayloadPane::Right && rest.width >= MIN_SIDE_BY_SIDE_WIDTH {
                 Layout::horizontal([Constraint::Min(40), Constraint::Percentage(size)]).areas(rest)
@@ -219,13 +211,7 @@ fn render_pane(
     }
 
     view.rows_drawn.set(None);
-    let areas = pane_body(
-        area,
-        view.screen,
-        view.show_detail,
-        app.payload_pane(),
-        app.payload_size(),
-    );
+    let areas = pane_body(area, view, app.payload_pane(), app.payload_size());
     match view.screen {
         Screen::Profiles => profiles::render(frame, areas.list, view, app, theme),
         Screen::Namespaces => namespaces::render(frame, areas.list, view, app, theme),
@@ -239,6 +225,7 @@ fn render_pane(
         Screen::Schedules => schedules::render(frame, areas.list, view, app, theme),
         Screen::Dashboard => dashboard::render(frame, areas.list, view, app, theme, focused),
         Screen::History => {
+            info::render(frame, areas.query, view, app, theme);
             history::render(frame, areas.list, view, app, theme);
             if let Some(mut pane) = areas.detail {
                 if pane.x > areas.list.x {

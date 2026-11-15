@@ -10,6 +10,7 @@ pub use conn::{
 pub use ops::{
     OpError,
     codec::Codec,
+    describe::Described,
     history::HistoryPage,
     namespace::NamespaceInfo,
     schedule::SchedulePage,

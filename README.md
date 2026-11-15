@@ -76,6 +76,7 @@ tmprl --config-path                         # every file tmprl reads, and whethe
 | `<Space>m…` | cancel, terminate, signal, delete, reset, update | `gs` `gw` `gd` | schedules / workflows / dashboard |
 | `<Space>cq` | query the workflow, from the handlers it lists | `<Space>cs` | its stack trace |
 | `gc` | open the child under the cursor | `gp` | open the parent |
+| `gi` | the workflow's info card: timeouts, what it waits on, lineage, memo, search attributes | | |
 | `<Space>s…` `<C-w>hjkl` | splits | `<Space>t…` | tabs |
 | `<Space>N` | switch namespace | `<Space>P` | switch profile, or `-` from the namespaces |
 | `<Space>T` | times as a clock or an age | `R` | reload from the server |
@@ -208,9 +209,9 @@ flowchart LR
 
 | Crate | Tests | |
 |---|---|---|
-| `tmprl-client` | 92 | all network IO |
-| `tmprl-core` | 477 | no terminal, no server |
-| `tmprl-tui` | 547 | ratatui |
+| `tmprl-client` | 94 | all network IO |
+| `tmprl-core` | 491 | no terminal, no server |
+| `tmprl-tui` | 572 | ratatui |
 | `tmprl-ui` | 47 | window tree |
 
 ```sh
@@ -228,11 +229,12 @@ TMPRL_REQUIRE_SERVER=1 cargo test  # what CI runs
 - [x] mutations, schedules, batch over a selection of rows
 - [x] a dashboard: counts, recent failures, failing types, activities retrying, task queues in use, schedules
 - [x] line editing and paste in every prompt, child and parent navigation, queries and the call stack
+- [x] a header that says where you are, a workflow bar, and an info card: timeouts, lineage, pending work, memo, search attributes
 
 | Next | |
 |---|---|
 | 0.5 | help that knows the screen, saving the query bar as a view |
-| 0.6 | a workflow info pane, retry policies, run chains, signal and update payloads, task queues and pollers, build ids, reset options, batch over a query |
+| 0.6 | retry policies, run chains, signal and update payloads, task queues and pollers, build ids, reset options, batch over a query |
 | 0.7 | export, a history opened from a file, headless `--exec` with JSON output |
 | 0.8 | quickfix, marks, diff, macros |
 

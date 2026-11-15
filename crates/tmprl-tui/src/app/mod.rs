@@ -20,10 +20,12 @@
 //! | `mouse` | the wheel and the click, when `[input] mouse` asks for them |
 //! | `profile` | listing the connection profiles and switching to one |
 //! | `interaction` | workflow queries: the handler picker and the answer |
+//! | `info` | the workflow info block: the describe reply and `gi` |
 
 mod dashboard;
 mod find;
 mod history;
+mod info;
 mod interaction;
 mod load;
 mod messages;
@@ -58,7 +60,6 @@ use tmprl_core::line::{Edit, LineEdit, LineHistory};
 use tmprl_core::mutation::{Confirm, Mutation};
 use tmprl_core::outline::{Outline, Row};
 use tmprl_core::payload::Payload;
-use tmprl_core::pending::PendingActivity;
 use tmprl_core::picker::{self, Picker, Target};
 use tmprl_core::search::{self, Search};
 use tmprl_core::timerange::parse_backfill;
@@ -275,9 +276,9 @@ pub enum Msg {
         timed: bool,
         result: Result<SourceData, Fault>,
     },
-    Pending {
+    Described {
         generation: u64,
-        result: Result<Vec<PendingActivity>, Fault>,
+        result: Result<Box<tmprl_client::Described>, Fault>,
     },
     FollowRetrying {
         generation: u64,
@@ -863,15 +864,7 @@ impl App {
                     Note::Warn,
                 );
             }
-            Msg::Pending { generation, result } => {
-                if generation != self.view.generation {
-                    return;
-                }
-                match result {
-                    Ok(pending) => self.view.pending = pending,
-                    Err(e) => self.fail_as(format!("pending activities: {e}"), e, Note::Warn),
-                }
-            }
+            Msg::Described { generation, result } => self.described(generation, result),
             Msg::Schedules { generation, result } => {
                 if generation != self.view.generation {
                     return;
@@ -1193,6 +1186,7 @@ impl App {
             Action::OpenSource => self.open_source(),
             Action::OpenChild => self.open_child(),
             Action::OpenParent => self.open_parent(),
+            Action::ToggleInfo => self.toggle_info(),
 
             Action::CancelWorkflow => self.confirm_mutation(MutationKind::Cancel),
             Action::TerminateWorkflow => self.confirm_mutation(MutationKind::Terminate),

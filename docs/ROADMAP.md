@@ -46,14 +46,14 @@ broken.
 
 | Item | Today | Effort |
 |---|---|---|
-| Workflow info pane | `DescribeWorkflowExecution` is already called and everything but the pending activities is discarded. Wanted on the history screen: status, type, run id, task queue, times, timeouts, memo, search attributes, parent and root, pending children, the pending workflow task. The next three rows read the same reply | M |
+| ✓ Workflow info pane | Done: a workflow bar on every history, and `gi` opens a card under it that starts with what it is waiting on, then the run, timing, timeouts, lineage, memo and search attributes. The next three rows read the same reply | M |
 | Retry policy | Attempts, backoff and the last failure are shown. The policy itself is not, and heartbeat and last-started times are fetched but never drawn | S |
 | Run chain | `newRunId` and `firstRunId` are shown as text. Wanted: next and previous run, and every run of an id as a list | S |
 | Filter by an attribute's value | A workflow's own search attributes are never shown. With the pane above, a row becomes a filter clause. `/` on the workflow list also matches memo and search attribute values, which the list already carries | S |
 | Signal and update payloads | Both send a name and no input. An update's result is discarded. Ships with codec encode, never before it | M |
 | Codec encode | The codec client only decodes, so anything sent to an encrypted namespace would go out as plaintext. Outgoing payloads need `/encode` first | S |
-| Task queue describe | The dashboard shows backlog, its age and the poller count for queues with running workflows. Wanted: a view of one queue, with each poller and the rates, reached from the info pane's task queue or a typed name. A stuck workflow with nothing polling its queue is the most common stall | M |
-| Build id display | Nothing. Shown on the info pane and on pollers; no browser, see below | S |
+| Task queue describe | The dashboard shows backlog, its age and the poller count for queues with running workflows. Wanted: a view of one queue, with each poller and the rates, reached from the info card's task queue or a typed name. A stuck workflow with nothing polling its queue is the most common stall | M |
+| Build id display | Nothing. Shown on the info card and on pollers; no browser, see below | S |
 | Reset options | No choice of what to reapply, and no statement of which events are discarded | S |
 | Query | Built: `<leader>cq` picks a handler from the workflow's own `__temporal_workflow_metadata`, falls back to the names an older SDK's refusal lists, then to a typed name, and shows the answer in the payload pane. `<leader>cs` shows the call stack through `__stack_trace`. Still wanted: `<leader>cQ` runs every handler and shows one object keyed by name; `<leader>cq` on a `V` selection runs one handler on each workflow, of one type, capped. Input waits for signal and update payloads and codec encode | M |
 | Batch over a query | Temporal's server-side batch, with a `CountWorkflowExecutions` dry run and the count typed to confirm | M |

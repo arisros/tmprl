@@ -39,13 +39,21 @@ fn the_profile_list_marks_the_connected_one() {
     assert!(out.contains("2 profiles"), "{out}");
 }
 
+fn narrow_keeps_the_pill(app: &mut App) -> bool {
+    draw(app, 30, 6).lines().next().unwrap().contains("PROD")
+}
+
 #[test]
 fn the_header_shows_the_address_when_there_is_room() {
     let mut app = app_with_rows();
     let wide = draw(&mut app, 100, 6);
     assert!(
-        wide.lines().next().unwrap().contains("(detached)"),
+        wide.lines().next().unwrap().contains(" detached "),
         "{wide}"
+    );
+    assert!(
+        narrow_keeps_the_pill(&mut app),
+        "the profile pill is the one thing never dropped"
     );
     let narrow = draw(&mut app, 40, 6);
     assert!(

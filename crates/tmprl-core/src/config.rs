@@ -155,6 +155,31 @@ impl Accent {
             _ => return None,
         })
     }
+
+    pub fn guess(profile: &str, address: &str) -> Self {
+        let lower = profile.to_ascii_lowercase();
+        let has = |words: &[&str]| {
+            lower
+                .split(['-', '_', '.', ' '])
+                .any(|token| words.contains(&token))
+        };
+        let host = address
+            .rsplit("://")
+            .next()
+            .unwrap_or(address)
+            .split(':')
+            .next()
+            .unwrap_or_default();
+        if has(&["prod", "production", "prd", "live"]) {
+            Self::Red
+        } else if has(&["uat", "sit", "stg", "staging", "preprod"]) {
+            Self::Yellow
+        } else if has(&["dev", "local"]) || matches!(host, "127.0.0.1" | "localhost") {
+            Self::Green
+        } else {
+            Self::Magenta
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -717,6 +742,43 @@ mod tests {
     use super::*;
     use crate::key::Chord;
     use crate::keymap::{Pending, Resolution, default_keymap};
+
+    #[test]
+    fn a_profile_name_picks_its_colour_by_whole_word() {
+        let remote = "https://cluster.example:7233";
+        assert_eq!(Accent::guess("prod", remote), Accent::Red);
+        assert_eq!(Accent::guess("prod-us", remote), Accent::Red);
+        assert_eq!(Accent::guess("PRODUCTION", remote), Accent::Red);
+        assert_eq!(Accent::guess("lora_uat", remote), Accent::Yellow);
+        assert_eq!(Accent::guess("sit", remote), Accent::Yellow);
+        assert_eq!(Accent::guess("dev.eu", remote), Accent::Green);
+        assert_eq!(
+            Accent::guess("default", remote),
+            Accent::Magenta,
+            "temporal.toml's default profile often points at a production cloud"
+        );
+        assert_eq!(Accent::guess("default", "127.0.0.1:7233"), Accent::Green);
+        assert_eq!(
+            Accent::guess("prodigy", remote),
+            Accent::Magenta,
+            "a word that only starts with prod is not production"
+        );
+        assert_eq!(Accent::guess("analytics", remote), Accent::Magenta);
+    }
+
+    #[test]
+    fn a_local_address_is_green_whatever_the_profile_is_called() {
+        assert_eq!(Accent::guess("mine", "127.0.0.1:7233"), Accent::Green);
+        assert_eq!(
+            Accent::guess("mine", "http://localhost:7233"),
+            Accent::Green
+        );
+        assert_eq!(
+            Accent::guess("prod", "127.0.0.1:7233"),
+            Accent::Red,
+            "the name wins: a tunnel to production listens on localhost too"
+        );
+    }
 
     #[test]
     fn views_parse_in_key_order() {

@@ -65,6 +65,7 @@ payload.edit	History	Open the payloads in $EDITOR
 history.source	History	Go to the source of this event
 history.child	History	Open the child workflow
 history.parent	History	Open the parent workflow
+history.info	History	Show or hide the workflow info card
 window.split-right	Windows	Split side by side
 window.split-down	Windows	Split above and below
 window.close	Windows	Close this window
@@ -183,6 +184,7 @@ NORMAL	gc	history.child
 NORMAL	gd	nav.dashboard
 NORMAL	gf	history.source
 NORMAL	gg	motion.top
+NORMAL	gi	history.info
 NORMAL	gp	history.parent
 NORMAL	gs	nav.schedules
 NORMAL	gw	nav.workflows

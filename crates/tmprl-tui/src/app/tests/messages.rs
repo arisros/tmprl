@@ -157,7 +157,7 @@ fn a_failed_schedule_list_is_logged_with_its_call() {
 #[test]
 fn a_warning_worded_by_the_caller_still_keeps_the_failure_behind_it() {
     let mut app = app();
-    app.handle(Msg::Pending {
+    app.handle(Msg::Described {
         generation: app.view.generation,
         result: Err(Fault::rpc(
             "DescribeWorkflowExecution",
@@ -168,11 +168,7 @@ fn a_warning_worded_by_the_caller_still_keeps_the_failure_behind_it() {
 
     let logged = app.messages.back().unwrap();
     assert_eq!(logged.level, Note::Warn);
-    assert!(
-        logged.text.starts_with("pending activities:"),
-        "{}",
-        logged.text
-    );
+    assert!(logged.text.starts_with("describe:"), "{}", logged.text);
     assert_eq!(logged.fault.as_ref().unwrap().code, Code::DeadlineExceeded);
 }
 

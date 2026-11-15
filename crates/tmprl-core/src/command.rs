@@ -81,6 +81,7 @@ pub enum Action {
     OpenSource,
     OpenChild,
     OpenParent,
+    ToggleInfo,
 
     SplitRight,
     SplitDown,
@@ -212,6 +213,7 @@ impl Registry {
             "history.source",     "History",     "Go to the source of this event" => OpenSource;
             "history.child",      "History",     "Open the child workflow"   => OpenChild;
             "history.parent",     "History",     "Open the parent workflow"  => OpenParent;
+            "history.info",       "History",     "Show or hide the workflow info card" => ToggleInfo;
 
             "window.split-right", "Windows",     "Split side by side"        => SplitRight;
             "window.split-down",  "Windows",     "Split above and below"     => SplitDown;
