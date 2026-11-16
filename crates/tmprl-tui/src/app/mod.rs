@@ -384,6 +384,8 @@ pub struct App {
     pub editing: Option<EditRequest>,
     pub opening: Option<SourceRequest>,
     source_command: Option<String>,
+    source_hops: Vec<tmprl_core::source::Hop>,
+    source_waiting: bool,
     pub jumps: Jumplist<Jump>,
     scan: Option<Scan>,
     pub search: Search,
@@ -493,6 +495,8 @@ impl App {
             editing: None,
             opening: None,
             source_command: None,
+            source_hops: Vec::new(),
+            source_waiting: false,
             jumps: Jumplist::default(),
             scan: None,
             search: Search::default(),
@@ -708,12 +712,18 @@ impl App {
                     self.decoded.insert(key, payload);
                 }
                 self.apply_decoded();
+                if std::mem::take(&mut self.source_waiting) {
+                    self.open_source();
+                }
             }
             Msg::Decoded(Err(e)) => {
                 for key in std::mem::take(&mut self.decoding) {
                     self.decode_failed.insert(key, e.to_string());
                 }
                 self.fail(e, Note::Error);
+                if std::mem::take(&mut self.source_waiting) {
+                    self.open_source();
+                }
             }
             Msg::SearchAttributes { namespace, result } => {
                 if namespace != self.namespace() {

@@ -67,6 +67,16 @@
 - **Long histories load in seconds, not a minute.** Grouping looked each event's group up
   one by one, so a 100k-event history took 52 seconds to arrive and stalled the screen as
   it did; it now takes about 1.5.
+- **`gf` shows the path, not only the end of it**: a resolver can print the places an
+  event passes through, one per line after its answer (`path:line<TAB>root<TAB>label`),
+  and `gf` lists them in a picker with the cursor on the answer. `j` / `k` move, `1` to `9`
+  or Enter open one in its own project. A resolver that prints only the answer opens it as
+  before.
+- **Fix**: `gf` on an encrypted history sent the resolver no payloads, so it could not see
+  what the event was about. The group's payloads are now decoded first when a codec is
+  configured.
+- **Fix**: `gf` left out `binary/plain` payloads, such as a Go `[]byte` argument holding
+  JSON. The resolver now gets them when they are text.
 
 ## 0.4.2 — 2026-10-16
 

@@ -333,6 +333,83 @@ fn going_to_the_source_needs_a_history_and_a_resolver() {
 }
 
 #[test]
+fn a_resolvers_hops_open_a_picker_on_the_answer() {
+    let mut app = viewing_history();
+    let dir = std::env::temp_dir().join(format!("tmprl-hops-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (from, here) = (dir.join("send.go"), dir.join("run.go"));
+    std::fs::write(&from, "package x\n").unwrap();
+    std::fs::write(&here, "package x\n").unwrap();
+    let (d, f, h) = (dir.display(), from.display(), here.display());
+
+    app.handle(Msg::Source(Ok(format!(
+        "{h}:9\n{d}\n{f}:3\t{d}\tSDK  sends it\nrelative.go:1\t{d}\tdropped\n{h}:9\t{d}\tLTW  runs it\n"
+    ))));
+    assert_eq!(picker_labels(&app), ["1  SDK  sends it", "2  LTW  runs it"]);
+    assert_eq!(app.picker.as_ref().unwrap().cursor, 1, "on the answer");
+    assert!(app.opening.is_none(), "nothing opens before a pick");
+
+    app.handle(Msg::Key(Chord::plain(Key::Char('k'))));
+    assert_eq!(
+        app.picker.as_ref().unwrap().cursor,
+        0,
+        "k moves, it does not filter"
+    );
+    app.handle(Msg::Key(Chord::plain(Key::Char('j'))));
+    assert_eq!(app.picker.as_ref().unwrap().cursor, 1);
+    app.handle(Msg::Key(Chord::plain(Key::Char('x'))));
+    assert_eq!(picker_labels(&app).len(), 2, "other letters do not filter");
+    app.handle(Msg::Key(Chord::plain(Key::Char('9'))));
+    assert!(app.picker.is_some(), "a number past the list does nothing");
+
+    app.handle(Msg::Key(Chord::plain(Key::Char('1'))));
+    assert!(app.picker.is_none());
+    assert_eq!(
+        app.take_source_request(),
+        Some(SourceRequest {
+            path: from,
+            line: Some(3),
+            root: Some(dir.clone()),
+        })
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
+async fn going_to_the_source_decodes_the_payloads_first() {
+    let mut app = viewing_payloads();
+    app.codec = Some(Arc::new(Codec::new("http://127.0.0.1:1", None)));
+    app.source_command = Some("true".into());
+    app.run("motion.bottom", None);
+    let (_, encrypted) = app.payloads_under_cursor().into_iter().next().unwrap();
+    let key = App::payload_key(&encrypted);
+
+    app.run("history.source", None);
+    assert!(app.source_waiting, "the resolver waits for the plaintext");
+    assert!(app.decoding.contains(&key));
+    assert!(app.note.clone().unwrap().0.contains("decoding"));
+
+    app.handle(Msg::Decoded(Ok(vec![(
+        key,
+        Payload::new("json/plain", br#"{"type":"SURVEY"}"#.to_vec()),
+    )])));
+    assert!(!app.source_waiting);
+    assert!(app.note.clone().unwrap().0.starts_with("asking true"));
+
+    let mut app = viewing_payloads();
+    app.codec = Some(Arc::new(Codec::new("http://127.0.0.1:1", None)));
+    app.source_command = Some("true".into());
+    app.run("motion.bottom", None);
+    app.run("history.source", None);
+    app.handle(Msg::Decoded(Err("connection refused".into())));
+    assert!(
+        !app.source_waiting,
+        "a failed decode still asks, without the payload"
+    );
+    assert!(app.note.clone().unwrap().0.starts_with("asking true"));
+}
+
+#[test]
 fn a_resolvers_answer_becomes_a_file_to_open_at_its_line() {
     let mut app = viewing_history();
     let file = std::env::temp_dir().join(format!("tmprl-source-{}.go", uuid::Uuid::new_v4()));

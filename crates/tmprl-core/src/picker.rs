@@ -12,6 +12,7 @@ pub enum Target {
     Namespace(String),
     Profile(String),
     Handler(String),
+    Hop(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,6 +79,7 @@ pub enum Kind {
     Namespaces,
     Profiles,
     Queries,
+    Source,
 }
 
 impl Kind {
@@ -91,6 +93,7 @@ impl Kind {
             Kind::Namespaces => "namespaces",
             Kind::Profiles => "profiles",
             Kind::Queries => "queries",
+            Kind::Source => "source",
         }
     }
 }
