@@ -26,7 +26,7 @@ impl Conn {
         run_id: &str,
         query_type: &str,
     ) -> Result<Vec<Payload>, OpError> {
-        let mut req = Request::new(QueryWorkflowRequest {
+        let req = Request::new(QueryWorkflowRequest {
             namespace: namespace.to_string(),
             execution: Some(WorkflowExecution {
                 workflow_id: workflow_id.to_string(),
@@ -38,28 +38,11 @@ impl Conn {
             }),
             ..Default::default()
         });
-        req.set_timeout(QUERY_DEADLINE);
-        let resp = self
-            .wf()
-            .query_workflow(req)
+        // Not grpc-timeout: the server would reset the stream at the same instant, read as Cancelled.
+        let resp = tokio::time::timeout(QUERY_DEADLINE, self.wf().query_workflow(req))
             .await
-            .map_err(|s| {
-                // tonic reports its own deadline as Cancelled.
-                if s.code() == temporalio_client::tonic::Code::Cancelled
-                    && s.message() == "Timeout expired"
-                {
-                    OpError::rpc(
-                        "QueryWorkflow",
-                        Code::DeadlineExceeded,
-                        format!(
-                            "no worker answered within {}s, is one polling this workflow's task queue?",
-                            QUERY_DEADLINE.as_secs()
-                        ),
-                    )
-                } else {
-                    super::rpc("QueryWorkflow", s)
-                }
-            })?
+            .map_err(|_| no_answer())?
+            .map_err(|s| super::rpc("QueryWorkflow", s))?
             .into_inner();
         if let Some(rejected) = resp.query_rejected {
             return Err(OpError::rpc(
@@ -76,4 +59,15 @@ impl Conn {
             .map(|p| p.payloads.into_iter().map(convert).collect())
             .unwrap_or_default())
     }
+}
+
+fn no_answer() -> OpError {
+    OpError::rpc(
+        "QueryWorkflow",
+        Code::DeadlineExceeded,
+        format!(
+            "no worker answered within {}s, is one polling this workflow's task queue?",
+            QUERY_DEADLINE.as_secs()
+        ),
+    )
 }
