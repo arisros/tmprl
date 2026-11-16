@@ -1,5 +1,6 @@
 //! Rendering. Every function here is a pure projection of `&App` onto a frame, no state
 
+pub mod brand;
 mod cmdline;
 mod complete;
 mod confirm;

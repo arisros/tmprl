@@ -294,6 +294,25 @@ fn read_only_is_a_neutral_pill_of_its_own() {
 }
 
 #[test]
+fn the_brand_ends_in_the_logos_pink_cursor() {
+    for (depth, pink) in [
+        (ColorDepth::TrueColor, Some(Color::Rgb(0xff, 0x00, 0x7c))),
+        (ColorDepth::Ansi16, Some(Color::Magenta)),
+        (ColorDepth::Mono, None),
+    ] {
+        let mut app = app_with_rows();
+        app.apply_theme(depth, None);
+        let buf = buffer(&mut app, 100, 12);
+        let cursor = &cells_of(&buf, "tmprl▌")[5];
+        assert_eq!(
+            (cursor.fg != Color::Reset).then_some(cursor.fg),
+            pink,
+            "{depth:?}"
+        );
+    }
+}
+
+#[test]
 fn without_colour_the_pill_is_bracketed() {
     let mut app = app_with_rows();
     app.apply_theme(ColorDepth::Mono, None);

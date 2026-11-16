@@ -2,11 +2,14 @@
 
 ## Unreleased
 
-- **A header that says where you are**: ` tmprl  PROD  RO  address › namespace › screen`.
-  The profile is a filled pill in its `accent`, and a profile without one is coloured from
+- **A header that says where you are**: ` tmprl▌  PROD  RO  address › namespace › screen`,
+  the brand ending in the logo's pink cursor. The profile is a filled pill in its `accent`, and a profile without one is coloured from
   its name: red for `prod`, yellow for `uat` / `sit` / `staging`, green for `dev`, `local`
   or a local address. Read-only is a grey pill of its own. The profile pill is the one thing
   a narrow terminal never drops.
+- **The logo in the terminal**: drawn while tmprl connects, beside the error when it
+  cannot, and on an empty namespace with the command that starts a first workflow. The help
+  overlay is titled with the version.
 - **A workflow bar on every history**: status, type, id, task queue (when it differs from
   the type), how long it has run, failures, open groups and the event count, on the line
   under the header, where the workflow id used to crowd the header.

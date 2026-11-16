@@ -691,12 +691,19 @@ can only add the restriction; nothing on the command line lifts a profile's own.
 
 ## Theming
 
-The header reads as a path: ` tmprl  PROD  RO  address › namespace › screen`, with the
+The header reads as a path: ` tmprl▌  PROD  RO  address › namespace › screen`, with the
+brand ending in the logo's pink cursor (magenta on sixteen colours, plain without colour), the
 screen's own tally on the right (counts by status on the workflow list, paused schedules,
 panels on the dashboard). On a history the workflow itself is in the workflow bar under it,
 not in the header. When the terminal is narrow the address goes first, then the tally, then
 the screen name shortens (`wf`, `hist`, `sched`, `dash`), then the namespace is elided in
 the middle. The profile pill is never dropped.
+
+The logo's mark, drawn in half blocks, appears in three places only: on stderr while tmprl
+connects (erased once it has, or replaced by the error when it cannot), and on a workflow
+list with no workflows and no query, beside how to start one. The help overlay is titled
+with the wordmark and the version. Without colour, or where it does not fit, the mark is
+left out and the text stays.
 
 Status is encoded in shape as well as hue. Every execution status has its own glyph, `●`
 running, `✓` completed, `✗` failed, `■` terminated, `⊘` cancelled, `◔` timed out, `↻`
