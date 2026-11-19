@@ -79,8 +79,8 @@
   resolver is working, and for how long. `Esc` stops it and the resolver with it, and a
   resolver that gives no answer in a minute is given up on.
 - **Connecting fills the screen**: the logo, twice its size where it fits, where tmprl
-  connects and for how long, centred, in place of a small mark in the corner. A connection
-  that takes under 150 ms goes straight to the list, and `Ctrl-C` quits while it waits.
+  connects and for how long, centred, in place of a small mark in the corner. It stays a
+  second at least, and `Ctrl-C` quits while it waits.
 - **Fix**: `gf` left out `binary/plain` payloads, such as a Go `[]byte` argument holding
   JSON. The resolver now gets them when they are text.
 

@@ -175,27 +175,27 @@ impl Splash {
         if !self.on || !std::io::stdout().is_terminal() {
             return (Connected::from(connecting.await), None);
         }
-        // A fast connect would only flash the screen.
-        if let Ok(done) = tokio::time::timeout(SPLASH_AFTER, &mut connecting).await {
-            return (Connected::from(done), None);
-        }
-
         let mut terminal = ratatui::init();
         let started = std::time::Instant::now();
         let mut keys = EventStream::new();
         let mut frame = tokio::time::interval(std::time::Duration::from_millis(ui::FRAME_MS));
+        let mut conn = None;
         loop {
-            let elapsed = (SPLASH_AFTER + started.elapsed()).as_millis() as i64;
+            if started.elapsed() >= SPLASH_AT_LEAST
+                && let Some(conn) = conn.take()
+            {
+                return (Connected::Yes(conn), Some(terminal));
+            }
+            let elapsed = started.elapsed().as_millis() as i64;
             let _ = terminal.draw(|f| ui::splash::render(f, &self.place, elapsed, &self.theme));
             tokio::select! {
-                done = &mut connecting => {
-                    let done = Connected::from(done);
-                    if matches!(done, Connected::Yes(_)) {
-                        return (done, Some(terminal));
+                done = &mut connecting, if conn.is_none() => match done {
+                    Ok(c) => conn = Some(c),
+                    Err(e) => {
+                        ratatui::restore();
+                        return (Connected::No(e), None);
                     }
-                    ratatui::restore();
-                    return (done, None);
-                }
+                },
                 Some(Ok(Event::Key(k))) = keys.next() => {
                     if k.kind == KeyEventKind::Press
                         && k.code == KeyCode::Char('c')
@@ -224,7 +224,7 @@ impl Splash {
     }
 }
 
-const SPLASH_AFTER: std::time::Duration = std::time::Duration::from_millis(150);
+const SPLASH_AT_LEAST: std::time::Duration = std::time::Duration::from_secs(1);
 
 enum Connected {
     Yes(Conn),
