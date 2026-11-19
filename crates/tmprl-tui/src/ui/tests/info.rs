@@ -228,4 +228,33 @@ fn the_card_colours_the_language_its_own_and_an_unpolled_queue_red() {
     };
     assert_eq!(fg_of("Go · temporal-go"), Color::Rgb(0x00, 0xad, 0xd8));
     assert_eq!(fg_of("none polling"), app.theme.err.fg.unwrap());
+
+    app.view.pollers = Some(vec![tmprl_core::taskqueue::Poller {
+        identity: "7@poller-host@".into(),
+        last_access_ms: None,
+    }]);
+    terminal.draw(|f| crate::ui::render(f, &mut app)).unwrap();
+    let buf = terminal.backend().buffer();
+    let (y, row) = (0..34u16)
+        .map(|y| {
+            (
+                y,
+                (0..140u16)
+                    .map(|x| buf[(x, y)].symbol())
+                    .collect::<String>(),
+            )
+        })
+        .find(|(_, row)| row.contains("pollers"))
+        .unwrap();
+    let col = |needle: &str| row[..row.find(needle).unwrap()].chars().count() as u16;
+    assert_eq!(
+        buf[(col("1 · "), y)].fg,
+        app.theme.ok.fg.unwrap(),
+        "the count"
+    );
+    assert_eq!(
+        buf[(col("7@poller"), y)].fg,
+        app.theme.dim.fg.unwrap(),
+        "who, as the worker row"
+    );
 }

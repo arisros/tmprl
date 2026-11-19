@@ -323,6 +323,18 @@ fn styled_card<'a>(view: &View, app: &App, t: &Theme, width: usize) -> Vec<Line<
             {
                 cell[1].style = lang_style(lang, t).add_modifier(Modifier::BOLD);
             }
+            let shown = cell[1].content.to_string();
+            if *label == "pollers"
+                && let Some((count, who)) = shown.split_once(" · ")
+            {
+                cell.splice(
+                    1..2,
+                    [
+                        Span::styled(count.to_string(), value_style.add_modifier(Modifier::BOLD)),
+                        Span::styled(format!(" · {who}"), t.dim),
+                    ],
+                );
+            }
             spans.extend(cell);
         }
         lines.push(Line::from(spans));
