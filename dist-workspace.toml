@@ -13,3 +13,7 @@ install-updater = false
 # Releases start from the Actions tab (Release -> Run workflow -> tag), not a tag push.
 dispatch-releases = true
 formula = "tmprl"
+
+# GitHub retired macos-14, dist 0.32's default for Apple silicon; a job asking for it is cancelled.
+[dist.github-custom-runners]
+aarch64-apple-darwin = "macos-15"
