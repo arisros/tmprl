@@ -23,13 +23,12 @@ what it costs.
 
 ## 0.5 · Trustworthy for strangers
 
-Every item is something that fails today in a way a new user would read as the tool being
-broken.
+Every item is something that failed in a way a new user would read as the tool being broken.
+Shipped as 0.5.0, with its two open items, help that knows the screen and query bar views,
+moved to the top of 0.6.
 
 | Item | Today | Effort |
 |---|---|---|
-| Help that knows the screen | `?` and which-key list every command everywhere; a command that does not apply refuses when run. Wanted: commands declare where they apply | M |
-| Query bar views | Saving the current query as a view needs `views.toml` edited by hand | S |
 | ✓ Request deadlines and reconnect | Done. The SDK already gives each RPC a 30s deadline (70s for a long poll), keepalive, and a channel that reconnects; the connect and the codec client now time out too, and follow and the retrying-activity poll retry with backoff instead of stopping | M |
 | ✓ Errors that say what happened | Done. A failure keeps its gRPC code to the UI, names what to try, and `:messages` keeps every note of the session | M |
 | ✓ Large histories | Done: each page is folded into the outline, so 100k events arrive in about 1.5 seconds instead of 52, with opt-in benchmarks (`cargo test -- --ignored bench_`) at 100k events and at the 50 MB history limit. A multi-megabyte payload is formatted once and scrolls without hanging | M |
@@ -46,14 +45,17 @@ broken.
 
 | Item | Today | Effort |
 |---|---|---|
-| ✓ Workflow info pane | Done: a workflow bar on every history, and `gi` opens a card under it that starts with what it is waiting on, then the run, timing, timeouts, lineage, memo and search attributes. The next three rows read the same reply | M |
+| Help that knows the screen | From 0.5. `?` and which-key list every command everywhere; a command that does not apply refuses when run. Wanted: commands declare where they apply | M |
+| Query bar views | From 0.5. Saving the current query as a view needs `views.toml` edited by hand | S |
+| ✓ Workflow info pane | Done: a workflow bar on every history, and `gi` opens a card under it that starts with what it is waiting on, each with its state, then the run, timing, timeouts, the SDK and its language, the last worker and its build, the pollers, lineage, memo and search attributes. The next three rows read the same reply | M |
+| ✓ Going to the source | Done: `gf` asks a resolver named in `config.toml` where an event's code is, decoding its payloads first, and lists the places it passed through in a picker. `demo/find-source.sh` is a resolver for a Go worker | M |
 | Retry policy | Attempts, backoff and the last failure are shown. The policy itself is not, and heartbeat and last-started times are fetched but never drawn | S |
 | Run chain | `newRunId` and `firstRunId` are shown as text. Wanted: next and previous run, and every run of an id as a list | S |
 | Filter by an attribute's value | A workflow's own search attributes are never shown. With the pane above, a row becomes a filter clause. `/` on the workflow list also matches memo and search attribute values, which the list already carries | S |
 | Signal and update payloads | Both send a name and no input. An update's result is discarded. Ships with codec encode, never before it | M |
 | Codec encode | The codec client only decodes, so anything sent to an encrypted namespace would go out as plaintext. Outgoing payloads need `/encode` first | S |
-| Task queue describe | The dashboard shows backlog, its age and the poller count for queues with running workflows. Wanted: a view of one queue, with each poller and the rates, reached from the info card's task queue or a typed name. A stuck workflow with nothing polling its queue is the most common stall | M |
-| Build id display | Nothing. Shown on the info card and on pollers; no browser, see below | S |
+| Task queue describe | The dashboard shows backlog, its age and the poller count for queues with running workflows, and the info card lists who polls a running workflow's queue, or that nobody does. Wanted: a view of one queue, with each poller and the rates, reached from the info card's task queue or a typed name. A stuck workflow with nothing polling its queue is the most common stall | M |
+| Build id display | The info card shows the build of the last worker to complete a workflow task. Wanted: on each poller too; no browser, see below | S |
 | Reset options | No choice of what to reapply, and no statement of which events are discarded | S |
 | Query | Built: `<leader>cq` picks a handler from the workflow's own `__temporal_workflow_metadata`, falls back to the names an older SDK's refusal lists, then to a typed name, and shows the answer in the payload pane. `<leader>cs` shows the call stack through `__stack_trace`. Still wanted: `<leader>cQ` runs every handler and shows one object keyed by name; `<leader>cq` on a `V` selection runs one handler on each workflow, of one type, capped. Input waits for signal and update payloads and codec encode | M |
 | Batch over a query | Temporal's server-side batch, with a `CountWorkflowExecutions` dry run and the count typed to confirm | M |
