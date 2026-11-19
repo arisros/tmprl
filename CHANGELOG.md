@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Payloads read like `jq -C`**: keys, strings, numbers and `true` / `false` / `null` each
+  in their own colour, punctuation faint. In the history the category recedes so the
+  activity's name stands out, and on the info card each thing the workflow waits on shows its
+  state: `●` running, `○` not yet picked up, `↻` retrying, `‖` paused, with the name bold in
+  that colour and its age and attempts dim. All from the existing theme slots, so
+  `theme.toml` still sets them.
 - **The info card says who runs the workflow**: the SDK's language, name and version, the
   last worker to complete a workflow task and its build id, and, while it runs, the workers
   polling its task queue, in red when none is. The language is drawn in its own colour, and

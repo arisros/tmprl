@@ -507,7 +507,7 @@ The card is ordered by what a debugging session asks first:
 
 | Row | Shown |
 |---|---|
-| waiting on | always first: each pending activity by name with its age or `retry in`, its attempt and its last failure, the pending workflow task and how long it has waited, pending children by type and id. Three at most, then `+N more`. Yellow while something is retrying, faint when nothing is pending or the workflow is closed |
+| waiting on | always first: each pending activity by name with its age or `retry in`, its attempt and its last failure, the pending workflow task and how long it has waited, pending children by type and id. Three at most, then `+N more`. Each line starts with its state: `●` running in `accent`, `○` not yet picked up by a worker, `↻` retrying and `‖` paused or being cancelled in `warn`; the name is bold in that colour, the rest dim. Faint when nothing is pending or the workflow is closed |
 | run, started, history | always. `started` carries its age while the workflow runs |
 | first run, first task, closed, timeouts, parent, root | only when they say something: after a continue-as-new, a delayed start, a close, a timeout that is set, a parent |
 | sdk, worker, build | from the history's completed workflow tasks: the SDK's language, name and version, the last worker to complete a task, and its build id, each when recorded. Where icons are on (see [Icons are optional](#icons-are-optional)) the language carries its Nerd Font glyph |
@@ -771,10 +771,10 @@ sel    = "#2c3340"
 |---|---|
 | `fg` | primary text |
 | `dim` | secondary text, such as a workflow's type |
-| `faint` | chrome: gutters, borders, hints |
-| `accent` | titles, the text cursor, the focused pane's border, anything running |
-| `ok` | completed, and the `FOLLOW` indicator |
-| `warn` | terminated and cancelled, key chords, the cursor row's line number |
+| `faint` | chrome: gutters, borders, hints, a history row's category, JSON punctuation |
+| `accent` | titles, the text cursor, the focused pane's border, anything running, JSON keys |
+| `ok` | completed, the `FOLLOW` indicator, JSON strings |
+| `warn` | terminated and cancelled, key chords, the cursor row's line number, JSON numbers, `true`, `false` and `null` |
 | `err` | failed and timed out, error messages |
 | `sel` | the background of the cursor row and of a selection |
 | `mode_normal`, `mode_insert`, `mode_visual`, `mode_command` | the mode indicator's background |

@@ -36,6 +36,34 @@ fn the_payload_pane_shows_input_and_result_for_a_group() {
 }
 
 #[test]
+fn json_keys_strings_and_numbers_each_have_a_colour_and_the_category_recedes() {
+    let mut app = app_with_payloads();
+    app.apply_theme(tmprl_core::ColorDepth::TrueColor, None);
+    app.run("motion.down", None);
+    app.run("history.detail", None);
+
+    let mut term = Terminal::new(TestBackend::new(110, 20)).unwrap();
+    term.draw(|f| render(f, &mut app)).unwrap();
+    let buf = term.backend().buffer().clone();
+    let style_at = |needle: &str, offset: usize| {
+        (0..20u16)
+            .find_map(|y| {
+                let row: String = (0..110u16).map(|x| buf[(x, y)].symbol()).collect();
+                row.find(needle)
+                    .map(|at| buf[((row[..at].chars().count() + offset) as u16, y)].fg)
+            })
+            .unwrap_or_else(|| panic!("no {needle}"))
+    };
+    let t = app.theme;
+    assert_eq!(style_at("\"amount\": 100", 0), t.accent.fg.unwrap());
+    assert_eq!(style_at("\"amount\": 100", 8), t.faint.fg.unwrap());
+    assert_eq!(style_at("\"amount\": 100", 10), t.warn.fg.unwrap());
+    assert_eq!(style_at("\"GBP\"", 0), t.ok.fg.unwrap());
+    assert_eq!(style_at("activity", 0), t.faint.fg.unwrap());
+    assert_eq!(style_at("ChargeCard", 0), t.fg.fg.unwrap());
+}
+
+#[test]
 fn an_encrypted_payload_says_it_needs_a_codec_rather_than_showing_bytes() {
     let mut app = app_with_payloads();
     app.run("motion.bottom", None);
@@ -248,6 +276,15 @@ fn k_on_a_retrying_activity_shows_where_it_is() {
     assert!(out.contains("attempt 4/10"), "attempt missing:\n{out}");
     assert!(out.contains("worker-7@host"), "worker missing:\n{out}");
     assert!(out.contains("PaymentDeclined"), "failure missing:\n{out}");
+    assert!(
+        out.contains("↻ attempt 4/10"),
+        "marked as the card marks it:\n{out}"
+    );
+
+    app.view.pending[0].attempt = 1;
+    app.view.pending[0].last_failure = None;
+    app.view.pending[0].state = tmprl_core::pending::PendingState::Started;
+    assert!(draw(&mut app, 120, 20).contains("● attempt 1/10"));
 }
 
 fn lit_on_row(app: &mut App, w: u16, h: u16, row_text: &str, symbol: &str) -> bool {

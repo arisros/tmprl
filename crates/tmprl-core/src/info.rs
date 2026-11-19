@@ -1,7 +1,7 @@
 //! A workflow's own state from `DescribeWorkflowExecution`, laid out as the info card.
 
 use crate::payload::Payload;
-use crate::pending::PendingActivity;
+use crate::pending::{PendingActivity, PendingState};
 use crate::workflow::WorkflowStatus;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -61,10 +61,37 @@ pub enum Tone {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Card {
     pub waiting: Vec<String>,
+    /// One per line of `waiting`.
+    pub states: Vec<Wait>,
     pub tone: Tone,
     pub facts: Vec<(&'static str, String)>,
     pub wide: Vec<(&'static str, String)>,
     pub empty: Vec<&'static str>,
+}
+
+/// Where one thing the workflow waits on stands: what the info card colours it by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Wait {
+    Running,
+    Queued,
+    Retrying,
+    Held,
+    Quiet,
+}
+
+impl Wait {
+    pub fn of(p: &PendingActivity) -> Wait {
+        if p.is_retrying() {
+            return Wait::Retrying;
+        }
+        match p.state {
+            PendingState::Started => Wait::Running,
+            PendingState::Paused | PendingState::PauseRequested | PendingState::CancelRequested => {
+                Wait::Held
+            }
+            PendingState::Scheduled | PendingState::Unspecified => Wait::Queued,
+        }
+    }
 }
 
 pub const MAX_LISTED: usize = 3;
@@ -77,7 +104,7 @@ impl WorkflowInfo {
         pending: &[PendingActivity],
         stamp: impl Fn(i64) -> String,
     ) -> Card {
-        let (waiting, tone) = self.waiting_on(now_ms, pending);
+        let (waiting, states, tone) = self.waiting_on(now_ms, pending);
         let mut facts = vec![("run", self.run_id.clone())];
         if !self.first_run_id.is_empty() && self.first_run_id != self.run_id {
             facts.push(("first run", self.first_run_id.clone()));
@@ -150,6 +177,7 @@ impl WorkflowInfo {
 
         Card {
             waiting,
+            states,
             tone,
             facts,
             wide,
@@ -171,39 +199,58 @@ impl WorkflowInfo {
             .map(|(_, p)| p)
     }
 
-    fn waiting_on(&self, now_ms: i64, pending: &[PendingActivity]) -> (Vec<String>, Tone) {
+    fn waiting_on(
+        &self,
+        now_ms: i64,
+        pending: &[PendingActivity],
+    ) -> (Vec<String>, Vec<Wait>, Tone) {
         if self.close_time.is_some() {
-            return (vec!["nothing, the workflow is closed".into()], Tone::Quiet);
+            return (
+                vec!["nothing, the workflow is closed".into()],
+                vec![Wait::Quiet],
+                Tone::Quiet,
+            );
         }
         let mut items = Vec::new();
         let mut tone = Tone::Normal;
         for p in pending {
-            if p.is_retrying() {
+            let state = Wait::of(p);
+            if state == Wait::Retrying {
                 tone = Tone::Retrying;
             }
-            items.push(activity(p, now_ms));
+            items.push((activity(p, now_ms), state));
         }
         if let Some(task) = &self.workflow_task {
-            if task.attempt > 1 {
+            let state = if task.attempt > 1 {
                 tone = Tone::Retrying;
-            }
-            items.push(format!("workflow task {}", waiting(task, now_ms)));
+                Wait::Retrying
+            } else if task.started_at.is_some() {
+                Wait::Running
+            } else {
+                Wait::Queued
+            };
+            items.push((format!("workflow task {}", waiting(task, now_ms)), state));
         }
         for child in &self.pending_children {
-            items.push(format!(
-                "child {} {}",
-                child.workflow_type, child.workflow_id
+            items.push((
+                format!("child {} {}", child.workflow_type, child.workflow_id),
+                Wait::Running,
             ));
         }
         if items.is_empty() {
-            return (vec!["nothing pending".into()], Tone::Quiet);
+            return (
+                vec!["nothing pending".into()],
+                vec![Wait::Quiet],
+                Tone::Quiet,
+            );
         }
         if items.len() > MAX_LISTED {
             let more = items.len() - MAX_LISTED;
             items.truncate(MAX_LISTED);
-            items.push(format!("+{more} more"));
+            items.push((format!("+{more} more"), Wait::Quiet));
         }
-        (items, tone)
+        let (items, states) = items.into_iter().unzip();
+        (items, states, tone)
     }
 
     fn timeouts(&self) -> Vec<String> {
@@ -393,7 +440,39 @@ mod tests {
             c.waiting,
             ["activity check_s1_pd_model · started 4s ago · attempt 1/∞"]
         );
+        assert_eq!(c.states, [Wait::Running]);
         assert_eq!(c.tone, Tone::Normal);
+    }
+
+    #[test]
+    fn each_thing_waited_on_has_its_own_state() {
+        let activity = |state, attempt| PendingActivity {
+            activity_type: "A".into(),
+            state,
+            attempt,
+            ..Default::default()
+        };
+        let mut info = running();
+        info.workflow_task = Some(PendingWorkflowTask {
+            state: "scheduled",
+            scheduled_at: Some(0),
+            ..Default::default()
+        });
+        let c = card(
+            &info,
+            0,
+            &[
+                activity(PendingState::Scheduled, 1),
+                activity(PendingState::Started, 3),
+                activity(PendingState::Paused, 1),
+            ],
+        );
+        assert_eq!(
+            c.states,
+            [Wait::Queued, Wait::Retrying, Wait::Held, Wait::Quiet]
+        );
+        assert_eq!(c.states.len(), c.waiting.len());
+        assert_eq!(card(&running(), 0, &[]).states, [Wait::Quiet]);
     }
 
     #[test]
