@@ -22,6 +22,8 @@ pub async fn run(
     let mut events = EventStream::new();
     let mut tick = tokio::time::interval(TICK);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut frame = tokio::time::interval(Duration::from_millis(ui::FRAME_MS));
+    frame.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     #[cfg(unix)]
     {
@@ -78,6 +80,7 @@ pub async fn run(
             },
             Some(msg) = rx.recv() => app.handle(msg),
             _ = tick.tick() => app.handle(Msg::Tick),
+            _ = frame.tick(), if app.source_wait.is_some() => app.handle(Msg::Redraw),
         }
     }
 }

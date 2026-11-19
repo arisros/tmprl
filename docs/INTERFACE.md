@@ -823,7 +823,9 @@ no shell, with one JSON object on stdin:
 activity type, the update or signal name, the timer id. `events` are all of the group's, with
 the detail rows the history view shows; the worker's `identity` is among them. `event` is
 the one event the cursor is on, when it is on one and not on the group's line. `payloads`
-is the object `!` pipes, decoded where a codec could. `version` goes up when a field is
+is the object `!` pipes, plus any `binary/plain` payload that is UTF-8 (as JSON when it
+parses, else a string). With a codec configured, the group's payloads are decoded before
+the resolver is asked; one the codec refuses is left out. `version` goes up when a field is
 renamed or removed, not when one is added.
 
 The resolver prints where to go on its first line, `/absolute/path`, `/absolute/path:line`
@@ -832,6 +834,21 @@ line, when it is an absolute path to a directory, is where the editor is started
 project's root there and the editor opens the project, with its file tree, search and
 language server, not one stray file. When it
 cannot say, it exits non-zero and the last line of its stderr is shown.
+
+While the codec decodes the group's payloads and the resolver runs, a card with the mark says
+which of the two it is waiting on and for how long. Other keys wait with it; `Esc` stops and
+kills the resolver, and an answer that arrives after is dropped. A resolver that has not
+answered in 60 seconds is killed and its wait shown as an error.
+
+Each further line with a tab in it is a *hop*, one place the event passes through on its
+way, in order: `/absolute/path:line<TAB>/absolute/root<TAB>label`. When there is at least
+one, `gf` opens a `source` picker over them with the cursor on the hop that matches the
+first line, and Enter opens the chosen one in its own root. The list is short, so this
+picker does not filter: `j` / `k` move as well as the usual keys, and `1` to `9` open that
+hop at once. The label, numbered, is what the picker shows, the path relative to the root is
+its note. A hop without an absolute path is
+dropped, and a line with a tab is never taken for the answer or the root, so a resolver
+that prints hops still works with an older tmprl.
 
 ## Configuration files
 

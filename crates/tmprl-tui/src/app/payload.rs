@@ -45,9 +45,9 @@ impl App {
         if self.view.screen != Screen::History || !(self.view.show_detail || self.view.show_info) {
             return;
         }
-        let Some(codec) = self.codec.clone() else {
+        if self.codec.is_none() {
             return;
-        };
+        }
 
         let mut candidates: Vec<Payload> = Vec::new();
         if self.view.show_detail {
@@ -60,16 +60,22 @@ impl App {
         }
         let wanted: Vec<Payload> = candidates
             .into_iter()
-            .filter(|p| p.needs_codec())
-            .filter(|p| {
-                let key = Self::payload_key(p);
-                !self.decoded.contains_key(&key) && !self.decoding.contains(&key)
-            })
+            .filter(|p| p.needs_codec() && !self.decoded.contains_key(&Self::payload_key(p)))
+            .collect();
+        self.spawn_decode(wanted);
+    }
+
+    fn spawn_decode(&mut self, wanted: Vec<Payload>) {
+        let Some(codec) = self.codec.clone() else {
+            return;
+        };
+        let wanted: Vec<Payload> = wanted
+            .into_iter()
+            .filter(|p| !self.decoding.contains(&Self::payload_key(p)))
             .collect();
         if wanted.is_empty() {
             return;
         }
-
         for p in &wanted {
             self.decoding.insert(Self::payload_key(p));
         }
@@ -229,6 +235,7 @@ impl App {
     }
 
     pub(super) fn open_source(&mut self) {
+        let since_ms = self.source_wait.take().map_or_else(now_ms, |w| w.since_ms);
         if self.view.screen != Screen::History {
             self.note = Some((
                 "the source of an event is found from a workflow history".into(),
@@ -273,7 +280,23 @@ impl App {
             .iter()
             .flat_map(|e| e.payloads.iter().cloned())
             .collect();
-        let payloads = tmprl_core::payload::payloads_as_json(&payloads).0;
+        let subject = group.subject.clone();
+        let owed = self.owed_decodes(&payloads);
+        if !owed.is_empty() {
+            self.spawn_decode(owed);
+            self.source_wait = Some(SourceWait {
+                subject,
+                asking: None,
+                since_ms,
+                request: None,
+            });
+            self.note = Some((
+                "decoding the payloads before asking where the code is…".into(),
+                Note::Info,
+            ));
+            return;
+        }
+        let payloads = tmprl_core::payload::payloads_for_resolver(&payloads);
         let request = tmprl_core::source::request(
             &self.profile,
             workflow,
@@ -285,33 +308,145 @@ impl App {
         .to_string();
 
         self.note = Some((
-            format!("asking {program} where `{}` comes from…", group.subject),
+            format!("asking {program} where `{subject}` comes from…"),
             Note::Info,
         ));
-        let tx = self.tx.clone();
-        tokio::spawn(async move {
-            let result = run_resolver(&program, &args, request.into_bytes()).await;
-            let _ = tx.send(Msg::Source(result));
+        self.source_request += 1;
+        let id = self.source_request;
+        let name = std::path::Path::new(&program)
+            .file_name()
+            .map_or_else(|| program.clone(), |n| n.to_string_lossy().into_owned());
+        self.source_wait = Some(SourceWait {
+            subject,
+            asking: Some(name),
+            since_ms,
+            request: Some(id),
         });
+        let tx = self.tx.clone();
+        let task = tokio::spawn(async move {
+            let result =
+                run_resolver(&program, &args, request.into_bytes(), RESOLVER_TIMEOUT).await;
+            let _ = tx.send(Msg::SourceAnswer {
+                request: id,
+                result,
+            });
+        });
+        self.source_task = Some(task.abort_handle());
+    }
+
+    pub(super) fn source_decoding(&self) -> bool {
+        self.source_wait
+            .as_ref()
+            .is_some_and(|w| w.asking.is_none())
+    }
+
+    pub(super) fn stop_source(&mut self) {
+        if let Some(task) = self.source_task.take() {
+            task.abort();
+        }
+        if let Some(w) = self.source_wait.take() {
+            self.note = Some((
+                format!("stopped looking for where `{}` comes from", w.subject),
+                Note::Info,
+            ));
+        }
+    }
+
+    fn owed_decodes(&self, payloads: &[(String, Payload)]) -> Vec<Payload> {
+        if self.codec.is_none() {
+            return Vec::new();
+        }
+        payloads
+            .iter()
+            .map(|(_, p)| p)
+            .filter(|p| p.needs_codec())
+            .filter(|p| {
+                let key = Self::payload_key(p);
+                !self.decode_failed.contains_key(&key) && !self.decoded.contains_key(&key)
+            })
+            .cloned()
+            .collect()
     }
 
     pub(super) fn source_reply(&mut self, result: Result<String, String>) {
-        match result.and_then(|out| tmprl_core::source::locate(&out)) {
-            Ok(at) if at.path.is_file() => {
-                self.opening = Some(SourceRequest {
-                    path: at.path,
-                    line: at.line,
-                    root: at.root.filter(|dir| dir.is_dir()),
-                })
+        self.source_wait = None;
+        self.source_task = None;
+        let out = match result {
+            Ok(out) => out,
+            Err(why) => {
+                self.note = Some((format!("source: {why}"), Note::Error));
+                return;
             }
-            Ok(at) => {
-                self.note = Some((
-                    format!("source: {} is not a file", at.path.display()),
-                    Note::Error,
-                ))
+        };
+        let at = match tmprl_core::source::locate(&out) {
+            Ok(at) => at,
+            Err(why) => {
+                self.note = Some((format!("source: {why}"), Note::Error));
+                return;
             }
-            Err(why) => self.note = Some((format!("source: {why}"), Note::Error)),
+        };
+        self.source_hops = tmprl_core::source::hops(&out);
+        if self.source_hops.is_empty() {
+            self.open_location(at);
+            return;
         }
+        let answer = self
+            .source_hops
+            .iter()
+            .position(|h| h.at.path == at.path && h.at.line == at.line);
+        self.open_picker(picker::Kind::Source);
+        if let (Some(p), Some(i)) = (self.picker.as_mut(), answer) {
+            p.cursor = i;
+        }
+    }
+
+    pub(super) fn hop_items(&self) -> Vec<picker::Item> {
+        self.source_hops
+            .iter()
+            .enumerate()
+            .map(|(i, hop)| {
+                let path = hop
+                    .at
+                    .root
+                    .as_ref()
+                    .and_then(|root| hop.at.path.strip_prefix(root).ok())
+                    .unwrap_or(&hop.at.path)
+                    .display()
+                    .to_string();
+                let place = match hop.at.line {
+                    Some(n) => format!("{path}:{n}"),
+                    None => path,
+                };
+                let label = if hop.label.is_empty() {
+                    place.clone()
+                } else {
+                    hop.label.clone()
+                };
+                let label = if i < 9 {
+                    format!("{}  {label}", i + 1)
+                } else {
+                    label
+                };
+                picker::Item::new(label, Target::Hop(i))
+                    .with_note(place)
+                    .with_preview(hop.at.path.display().to_string())
+            })
+            .collect()
+    }
+
+    pub(super) fn open_location(&mut self, at: tmprl_core::source::Location) {
+        if !at.path.is_file() {
+            self.note = Some((
+                format!("source: {} is not a file", at.path.display()),
+                Note::Error,
+            ));
+            return;
+        }
+        self.opening = Some(SourceRequest {
+            path: at.path,
+            line: at.line,
+            root: at.root.filter(|dir| dir.is_dir()),
+        });
     }
 
     pub fn take_source_request(&mut self) -> Option<SourceRequest> {

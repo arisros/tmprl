@@ -87,6 +87,7 @@ const PICKER_SEARCH_LIMIT: i32 = 20;
 const HISTORY_PAGE_SIZE: i32 = 500;
 
 const PENDING_POLL: std::time::Duration = std::time::Duration::from_secs(5);
+const RESOLVER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 use tmprl_client::Continuation as Tokens;
 
@@ -143,6 +144,14 @@ pub struct SourceRequest {
     pub path: std::path::PathBuf,
     pub line: Option<u32>,
     pub root: Option<std::path::PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceWait {
+    pub subject: String,
+    pub asking: Option<String>,
+    pub since_ms: i64,
+    pub(crate) request: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -240,7 +249,10 @@ pub enum Msg {
         result: Result<Vec<ScheduleRow>, Fault>,
     },
     Piped(Result<String, String>),
-    Source(Result<String, String>),
+    SourceAnswer {
+        request: u64,
+        result: Result<String, String>,
+    },
     Mutated {
         mutation: Box<Mutation>,
         sent_to: (String, String),
@@ -384,6 +396,10 @@ pub struct App {
     pub editing: Option<EditRequest>,
     pub opening: Option<SourceRequest>,
     source_command: Option<String>,
+    source_hops: Vec<tmprl_core::source::Hop>,
+    pub source_wait: Option<SourceWait>,
+    source_request: u64,
+    source_task: Option<tokio::task::AbortHandle>,
     pub jumps: Jumplist<Jump>,
     scan: Option<Scan>,
     pub search: Search,
@@ -493,6 +509,10 @@ impl App {
             editing: None,
             opening: None,
             source_command: None,
+            source_hops: Vec::new(),
+            source_wait: None,
+            source_request: 0,
+            source_task: None,
             jumps: Jumplist::default(),
             scan: None,
             search: Search::default(),
@@ -701,19 +721,33 @@ impl App {
                 self.view.piped = Some(result);
                 self.view.detail_scroll = 0;
             }
-            Msg::Source(result) => self.source_reply(result),
+            Msg::SourceAnswer { request, result } => {
+                if self
+                    .source_wait
+                    .as_ref()
+                    .is_some_and(|w| w.request == Some(request))
+                {
+                    self.source_reply(result);
+                }
+            }
             Msg::Decoded(Ok(pairs)) => {
                 for (key, payload) in pairs {
                     self.decoding.remove(&key);
                     self.decoded.insert(key, payload);
                 }
                 self.apply_decoded();
+                if self.source_decoding() {
+                    self.open_source();
+                }
             }
             Msg::Decoded(Err(e)) => {
                 for key in std::mem::take(&mut self.decoding) {
                     self.decode_failed.insert(key, e.to_string());
                 }
                 self.fail(e, Note::Error);
+                if self.source_decoding() {
+                    self.open_source();
+                }
             }
             Msg::SearchAttributes { namespace, result } => {
                 if namespace != self.namespace() {
@@ -908,6 +942,12 @@ impl App {
     }
 
     fn on_key(&mut self, chord: Chord) {
+        if self.source_wait.is_some() {
+            if chord.key == tmprl_core::Key::Esc {
+                self.stop_source();
+            }
+            return;
+        }
         if self.confirm.is_some() {
             self.confirm_key(chord);
             return;
@@ -1297,7 +1337,12 @@ async fn pipe_through(command: &str, input: Vec<u8>) -> Result<String, String> {
     }
 }
 
-async fn run_resolver(program: &str, args: &[String], input: Vec<u8>) -> Result<String, String> {
+async fn run_resolver(
+    program: &str,
+    args: &[String],
+    input: Vec<u8>,
+    limit: std::time::Duration,
+) -> Result<String, String> {
     use tokio::io::AsyncWriteExt;
     use tokio::process::Command;
 
@@ -1306,16 +1351,20 @@ async fn run_resolver(program: &str, args: &[String], input: Vec<u8>) -> Result<
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true)
         .spawn()
         .map_err(|e| format!("could not run `{program}`: {e}"))?;
 
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(&input).await;
-        let _ = stdin.shutdown().await;
-    }
-    let out = child
-        .wait_with_output()
+    let answer = async {
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(&input).await;
+            let _ = stdin.shutdown().await;
+        }
+        child.wait_with_output().await
+    };
+    let out = tokio::time::timeout(limit, answer)
         .await
+        .map_err(|_| format!("`{program}` gave no answer in {}s", limit.as_secs()))?
         .map_err(|e| format!("`{program}` failed: {e}"))?;
 
     if out.status.success() {

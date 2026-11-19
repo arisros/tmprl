@@ -333,17 +333,125 @@ fn going_to_the_source_needs_a_history_and_a_resolver() {
 }
 
 #[test]
+fn a_resolvers_hops_open_a_picker_on_the_answer() {
+    let mut app = viewing_history();
+    let dir = std::env::temp_dir().join(format!("tmprl-hops-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (from, here) = (dir.join("send.go"), dir.join("run.go"));
+    std::fs::write(&from, "package x\n").unwrap();
+    std::fs::write(&here, "package x\n").unwrap();
+    let (d, f, h) = (dir.display(), from.display(), here.display());
+
+    app.source_reply(Ok(format!(
+        "{h}:9\n{d}\n{f}:3\t{d}\tSDK  sends it\nrelative.go:1\t{d}\tdropped\n{h}:9\t{d}\tLTW  runs it\n"
+    )));
+    assert_eq!(picker_labels(&app), ["1  SDK  sends it", "2  LTW  runs it"]);
+    assert_eq!(app.picker.as_ref().unwrap().cursor, 1, "on the answer");
+    assert!(app.opening.is_none(), "nothing opens before a pick");
+
+    app.handle(Msg::Key(Chord::plain(Key::Char('k'))));
+    assert_eq!(
+        app.picker.as_ref().unwrap().cursor,
+        0,
+        "k moves, it does not filter"
+    );
+    app.handle(Msg::Key(Chord::plain(Key::Char('j'))));
+    assert_eq!(app.picker.as_ref().unwrap().cursor, 1);
+    app.handle(Msg::Key(Chord::plain(Key::Char('x'))));
+    assert_eq!(picker_labels(&app).len(), 2, "other letters do not filter");
+    app.handle(Msg::Key(Chord::plain(Key::Char('9'))));
+    assert!(app.picker.is_some(), "a number past the list does nothing");
+
+    app.handle(Msg::Key(Chord::plain(Key::Char('1'))));
+    assert!(app.picker.is_none());
+    assert_eq!(
+        app.take_source_request(),
+        Some(SourceRequest {
+            path: from,
+            line: Some(3),
+            root: Some(dir.clone()),
+        })
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
+async fn going_to_the_source_decodes_the_payloads_first() {
+    let mut app = viewing_payloads();
+    app.codec = Some(Arc::new(Codec::new("http://127.0.0.1:1", None)));
+    app.source_command = Some("true".into());
+    app.run("motion.bottom", None);
+    let (_, encrypted) = app.payloads_under_cursor().into_iter().next().unwrap();
+    let key = App::payload_key(&encrypted);
+
+    app.run("history.source", None);
+    let wait = app
+        .source_wait
+        .clone()
+        .expect("a wait while the codec works");
+    assert_eq!(wait.asking, None, "the resolver waits for the plaintext");
+    assert!(app.decoding.contains(&key));
+    assert!(app.note.clone().unwrap().0.contains("decoding"));
+
+    app.handle(Msg::Decoded(Ok(vec![(
+        key,
+        Payload::new("json/plain", br#"{"type":"SURVEY"}"#.to_vec()),
+    )])));
+    let asking = app
+        .source_wait
+        .clone()
+        .expect("still waiting, on the resolver");
+    assert_eq!(asking.asking.as_deref(), Some("true"));
+    assert_eq!(
+        asking.since_ms, wait.since_ms,
+        "one wait, from the keypress"
+    );
+    assert!(app.note.clone().unwrap().0.starts_with("asking true"));
+
+    let mut app = viewing_payloads();
+    app.codec = Some(Arc::new(Codec::new("http://127.0.0.1:1", None)));
+    app.source_command = Some("true".into());
+    app.run("motion.bottom", None);
+    app.run("history.source", None);
+    app.handle(Msg::Decoded(Err("connection refused".into())));
+    assert!(
+        app.source_wait.as_ref().is_some_and(|w| w.asking.is_some()),
+        "a failed decode still asks, without the payload"
+    );
+    assert!(app.note.clone().unwrap().0.starts_with("asking true"));
+}
+
+#[tokio::test]
+async fn esc_stops_waiting_and_a_late_answer_is_dropped() {
+    let mut app = viewing_history();
+    app.source_command = Some("true".into());
+    app.run("history.source", None);
+    assert!(app.source_wait.is_some());
+
+    app.handle(Msg::Key(Chord::plain(Key::Char('j'))));
+    assert!(app.source_wait.is_some(), "other keys wait too");
+    app.handle(Msg::Key(Chord::plain(Key::Esc)));
+    assert!(app.source_wait.is_none());
+    assert!(app.note.clone().unwrap().0.starts_with("stopped looking"));
+
+    app.handle(Msg::SourceAnswer {
+        request: 1,
+        result: Err("too late".into()),
+    });
+    assert!(
+        app.note.clone().unwrap().0.starts_with("stopped looking"),
+        "the stopped request's answer is not shown"
+    );
+}
+
+#[test]
 fn a_resolvers_answer_becomes_a_file_to_open_at_its_line() {
     let mut app = viewing_history();
     let file = std::env::temp_dir().join(format!("tmprl-source-{}.go", uuid::Uuid::new_v4()));
     std::fs::write(&file, "package x\n").unwrap();
 
     let root = std::env::temp_dir();
-    app.handle(Msg::Source(Ok(format!(
-        "{}:16\n{}\n",
-        file.display(),
-        root.display()
-    ))));
+    app.source_reply(Ok(format!("{}:16\n{}\n", file.display(), root.display())));
     assert_eq!(
         app.take_source_request(),
         Some(SourceRequest {
@@ -352,10 +460,7 @@ fn a_resolvers_answer_becomes_a_file_to_open_at_its_line() {
             root: Some(root),
         })
     );
-    app.handle(Msg::Source(Ok(format!(
-        "{}:16\n/no/such/project\n",
-        file.display()
-    ))));
+    app.source_reply(Ok(format!("{}:16\n/no/such/project\n", file.display())));
     assert_eq!(
         app.take_source_request().unwrap().root,
         None,
@@ -364,16 +469,16 @@ fn a_resolvers_answer_becomes_a_file_to_open_at_its_line() {
     assert!(app.opening.is_none(), "taken once");
     std::fs::remove_file(&file).unwrap();
 
-    app.handle(Msg::Source(Ok(format!("{}:16\n", file.display()))));
+    app.source_reply(Ok(format!("{}:16\n", file.display())));
     assert!(app.opening.is_none());
     assert!(app.note.clone().unwrap().0.contains("is not a file"));
 
-    app.handle(Msg::Source(Err("no deploy found before that time".into())));
+    app.source_reply(Err("no deploy found before that time".into()));
     let (msg, level) = app.note.clone().unwrap();
     assert_eq!(level, Note::Error);
     assert_eq!(msg, "source: no deploy found before that time");
 
-    app.handle(Msg::Source(Ok("internal/a.go:3".into())));
+    app.source_reply(Ok("internal/a.go:3".into()));
     assert!(app.note.clone().unwrap().0.contains("not an absolute path"));
 }
 
@@ -402,6 +507,7 @@ async fn the_resolver_is_told_what_is_under_the_cursor_on_stdin() {
         script.to_str().unwrap(),
         &[],
         br#"{"version":1,"name":"ChargeCard"}"#.to_vec(),
+        RESOLVER_TIMEOUT,
     )
     .await
     .unwrap();
@@ -411,9 +517,26 @@ async fn the_resolver_is_told_what_is_under_the_cursor_on_stdin() {
         r#"{"version":1,"name":"ChargeCard"}"#
     );
 
-    let missing = super::super::run_resolver("/no/such/resolver", &[], Vec::new()).await;
+    let missing =
+        super::super::run_resolver("/no/such/resolver", &[], Vec::new(), RESOLVER_TIMEOUT).await;
     assert!(missing.unwrap_err().contains("could not run"));
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_resolver_that_hangs_is_given_up_on() {
+    let args = ["-c".to_string(), "sleep 30".to_string()];
+    let started = std::time::Instant::now();
+    let out = super::super::run_resolver(
+        "/bin/sh",
+        &args,
+        Vec::new(),
+        std::time::Duration::from_millis(200),
+    )
+    .await;
+    assert_eq!(out.unwrap_err(), "`/bin/sh` gave no answer in 0s");
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
 }
 
 fn the_secret_event() -> tmprl_core::history::NormalizedEvent {

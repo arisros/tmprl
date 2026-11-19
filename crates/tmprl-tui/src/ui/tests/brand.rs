@@ -84,3 +84,26 @@ fn a_long_connect_error_wraps_beside_the_mark() {
     assert!(width < 80, "{width}");
     assert!(lines.len() > brand::MARK_HEIGHT - 1, "{lines:?}");
 }
+
+#[test]
+fn gf_waits_behind_a_card_with_the_mark_the_stage_and_the_time() {
+    let mut app = empty_namespace(ColorDepth::TrueColor);
+    app.source_wait = Some(crate::app::SourceWait {
+        subject: "create_task".into(),
+        asking: Some("tmprl-source".into()),
+        since_ms: crate::app::now_ms() - 3_000,
+        request: Some(1),
+    });
+    let out = draw(&mut app, 110, 30);
+    assert!(out.contains("▀▀▀▀▀▀▀▀▀▀"), "{out}");
+    assert!(out.contains("finding the source of `create_task`"), "{out}");
+    assert!(out.contains("asking tmprl-source  3s"), "{out}");
+    assert!(out.contains("Esc to stop"), "{out}");
+
+    app.source_wait.as_mut().unwrap().asking = None;
+    assert!(draw(&mut app, 110, 30).contains("decoding the payloads"));
+
+    app.apply_theme(ColorDepth::Mono, None);
+    let out = draw(&mut app, 110, 30);
+    assert!(out.contains("finding the source of `create_task`"), "{out}");
+}

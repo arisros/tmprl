@@ -81,15 +81,54 @@ pub fn request(
     })
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Hop {
+    pub at: Location,
+    pub label: String,
+}
+
 pub fn locate(output: &str) -> Result<Location, String> {
-    let mut lines = output.lines().map(str::trim).filter(|l| !l.is_empty());
+    let mut lines = output
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.contains('\t'));
     let line = lines.next().ok_or("the resolver printed nothing")?;
     let root = lines
         .next()
         .filter(|dir| dir.starts_with('/'))
         .map(PathBuf::from);
+    let (path, line) = place(line)?;
+    Ok(Location { path, line, root })
+}
 
-    let mut path = line;
+pub fn hops(output: &str) -> Vec<Hop> {
+    output
+        .lines()
+        .filter_map(|l| {
+            let mut fields = l.split('\t').map(str::trim);
+            let (Some(at), Some(root)) = (fields.next(), fields.next()) else {
+                return None;
+            };
+            let (path, line) = place(at).ok()?;
+            let root = Some(root)
+                .filter(|dir| dir.starts_with('/'))
+                .map(PathBuf::from);
+            let label = fields
+                .collect::<Vec<_>>()
+                .join(" ")
+                .chars()
+                .filter(|c| !c.is_control())
+                .collect();
+            Some(Hop {
+                at: Location { path, line, root },
+                label,
+            })
+        })
+        .collect()
+}
+
+fn place(text: &str) -> Result<(PathBuf, Option<u32>), String> {
+    let mut path = text;
     let mut numbers: Vec<u32> = Vec::new();
     while numbers.len() < 2
         && let Some((head, tail)) = path.rsplit_once(':')
@@ -105,11 +144,7 @@ pub fn locate(output: &str) -> Result<Location, String> {
             "the resolver gave `{path}`, which is not an absolute path"
         ));
     }
-    Ok(Location {
-        path: PathBuf::from(path),
-        line: at,
-        root,
-    })
+    Ok((PathBuf::from(path), at))
 }
 
 pub fn argv(command: &str, home: Option<&str>) -> Option<(String, Vec<String>)> {
@@ -214,6 +249,63 @@ mod tests {
             "a colon in the path is the path's"
         );
         assert_eq!(at("/src/a.go:0"), Ok(("/src/a.go".into(), None)));
+    }
+
+    #[test]
+    fn hops_follow_the_answer_one_per_tabbed_line() {
+        let out = "/ltw/state.go:303\n/ltw\n\
+                   /sdk/system.go:552\t/sdk\tSDK  sends task-create\n\
+                   /ltw/state.go:303\t/ltw\tLTW\tcreates ENVIRONMENT_CHECK\n\
+                   /lts/server.go:72\t\tLTS  CreateTaskHandler\x1b[2J\n\
+                   relative.go:4\t/x\tdropped\n\
+                   /no-root.go:1\n";
+        let at = locate(out).unwrap();
+        assert_eq!(at.path, PathBuf::from("/ltw/state.go"));
+        assert_eq!(at.root, Some(PathBuf::from("/ltw")));
+
+        let hops = hops(out);
+        let seen: Vec<(String, Option<u32>, Option<PathBuf>, &str)> = hops
+            .iter()
+            .map(|h| {
+                (
+                    h.at.path.display().to_string(),
+                    h.at.line,
+                    h.at.root.clone(),
+                    h.label.as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            seen,
+            vec![
+                (
+                    "/sdk/system.go".into(),
+                    Some(552),
+                    Some("/sdk".into()),
+                    "SDK  sends task-create"
+                ),
+                (
+                    "/ltw/state.go".into(),
+                    Some(303),
+                    Some("/ltw".into()),
+                    "LTW creates ENVIRONMENT_CHECK"
+                ),
+                (
+                    "/lts/server.go".into(),
+                    Some(72),
+                    None,
+                    "LTS  CreateTaskHandler[2J"
+                ),
+            ],
+            "a relative hop is dropped and a label cannot carry control sequences"
+        );
+    }
+
+    #[test]
+    fn a_hop_on_the_second_line_is_not_taken_for_the_root() {
+        let at = locate("/a.go:1\n/b.go:2\t/b\tB\n").unwrap();
+        assert_eq!(at.root, None);
+        assert!(hops("/a.go:1\n/repo\n").is_empty(), "no tab, no hop");
     }
 
     #[test]

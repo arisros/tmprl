@@ -13,6 +13,7 @@ impl App {
             picker::Kind::Namespaces => self.namespace_items(),
             picker::Kind::Profiles => self.profile_items(),
             picker::Kind::Queries => self.query_items(),
+            picker::Kind::Source => self.hop_items(),
         };
         if items.is_empty() {
             self.note = Some((
@@ -25,6 +26,7 @@ impl App {
                     picker::Kind::Namespaces => "no namespaces loaded yet",
                     picker::Kind::Profiles => "no profiles in temporal.toml",
                     picker::Kind::Queries => "this workflow lists no queries",
+                    picker::Kind::Source => "the resolver named no places",
                 }
                 .into(),
                 Note::Warn,
@@ -169,6 +171,22 @@ impl App {
         };
         // Not <C-j>/<C-k>: tmux pane navigation takes them.
         let ctrl = chord.mods.ctrl;
+        if p.kind == picker::Kind::Source && chord.mods.is_none() {
+            match chord.key {
+                Key::Char('j') => return self.move_picker(1),
+                Key::Char('k') => return self.move_picker(-1),
+                Key::Char(c @ '1'..='9') => {
+                    let i = c as usize - '1' as usize;
+                    if i < p.rows().count() {
+                        p.cursor = i;
+                        self.accept_picker();
+                    }
+                    return;
+                }
+                Key::Char(_) => return,
+                _ => {}
+            }
+        }
         match chord.key {
             Key::Esc => self.picker = None,
             Key::Enter => self.accept_picker(),
@@ -310,6 +328,10 @@ impl App {
             Target::Namespace(name) => self.switch_namespace(&name),
             Target::Profile(name) => self.switch_profile(&name),
             Target::Handler(name) => self.run_query(name),
+            Target::Hop(i) => match self.source_hops.get(i).cloned() {
+                Some(hop) => self.open_location(hop.at),
+                None => self.note = Some(("that place has gone".into(), Note::Warn)),
+            },
         }
     }
 

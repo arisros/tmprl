@@ -96,11 +96,24 @@ impl Payload {
 }
 
 pub fn payloads_as_json(payloads: &[(String, Payload)]) -> (Option<String>, Vec<String>) {
+    to_json(payloads, false)
+}
+
+pub fn payloads_for_resolver(payloads: &[(String, Payload)]) -> Option<String> {
+    to_json(payloads, true).0
+}
+
+fn to_json(payloads: &[(String, Payload)], binary_text: bool) -> (Option<String>, Vec<String>) {
     let mut obj = serde_json::Map::new();
     let mut skipped = Vec::new();
 
     for (label, p) in payloads {
-        match p.pipeable() {
+        let bytes = match p.pipeable() {
+            Some(bytes) => Some(bytes),
+            None if binary_text && p.encoding == "binary/plain" => Some(p.data.as_slice()),
+            None => None,
+        };
+        match bytes {
             None => skipped.push(label.clone()),
             Some(bytes) => {
                 let Ok(text) = std::str::from_utf8(bytes) else {
@@ -108,7 +121,7 @@ pub fn payloads_as_json(payloads: &[(String, Payload)]) -> (Option<String>, Vec<
                     continue;
                 };
                 let value = match p.encoding.as_str() {
-                    "json/plain" | "json/protobuf" => serde_json::from_str(text)
+                    "json/plain" | "json/protobuf" | "binary/plain" => serde_json::from_str(text)
                         .unwrap_or_else(|_| serde_json::Value::String(text.to_string())),
                     _ => serde_json::Value::String(text.to_string()),
                 };
@@ -451,6 +464,36 @@ mod tests {
         assert_eq!(v["input"], 42);
         assert!(v.get("result").is_none(), "ciphertext must not be embedded");
         assert_eq!(skipped, ["result"], "and the reader is told which");
+    }
+
+    #[test]
+    fn a_resolver_also_reads_binary_plain_that_is_text() {
+        let payloads = vec![
+            (
+                "input[0]".to_string(),
+                json(r#""events.t.ui-manager.d.status""#),
+            ),
+            (
+                "input[1]".to_string(),
+                Payload::new("binary/plain", br#"{"values":{"k":1}}"#.to_vec()),
+            ),
+            (
+                "input[2]".to_string(),
+                Payload::new("binary/plain", vec![0xff, 0xfe]),
+            ),
+        ];
+        let v: serde_json::Value =
+            serde_json::from_str(&payloads_for_resolver(&payloads).unwrap()).unwrap();
+        assert_eq!(v["input[1]"]["values"]["k"], 1);
+        assert!(
+            v.get("input[2]").is_none(),
+            "bytes that are not text stay out"
+        );
+        assert_eq!(
+            payloads_as_json(&payloads).1,
+            ["input[1]", "input[2]"],
+            "`!` still skips them"
+        );
     }
 
     #[test]

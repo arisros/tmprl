@@ -43,9 +43,11 @@ A few are terminated or cancelled by hand afterwards, as someone on call would.
 
 ## Going to the source
 
-`demo/config/config.toml` points `gf` at `demo/find-source.sh`, a resolver of a dozen
-lines: it reads the name under the cursor from the JSON tmprl sends and prints where the
-sample defines it. Press `gf` on `book_carrier` and the editor opens on `func BookCarrier`.
+`demo/config/config.toml` points `gf` at `demo/find-source.sh`, a resolver of a few dozen
+lines of grep: it reads the name under the cursor from the JSON tmprl sends and prints where
+the sample defines it, then the hops on the way there. Press `gf` on `book_carrier` and the
+`source` picker lists where the workflow asks for it, where the worker registers it and
+`func BookCarrier`, with the cursor on the last.
 
 ## Recording the README's demo
 
