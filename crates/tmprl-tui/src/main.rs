@@ -64,18 +64,31 @@ async fn main() -> std::process::ExitCode {
         profile.ignore_env = !resolved.env;
     }
 
-    let splash = Splash::new(&profile);
-    let drawn = splash.show(vec![Line::from(Span::styled(
-        "connecting…",
-        splash.theme.faint,
-    ))]);
-    let conn = match Conn::connect(&profile).await {
-        Ok(c) => {
-            Splash::erase(drawn);
-            c
-        }
+    let read_config = |name: &str| match config::read(name) {
+        Ok(found) => found,
         Err(e) => {
-            Splash::erase(drawn);
+            eprintln!("tmprl: {e}");
+            None
+        }
+    };
+    let (keys, views, config, theme, dashboard) = (
+        read_config("keys.toml"),
+        read_config("views.toml"),
+        read_config("config.toml"),
+        read_config("theme.toml"),
+        read_config("dashboard.toml"),
+    );
+
+    let splash = Splash::new(&profile);
+    // Before the splash takes the terminal: `pass` and the like may ask for a passphrase on it.
+    let (connected, terminal) = match tmprl_client::resolve_api_key(&mut profile).await {
+        Ok(()) => splash.connect(&profile).await,
+        Err(e) => (Connected::No(e), None),
+    };
+    let conn = match connected {
+        Connected::Yes(c) => c,
+        Connected::Quit => return std::process::ExitCode::from(130),
+        Connected::No(e) => {
             let hint = [
                 "Is a server reachable? Try `temporal server start-dev`,",
                 "or point tmprl at one with `--profile <name>` or `--address <host:port>`.",
@@ -97,28 +110,19 @@ async fn main() -> std::process::ExitCode {
     let (tx, rx) = unbounded_channel();
     let mut app = app::App::new(conn, tx.clone());
     app.set_temporal_config(profile.config_file.clone());
-
-    let read_config = |name: &str| match config::read(name) {
-        Ok(found) => found,
-        Err(e) => {
-            eprintln!("tmprl: {e}");
-            None
-        }
-    };
-    let (keys, views, config, theme, dashboard) = (
-        read_config("keys.toml"),
-        read_config("views.toml"),
-        read_config("config.toml"),
-        read_config("theme.toml"),
-        read_config("dashboard.toml"),
-    );
     app.apply_theme(theme::depth_from_env(), theme.as_deref());
     app.apply_dashboard(dashboard.as_deref());
     app.apply_config(keys.as_deref(), views.as_deref(), config.as_deref());
+    app.icons = theme::icons_from_env(
+        config
+            .as_deref()
+            .and_then(|src| tmprl_core::config::parse_config(src).ok())
+            .and_then(|cfg| cfg.icons),
+    );
     app.start(startup);
 
     let mouse = app.mouse();
-    let terminal = ratatui::init();
+    let terminal = terminal.unwrap_or_else(ratatui::init);
     let _ = event::bracketed_paste(true);
     if mouse {
         // After ratatui::init, so this hook runs before its own and the mouse is released first.
@@ -165,6 +169,53 @@ impl Splash {
         }
     }
 
+    async fn connect(
+        &self,
+        profile: &tmprl_client::ProfileRef,
+    ) -> (Connected, Option<ratatui::DefaultTerminal>) {
+        use crossterm::event::{Event, EventStream, KeyCode, KeyEventKind, KeyModifiers};
+        use futures_util::StreamExt;
+
+        let connecting = Conn::connect(profile);
+        tokio::pin!(connecting);
+        if !self.on || !std::io::stdout().is_terminal() {
+            return (Connected::from(connecting.await), None);
+        }
+        let mut terminal = ratatui::init();
+        let started = std::time::Instant::now();
+        let mut keys = EventStream::new();
+        let mut frame = tokio::time::interval(std::time::Duration::from_millis(ui::FRAME_MS));
+        let mut conn = None;
+        loop {
+            if started.elapsed() >= SPLASH_AT_LEAST
+                && let Some(conn) = conn.take()
+            {
+                return (Connected::Yes(conn), Some(terminal));
+            }
+            let elapsed = started.elapsed().as_millis() as i64;
+            let _ = terminal.draw(|f| ui::splash::render(f, &self.place, elapsed, &self.theme));
+            tokio::select! {
+                done = &mut connecting, if conn.is_none() => match done {
+                    Ok(c) => conn = Some(c),
+                    Err(e) => {
+                        ratatui::restore();
+                        return (Connected::No(e), None);
+                    }
+                },
+                Some(Ok(Event::Key(k))) = keys.next() => {
+                    if k.kind == KeyEventKind::Press
+                        && k.code == KeyCode::Char('c')
+                        && k.modifiers.contains(KeyModifiers::CONTROL)
+                    {
+                        ratatui::restore();
+                        return (Connected::Quit, None);
+                    }
+                }
+                _ = frame.tick() => {}
+            }
+        }
+    }
+
     fn show(&self, status: Vec<Line<'static>>) -> usize {
         let columns = crossterm::terminal::size().map_or(0, |(w, _)| w as usize);
         match ui::brand::splash(&self.theme, &self.place, status, columns) {
@@ -177,10 +228,21 @@ impl Splash {
             _ => 0,
         }
     }
+}
 
-    fn erase(lines: usize) {
-        if lines > 0 {
-            eprint!("\x1b[{lines}A\r\x1b[J");
+const SPLASH_AT_LEAST: std::time::Duration = std::time::Duration::from_secs(1);
+
+enum Connected {
+    Yes(Conn),
+    No(tmprl_client::ConnectError),
+    Quit,
+}
+
+impl From<Result<Conn, tmprl_client::ConnectError>> for Connected {
+    fn from(done: Result<Conn, tmprl_client::ConnectError>) -> Self {
+        match done {
+            Ok(conn) => Self::Yes(conn),
+            Err(e) => Self::No(e),
         }
     }
 }

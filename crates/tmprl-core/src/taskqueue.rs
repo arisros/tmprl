@@ -7,6 +7,12 @@ pub enum TaskQueueKind {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Poller {
+    pub identity: String,
+    pub last_access_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct QueueHealth {
     pub backlog: Option<i64>,
     pub backlog_age_ms: Option<i64>,

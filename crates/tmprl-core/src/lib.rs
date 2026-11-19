@@ -32,6 +32,7 @@ pub mod taskqueue;
 pub mod theme;
 pub mod timeline;
 pub mod timerange;
+pub mod worker;
 pub mod workflow;
 
 pub use clock::{Clock, TimeFormat};

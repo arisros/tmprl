@@ -35,15 +35,34 @@ pub fn wordmark(t: &Theme) -> [Span<'static>; 2] {
 }
 
 fn mark(colors: [Color; 3]) -> Vec<Line<'static>> {
+    scaled(colors, 1)
+}
+
+/// The mark `scale` times its size, `None` without colour.
+pub fn big_mark(t: &Theme, scale: usize) -> Option<Vec<Line<'static>>> {
+    Some(scaled(t.mark_colors()?, scale))
+}
+
+fn scaled(colors: [Color; 3], scale: usize) -> Vec<Line<'static>> {
     let pixel = |b: u8| match b {
         b'.' => Some(colors[0]),
         b'#' => Some(colors[1]),
         b'@' => Some(colors[2]),
         _ => None,
     };
-    MARK.chunks(2)
+    let rows: Vec<Vec<u8>> = MARK
+        .iter()
+        .flat_map(|row| {
+            let wide: Vec<u8> = row
+                .bytes()
+                .flat_map(|b| std::iter::repeat_n(b, scale))
+                .collect();
+            std::iter::repeat_n(wide, scale)
+        })
+        .collect();
+    rows.chunks(2)
         .map(|pair| {
-            let cells = pair[0].bytes().zip(pair[1].bytes());
+            let cells = pair[0].iter().copied().zip(pair[1].iter().copied());
             Line::from(
                 cells
                     .map(|(top, bottom)| match (pixel(top), pixel(bottom)) {

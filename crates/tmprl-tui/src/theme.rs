@@ -5,9 +5,16 @@ use tmprl_core::Mode;
 use tmprl_core::config::Accent;
 use tmprl_core::theme::{Ansi, ColorDepth, ColorValue, Rgb, Slot, ThemeOverrides};
 
+fn var(name: &str) -> Option<String> {
+    std::env::var_os(name).map(|v| v.to_string_lossy().into_owned())
+}
+
 pub fn depth_from_env() -> ColorDepth {
-    let var = |name: &str| std::env::var_os(name).map(|v| v.to_string_lossy().into_owned());
     ColorDepth::detect(var("NO_COLOR").as_deref(), var("COLORTERM").as_deref())
+}
+
+pub fn icons_from_env(setting: Option<bool>) -> bool {
+    tmprl_core::theme::icons(setting, var)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -167,6 +174,15 @@ impl Theme {
                 .bg(Color::DarkGray)
                 .add_modifier(Modifier::BOLD),
             ColorDepth::Mono => Style::new().add_modifier(Modifier::BOLD),
+        }
+    }
+
+    /// A colour that is not a slot, such as a language's own, at the depth in use.
+    pub fn fixed(&self, rgb: (u8, u8, u8), ansi: Color) -> Style {
+        match self.depth {
+            ColorDepth::TrueColor => Style::new().fg(Color::Rgb(rgb.0, rgb.1, rgb.2)),
+            ColorDepth::Ansi16 => Style::new().fg(ansi),
+            ColorDepth::Mono => Style::new(),
         }
     }
 

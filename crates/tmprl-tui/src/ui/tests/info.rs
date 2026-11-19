@@ -174,3 +174,110 @@ fn the_bar_shows_the_list_row_before_describe_answers() {
     let bar = draw(&mut app, 120, 12).lines().nth(1).unwrap().to_string();
     assert!(bar.contains("order-1001"), "{bar}");
 }
+
+#[test]
+fn the_card_says_which_sdk_and_worker_run_the_workflow_and_who_polls_its_queue() {
+    use tmprl_core::history::{Category, GroupRef, Outcome, Role};
+    let mut app = app_with_payloads();
+    app.view.info = Loadable::loaded(described());
+    let mut task = tmprl_core::history::NormalizedEvent::new(
+        4,
+        "WORKFLOW_TASK_COMPLETED",
+        Category::WorkflowTask,
+        GroupRef::Opened(2),
+        Role::Closes,
+    );
+    task.outcome = Outcome::Completed;
+    task.fields = vec![
+        ("identity", "81@worker-a@".into()),
+        ("sdkName", "temporal-go".into()),
+        ("sdkVersion", "1.26.0".into()),
+    ];
+    app.view.history_events.push(task);
+    app.view.pollers = Some(Vec::new());
+    app.run("history.info", None);
+
+    let out = draw(&mut app, 140, 34);
+    assert!(
+        line_with(&out, "sdk").contains("Go · temporal-go 1.26.0"),
+        "{out}"
+    );
+    assert!(!out.contains('\u{f07d3}'), "no icon unless asked:\n{out}");
+    assert!(line_with(&out, "worker").contains("81@worker-a@"), "{out}");
+    assert!(out.contains("none polling the task queue"), "{out}");
+
+    app.icons = true;
+    let out = draw(&mut app, 140, 34);
+    assert!(line_with(&out, "sdk").contains("\u{f07d3} Go"), "{out}");
+    assert!(
+        line_with(&out, "gi hide").contains("OrderWorkflow  \u{f07d3}  order-1001"),
+        "the bar carries the icon after the type:\n{out}"
+    );
+}
+
+#[test]
+fn the_card_colours_the_language_its_own_and_an_unpolled_queue_red() {
+    use ratatui::style::Color;
+    use tmprl_core::history::{Category, GroupRef, Outcome, Role};
+    let mut app = app_with_payloads();
+    app.apply_theme(tmprl_core::ColorDepth::TrueColor, None);
+    app.view.info = Loadable::loaded(described());
+    let mut task = tmprl_core::history::NormalizedEvent::new(
+        4,
+        "WORKFLOW_TASK_COMPLETED",
+        Category::WorkflowTask,
+        GroupRef::Opened(2),
+        Role::Closes,
+    );
+    task.outcome = Outcome::Completed;
+    task.fields = vec![("sdkName", "temporal-go".into())];
+    app.view.history_events.push(task);
+    app.view.pollers = Some(Vec::new());
+    app.run("history.info", None);
+
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(140, 34)).unwrap();
+    terminal.draw(|f| crate::ui::render(f, &mut app)).unwrap();
+    let buf = terminal.backend().buffer();
+    let fg_of = |needle: &str| {
+        (0..34u16)
+            .find_map(|y| {
+                let row: String = (0..140u16).map(|x| buf[(x, y)].symbol()).collect();
+                row.find(needle).map(|at| {
+                    let x = row[..at].chars().count() as u16;
+                    buf[(x, y)].fg
+                })
+            })
+            .unwrap_or_else(|| panic!("no {needle}"))
+    };
+    assert_eq!(fg_of("Go · temporal-go"), Color::Rgb(0x00, 0xad, 0xd8));
+    assert_eq!(fg_of("none polling"), app.theme.err.fg.unwrap());
+
+    app.view.pollers = Some(vec![tmprl_core::taskqueue::Poller {
+        identity: "7@poller-host@".into(),
+        last_access_ms: None,
+    }]);
+    terminal.draw(|f| crate::ui::render(f, &mut app)).unwrap();
+    let buf = terminal.backend().buffer();
+    let (y, row) = (0..34u16)
+        .map(|y| {
+            (
+                y,
+                (0..140u16)
+                    .map(|x| buf[(x, y)].symbol())
+                    .collect::<String>(),
+            )
+        })
+        .find(|(_, row)| row.contains("pollers"))
+        .unwrap();
+    let col = |needle: &str| row[..row.find(needle).unwrap()].chars().count() as u16;
+    assert_eq!(
+        buf[(col("1 · "), y)].fg,
+        app.theme.ok.fg.unwrap(),
+        "the count"
+    );
+    assert_eq!(
+        buf[(col("7@poller"), y)].fg,
+        app.theme.dim.fg.unwrap(),
+        "who, as the worker row"
+    );
+}

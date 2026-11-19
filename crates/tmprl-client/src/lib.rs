@@ -5,7 +5,7 @@ pub mod ops;
 
 pub use conn::{
     Conn, ConnectError, ProfileRef, ProfileSummary, config_file_in_use, list_profiles,
-    xdg_config_file,
+    resolve_api_key, xdg_config_file,
 };
 pub use ops::{
     OpError,

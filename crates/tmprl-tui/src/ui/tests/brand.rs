@@ -85,6 +85,49 @@ fn a_long_connect_error_wraps_beside_the_mark() {
     assert!(lines.len() > brand::MARK_HEIGHT - 1, "{lines:?}");
 }
 
+fn splash(depth: ColorDepth, w: u16, h: u16) -> Vec<String> {
+    let t = Theme::new(depth, &ThemeOverrides::default());
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(w, h)).unwrap();
+    terminal
+        .draw(|f| crate::ui::splash::render(f, "profile sit", 2_300, &t))
+        .unwrap();
+    let buf = terminal.backend().buffer();
+    (0..h)
+        .map(|y| (0..w).map(|x| buf[(x, y)].symbol()).collect())
+        .collect()
+}
+
+#[test]
+fn connecting_fills_the_screen_with_the_mark_twice_its_size_where_it_fits() {
+    let rows = splash(ColorDepth::TrueColor, 120, 40);
+    let out = rows.join("\n");
+    let mark: Vec<&String> = rows.iter().filter(|r| r.contains("▀▀▀▀")).collect();
+    assert_eq!(mark.len(), brand::MARK_HEIGHT * 2, "{out}");
+    assert!(
+        out.contains(&format!("tmprl▌ {}", env!("CARGO_PKG_VERSION"))),
+        "{out}"
+    );
+    assert!(out.contains("profile sit"), "{out}");
+    assert!(out.contains("connecting  2s"), "{out}");
+    assert!(rows[39].trim_end().ends_with("Ctrl-C to quit"), "{out}");
+    let line = rows.iter().find(|r| r.contains("connecting")).unwrap();
+    let left = line.len() - line.trim_start().len();
+    let right = line.len() - line.trim_end().len();
+    assert!(left.abs_diff(right) <= 2, "centred: {line:?}");
+
+    let small = splash(ColorDepth::TrueColor, 80, 22).join("\n");
+    assert!(
+        small.contains("▀▀▀▀") && !small.contains(&"▀".repeat(30)),
+        "{small}"
+    );
+
+    let mono = splash(ColorDepth::Mono, 120, 40).join("\n");
+    assert!(
+        !mono.contains("▀▀▀▀") && mono.contains("connecting"),
+        "{mono}"
+    );
+}
+
 #[test]
 fn gf_waits_behind_a_card_with_the_mark_the_stage_and_the_time() {
     let mut app = empty_namespace(ColorDepth::TrueColor);
