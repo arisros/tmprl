@@ -17,6 +17,7 @@ mod picker;
 mod profiles;
 mod query;
 mod schedules;
+pub mod splash;
 mod statusline;
 mod timeline;
 mod waiting;

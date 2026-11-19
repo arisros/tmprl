@@ -715,9 +715,11 @@ not in the header. When the terminal is narrow the address goes first, then the 
 the screen name shortens (`wf`, `hist`, `sched`, `dash`), then the namespace is elided in
 the middle. The profile pill is never dropped.
 
-The logo's mark, drawn in half blocks, appears in three places only: on stderr while tmprl
-connects (erased once it has, or replaced by the error when it cannot), and on a workflow
-list with no workflows and no query, beside how to start one. The help overlay is titled
+The logo's mark, drawn in half blocks, appears in four places only: filling the screen while
+tmprl connects, twice its size where that fits, with where it connects and for how long
+(for a second at least, and `Ctrl-C` quits); on stderr with the
+error when it cannot connect; behind `gf` while it waits; and on a workflow list with no
+workflows and no query, beside how to start one. The help overlay is titled
 with the wordmark and the version. Without colour, or where it does not fit, the mark is
 left out and the text stays.
 
