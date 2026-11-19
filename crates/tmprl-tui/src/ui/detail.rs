@@ -293,7 +293,7 @@ fn payload_lines<'a>(payloads: &[(String, Payload)], app: &App, t: &Theme) -> Ve
         )));
         if let Some(shown) = app.shown_text(p) {
             for l in &shown.lines {
-                lines.push(Line::from(Span::styled(format!("    {l}"), t.fg)));
+                lines.push(json_line(l, t));
             }
             if shown.hidden > 0 {
                 lines.push(hidden_line(shown.hidden, t));
@@ -331,6 +331,26 @@ fn payload_lines<'a>(payloads: &[(String, Payload)], app: &App, t: &Theme) -> Ve
         }
     }
     lines
+}
+
+fn json_line<'a>(line: &str, t: &Theme) -> Line<'a> {
+    use tmprl_core::syntax::Token;
+    let mut spans = vec![Span::raw("    ")];
+    spans.extend(
+        tmprl_core::syntax::json_line(line)
+            .into_iter()
+            .map(|(token, range)| {
+                let style = match token {
+                    Token::Key => t.accent,
+                    Token::String => t.ok,
+                    Token::Number | Token::Literal => t.warn,
+                    Token::Punct => t.faint,
+                    Token::Plain => t.fg,
+                };
+                Span::styled(line[range].to_string(), style)
+            }),
+    );
+    Line::from(spans)
 }
 
 fn render_piped(

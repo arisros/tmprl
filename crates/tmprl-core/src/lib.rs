@@ -27,6 +27,7 @@ pub mod query;
 pub mod schedule;
 pub mod search;
 pub mod source;
+pub mod syntax;
 pub mod taskqueue;
 pub mod theme;
 pub mod timeline;

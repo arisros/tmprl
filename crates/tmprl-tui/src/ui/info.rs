@@ -240,14 +240,27 @@ fn styled_card<'a>(view: &View, app: &App, t: &Theme, width: usize) -> Vec<Line<
     for (i, item) in card.waiting.iter().enumerate() {
         let label = if i == 0 { WAITING } else { "" };
         let mut spans = vec![indent()];
-        spans.extend(cell(
+        let mut cell = cell(
             label,
             left,
             item,
             room,
             t.accent.add_modifier(Modifier::BOLD),
             waiting_style,
-        ));
+        );
+        let value = cell[1].content.to_string();
+        if card.tone != Tone::Quiet
+            && let Some((what, rest)) = value.split_once(" · ")
+        {
+            cell.splice(
+                1..2,
+                [
+                    Span::styled(what.to_string(), waiting_style.add_modifier(Modifier::BOLD)),
+                    Span::styled(format!(" · {rest}"), t.dim),
+                ],
+            );
+        }
+        spans.extend(cell);
         lines.push(Line::from(spans));
     }
 

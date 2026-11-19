@@ -110,6 +110,27 @@ fn a_pending_activity_is_named_in_the_first_line() {
     let first = line_with(&out, "waiting on");
     assert!(first.contains("activity ChargeCard"), "{out}");
     assert!(first.contains("attempt 2/5"), "{out}");
+
+    let mut term = Terminal::new(TestBackend::new(140, 30)).unwrap();
+    term.draw(|f| render(f, &mut app)).unwrap();
+    let buf = term.backend().buffer().clone();
+    let (x, y) = (0..30u16)
+        .find_map(|y| {
+            let row: String = (0..140u16).map(|x| buf[(x, y)].symbol()).collect();
+            row.find("activity ChargeCard")
+                .map(|at| (row[..at].chars().count() as u16, y))
+        })
+        .unwrap();
+    use ratatui::style::Modifier;
+    assert!(
+        buf[(x, y)].modifier.contains(Modifier::BOLD),
+        "the name stands out"
+    );
+    let after = (x..140).find(|&x| buf[(x, y)].symbol() == "·").unwrap();
+    assert!(
+        !buf[(after + 2, y)].modifier.contains(Modifier::BOLD),
+        "the rest does not"
+    );
 }
 
 #[test]

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Payloads read like `jq -C`**: keys, strings, numbers and `true` / `false` / `null` each
+  in their own colour, punctuation faint. In the history the category recedes so the
+  activity's name stands out, and on the info card the name of what the workflow waits on is
+  bold, its age and attempts dim. All from the existing theme slots, so `theme.toml` still
+  sets them.
 - **A header that says where you are**: ` tmprl▌  PROD  RO  address › namespace › screen`,
   the brand ending in the logo's pink cursor. The profile is a filled pill in its `accent`, and a profile without one is coloured from
   its name: red for `prod`, yellow for `uat` / `sit` / `staging`, green for `dev`, `local`

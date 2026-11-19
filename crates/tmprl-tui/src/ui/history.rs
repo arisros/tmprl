@@ -112,7 +112,7 @@ fn render_row<'a>(
                     format!("{} ", outcome_glyph(g.outcome)),
                     outcome_style(g.outcome, t),
                 ),
-                Span::styled(format!("{:<14}", category_label(g.category)), t.dim),
+                Span::styled(format!("{:<14}", category_label(g.category)), t.faint),
                 Span::styled(format!("{:<32}", truncate(&g.subject, 31)), base),
             ];
             let live = pending::for_group(&view.pending, g, outline.events());

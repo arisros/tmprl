@@ -753,10 +753,10 @@ sel    = "#2c3340"
 |---|---|
 | `fg` | primary text |
 | `dim` | secondary text, such as a workflow's type |
-| `faint` | chrome: gutters, borders, hints |
-| `accent` | titles, the text cursor, the focused pane's border, anything running |
-| `ok` | completed, and the `FOLLOW` indicator |
-| `warn` | terminated and cancelled, key chords, the cursor row's line number |
+| `faint` | chrome: gutters, borders, hints, a history row's category, JSON punctuation |
+| `accent` | titles, the text cursor, the focused pane's border, anything running, JSON keys |
+| `ok` | completed, the `FOLLOW` indicator, JSON strings |
+| `warn` | terminated and cancelled, key chords, the cursor row's line number, JSON numbers, `true`, `false` and `null` |
 | `err` | failed and timed out, error messages |
 | `sel` | the background of the cursor row and of a selection |
 | `mode_normal`, `mode_insert`, `mode_visual`, `mode_command` | the mode indicator's background |
