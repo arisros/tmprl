@@ -5,11 +5,14 @@
   </picture>
 </h1>
 
-<p align="center">A Temporal TUI: a keyboard-driven terminal client for <a href="https://temporal.io">Temporal</a>.</p>
+<p align="center"><b>A Temporal TUI that takes you from a history event to the code behind it.</b><br>
+A keyboard-driven terminal client for <a href="https://temporal.io">Temporal</a>.</p>
 
-tmprl browses and searches workflows, folds histories, decodes payloads through your codec
-server, runs queries, mutations and schedules, and jumps from an event to the code behind it,
-from the terminal and with Vim-style keys. It reads the same `temporal.toml` as the
+See a failed activity, press `gf`, and your editor opens on the function that ran it, with
+the workflow that called it and the worker that registered it one keypress away. Around
+that, tmprl browses and searches
+workflows, folds histories, decodes payloads through your codec server, and runs queries,
+mutations and schedules, from the terminal and with Vim-style keys. It reads the same `temporal.toml` as the
 `temporal` CLI, so a profile that works there works here.
 
 - **`gf`, from an event to its code.** On any history row, `gf` opens your editor on the
