@@ -12,6 +12,16 @@ server, runs queries, mutations and schedules, and jumps from an event to the co
 from the terminal and with Vim-style keys. It reads the same `temporal.toml` as the
 `temporal` CLI, so a profile that works there works here.
 
+- **`gf`, from an event to its code.** On any history row, `gf` opens your editor on the
+  activity, the signal handler or the line that started the workflow, and lists the places
+  the event passed through on its way, across services. [How it works](#going-to-the-source).
+- **What a workflow is waiting on, and who runs it.** `gi` opens a card: each pending
+  activity with its state, the SDK and its language, the last worker, and who polls the task
+  queue, or that nobody does.
+- **Payloads you can read.** Decoded through your codec server, coloured like `jq -C`, and
+  piped through `jq` with `!`.
+- **Every mutation shows its `temporal` command first**, and lands in an audit log.
+
 <p align="center">
   <a href="https://crates.io/crates/tmprl"><img alt="crates.io" src="https://img.shields.io/crates/v/tmprl"></a>
   <a href="https://github.com/arisros/tmprl"><img alt="GitHub" src="https://img.shields.io/badge/github-arisros%2Ftmprl-blue?logo=github"></a>
