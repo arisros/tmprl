@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 — 2026-11-19
 
 - **Payloads read like `jq -C`**: keys, strings, numbers and `true` / `false` / `null` each
   in their own colour, punctuation faint. In the history the category recedes so the

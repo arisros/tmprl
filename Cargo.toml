@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.4.2"
+version = "0.5.0"
 edition = "2024"
 rust-version = "1.95"
 license = "MIT"
@@ -13,9 +13,9 @@ keywords = ["temporal", "tui", "terminal", "workflow"]
 categories = ["command-line-utilities"]
 
 [workspace.dependencies]
-tmprl-core = { path = "crates/tmprl-core", version = "0.4.2" }
-tmprl-client = { path = "crates/tmprl-client", version = "0.4.2" }
-tmprl-ui = { path = "crates/tmprl-ui", version = "0.4.2" }
+tmprl-core = { path = "crates/tmprl-core", version = "0.5.0" }
+tmprl-client = { path = "crates/tmprl-client", version = "0.5.0" }
+tmprl-ui = { path = "crates/tmprl-ui", version = "0.5.0" }
 # `vendored-protox`: `cargo install` needs no system `protoc`.
 temporalio-client = { version = "=1.0.0", features = ["vendored-protox"] }
 temporalio-common = { version = "=1.0.0", features = ["vendored-protox"] }
