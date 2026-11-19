@@ -147,6 +147,7 @@ mouse = true              # the wheel scrolls, a click selects, a second click o
 
 [display]
 colors = "truecolor"      # or "16" or "none"; "auto", the default, reads NO_COLOR and COLORTERM
+icons  = true             # Nerd Font glyphs, such as the SDK's language on the info card; off by default
 
 [profile.sit]
 accent  = "green"
@@ -209,9 +210,9 @@ flowchart LR
 
 | Crate | Tests | |
 |---|---|---|
-| `tmprl-client` | 94 | all network IO |
-| `tmprl-core` | 494 | no terminal, no server |
-| `tmprl-tui` | 584 | ratatui |
+| `tmprl-client` | 96 | all network IO |
+| `tmprl-core` | 498 | no terminal, no server |
+| `tmprl-tui` | 585 | ratatui |
 | `tmprl-ui` | 47 | window tree |
 
 ```sh

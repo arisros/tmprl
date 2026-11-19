@@ -151,3 +151,39 @@ fn the_bar_shows_the_list_row_before_describe_answers() {
     let bar = draw(&mut app, 120, 12).lines().nth(1).unwrap().to_string();
     assert!(bar.contains("order-1001"), "{bar}");
 }
+
+#[test]
+fn the_card_says_which_sdk_and_worker_run_the_workflow_and_who_polls_its_queue() {
+    use tmprl_core::history::{Category, GroupRef, Outcome, Role};
+    let mut app = app_with_payloads();
+    app.view.info = Loadable::loaded(described());
+    let mut task = tmprl_core::history::NormalizedEvent::new(
+        4,
+        "WORKFLOW_TASK_COMPLETED",
+        Category::WorkflowTask,
+        GroupRef::Opened(2),
+        Role::Closes,
+    );
+    task.outcome = Outcome::Completed;
+    task.fields = vec![
+        ("identity", "81@worker-a@".into()),
+        ("sdkName", "temporal-go".into()),
+        ("sdkVersion", "1.26.0".into()),
+    ];
+    app.view.history_events.push(task);
+    app.view.pollers = Some(Vec::new());
+    app.run("history.info", None);
+
+    let out = draw(&mut app, 140, 34);
+    assert!(
+        line_with(&out, "sdk").contains("Go · temporal-go 1.26.0"),
+        "{out}"
+    );
+    assert!(!out.contains('\u{e627}'), "no icon unless asked:\n{out}");
+    assert!(line_with(&out, "worker").contains("81@worker-a@"), "{out}");
+    assert!(out.contains("none polling the task queue"), "{out}");
+
+    app.icons = true;
+    let out = draw(&mut app, 140, 34);
+    assert!(line_with(&out, "sdk").contains("\u{e627} Go"), "{out}");
+}

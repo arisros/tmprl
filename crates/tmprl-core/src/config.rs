@@ -284,6 +284,7 @@ pub struct Config {
     pub source: Option<String>,
     pub mouse: bool,
     pub colors: Option<crate::theme::ColorDepth>,
+    pub icons: bool,
 }
 
 // Terminals commonly cap OSC 52 around 100 KB and truncate silently.
@@ -300,6 +301,7 @@ impl Default for Config {
             dashboard_refresh: Refresh::default(),
             yank_max: DEFAULT_YANK_MAX,
             mouse: false,
+            icons: false,
             source: None,
             colors: None,
         }
@@ -394,8 +396,8 @@ pub fn parse_config(src: &str) -> Result<Config, ConfigError> {
         Some(raw) => parse_input(raw)?,
     };
 
-    let colors = match table.get("display") {
-        None => None,
+    let (colors, icons) = match table.get("display") {
+        None => (None, false),
         Some(raw) => parse_display(raw)?,
     };
 
@@ -410,6 +412,7 @@ pub fn parse_config(src: &str) -> Result<Config, ConfigError> {
         source,
         mouse,
         colors,
+        icons,
     })
 }
 
@@ -497,15 +500,17 @@ fn parse_input(raw: &toml::Value) -> Result<bool, ConfigError> {
     }
 }
 
-fn parse_display(raw: &toml::Value) -> Result<Option<crate::theme::ColorDepth>, ConfigError> {
+fn parse_display(
+    raw: &toml::Value,
+) -> Result<(Option<crate::theme::ColorDepth>, bool), ConfigError> {
     const FILE: &str = "config.toml";
     let table = raw.as_table().ok_or(ConfigError::Type {
         file: FILE,
         path: "display".into(),
         expected: "a table",
     })?;
-    match table.get("colors") {
-        None => Ok(None),
+    let colors = match table.get("colors") {
+        None => None,
         Some(v) => v
             .as_str()
             .and_then(crate::theme::ColorDepth::parse_setting)
@@ -513,8 +518,17 @@ fn parse_display(raw: &toml::Value) -> Result<Option<crate::theme::ColorDepth>, 
                 file: FILE,
                 path: "display.colors".into(),
                 expected: "\"auto\", \"truecolor\", \"16\" or \"none\"",
-            }),
-    }
+            })?,
+    };
+    let icons = match table.get("icons") {
+        None => false,
+        Some(v) => v.as_bool().ok_or(ConfigError::Type {
+            file: FILE,
+            path: "display.icons".into(),
+            expected: "true or false",
+        })?,
+    };
+    Ok((colors, icons))
 }
 
 fn parse_layout(raw: &toml::Value) -> Result<(PayloadPane, u16), ConfigError> {
@@ -1234,6 +1248,14 @@ accent = "green"
             parse_config("[display]\ncolors = \"256\""),
             Err(ConfigError::Type { path, .. }) if path == "display.colors"
         ));
+    }
+
+    #[test]
+    fn icons_are_off_until_asked_for() {
+        assert!(!parse_config("").unwrap().icons);
+        assert!(!parse_config("[display]\ncolors = \"16\"").unwrap().icons);
+        assert!(parse_config("[display]\nicons = true").unwrap().icons);
+        assert!(parse_config("[display]\nicons = 1").is_err());
     }
 
     #[test]

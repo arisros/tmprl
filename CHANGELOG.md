@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **The info card says who runs the workflow**: the SDK's language, name and version, the
+  last worker to complete a workflow task and its build id, and, while it runs, the workers
+  polling its task queue, or that none is. `[display] icons = true` adds the language's
+  Nerd Font glyph.
 - **A header that says where you are**: ` tmprl▌  PROD  RO  address › namespace › screen`,
   the brand ending in the logo's pink cursor. The profile is a filled pill in its `accent`, and a profile without one is coloured from
   its name: red for `prod`, yellow for `uat` / `sit` / `staging`, green for `dev`, `local`

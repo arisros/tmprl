@@ -292,6 +292,10 @@ pub enum Msg {
         generation: u64,
         result: Result<Box<tmprl_client::Described>, Fault>,
     },
+    Pollers {
+        generation: u64,
+        pollers: Vec<tmprl_core::taskqueue::Poller>,
+    },
     FollowRetrying {
         generation: u64,
         error: Fault,
@@ -428,6 +432,7 @@ pub struct App {
     text_selection: Option<crate::view::TextSelection>,
     last_click: Option<(std::time::Instant, u16, u16)>,
     mouse: bool,
+    pub icons: bool,
     yank_max: usize,
     namespace: String,
     conn: Option<Arc<Conn>>,
@@ -538,6 +543,7 @@ impl App {
             text_selection: None,
             last_click: None,
             mouse: false,
+            icons: false,
             yank_max: tmprl_core::config::DEFAULT_YANK_MAX,
             namespace,
             conn,
@@ -557,6 +563,7 @@ impl App {
                     self.payload_pane = cfg.payload_pane;
                     self.payload_size = cfg.payload_size;
                     self.mouse = cfg.mouse;
+                    self.icons = cfg.icons;
                     self.dashboard_refresh = cfg.dashboard_refresh;
                     self.yank_max = cfg.yank_max;
                     self.source_command = cfg.source.clone();
@@ -899,6 +906,14 @@ impl App {
                 );
             }
             Msg::Described { generation, result } => self.described(generation, result),
+            Msg::Pollers {
+                generation,
+                pollers,
+            } => {
+                if generation == self.view.generation {
+                    self.view.pollers = Some(pollers);
+                }
+            }
             Msg::Schedules { generation, result } => {
                 if generation != self.view.generation {
                     return;

@@ -152,6 +152,17 @@ impl App {
             return;
         };
         let (tx, generation) = (self.tx.clone(), self.view.generation);
+        if row.status == tmprl_core::WorkflowStatus::Running {
+            let (conn, tx, row) = (conn.clone(), tx.clone(), row.clone());
+            tokio::spawn(async move {
+                if let Ok(pollers) = conn.workflow_pollers(&row.namespace, &row.task_queue).await {
+                    let _ = tx.send(Msg::Pollers {
+                        generation,
+                        pollers,
+                    });
+                }
+            });
+        }
         tokio::spawn(async move {
             let result = conn
                 .describe(&row.namespace, &row.workflow_id, &row.run_id)

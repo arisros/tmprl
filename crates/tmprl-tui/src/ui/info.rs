@@ -7,6 +7,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use tmprl_core::Loadable;
 use tmprl_core::info::{self, Card, Tone};
+use tmprl_core::worker::{Language, WorkerInfo};
 
 use super::{status_style, truncate};
 use crate::app::{App, Screen, now_ms};
@@ -25,7 +26,7 @@ pub fn height(view: &View, width: u16) -> u16 {
     if !view.show_info {
         return 1;
     }
-    let body = match card(view, &|_| String::new()) {
+    let body = match card(view, false, &|_| String::new()) {
         Some(card) => card_lines(&card, width as usize),
         None => 1,
     };
@@ -165,9 +166,29 @@ fn bar_line<'a>(view: &View, t: &Theme, width: usize) -> Line<'a> {
     Line::from(spans)
 }
 
-fn card(view: &View, stamp: &dyn Fn(i64) -> String) -> Option<Card> {
+fn card(view: &View, icons: bool, stamp: &dyn Fn(i64) -> String) -> Option<Card> {
     let info = view.info.value()?;
-    Some(info.card(now_ms(), &view.pending, stamp))
+    let now = now_ms();
+    let mut card = info.card(now, &view.pending, stamp);
+    let worker = WorkerInfo::from_history(&view.history_events);
+    card.facts
+        .extend(worker.facts(view.pollers.as_deref(), now, |lang| {
+            icons.then(|| icon(lang))
+        }));
+    Some(card)
+}
+
+fn icon(lang: Language) -> &'static str {
+    match lang {
+        Language::Go => "\u{e627}",
+        Language::TypeScript => "\u{e628}",
+        Language::Python => "\u{e606}",
+        Language::Java => "\u{e738}",
+        Language::DotNet => "\u{e77f}",
+        Language::Ruby => "\u{e791}",
+        Language::Php => "\u{e73d}",
+        Language::Rust => "\u{e7a8}",
+    }
 }
 
 fn columns(width: usize) -> usize {
@@ -213,7 +234,7 @@ fn styled_card<'a>(view: &View, app: &App, t: &Theme, width: usize) -> Vec<Line<
         Loadable::NotAsked | Loadable::Loading => {
             return vec![Line::from(Span::styled("  describing…", t.faint))];
         }
-        Loadable::Loaded(..) => match card(view, &|ms| app.clock.moment(ms)) {
+        Loadable::Loaded(..) => match card(view, app.icons, &|ms| app.clock.moment(ms)) {
             Some(card) => card,
             None => return Vec::new(),
         },

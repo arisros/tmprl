@@ -151,6 +151,7 @@ impl App {
         self.view.handlers = None;
         self.view.queried = None;
         self.view.info = Loadable::NotAsked;
+        self.view.pollers = None;
     }
 
     pub(super) fn here(&self) -> Jump {

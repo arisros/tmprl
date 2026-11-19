@@ -93,6 +93,16 @@ max_bytes = 1048576     # 65536 is the default
 command = "~/bin/find-source"   # asked by gf where the code behind an event is
 ```
 
+### Icons are optional
+
+Glyphs from a Nerd Font, such as the SDK's language on the info card, are drawn only when
+asked, since a terminal without one shows boxes:
+
+```toml
+[display]
+icons = true            # false is the default
+```
+
 ### The mouse is optional
 
 tmprl is driven from the keyboard and reports nothing to do with the mouse unless asked:
@@ -496,6 +506,8 @@ The card is ordered by what a debugging session asks first:
 | waiting on | always first: each pending activity by name with its age or `retry in`, its attempt and its last failure, the pending workflow task and how long it has waited, pending children by type and id. Three at most, then `+N more`. Yellow while something is retrying, faint when nothing is pending or the workflow is closed |
 | run, started, history | always. `started` carries its age while the workflow runs |
 | first run, first task, closed, timeouts, parent, root | only when they say something: after a continue-as-new, a delayed start, a close, a timeout that is set, a parent |
+| sdk, worker, build | from the history's completed workflow tasks: the SDK's language, name and version, the last worker to complete a task, and its build id, each when recorded. With `[display] icons = true` the language carries its Nerd Font glyph |
+| pollers | while the workflow runs: how many workers poll its task queue for workflow tasks, the three seen last with how long ago, or `none polling the task queue` |
 | memo, search | one key per row with the value on one line, three at most, then `+N more` |
 | last line | what is absent, faint, in one line: `no parent · no memo · no children · no execution or run timeout` |
 
