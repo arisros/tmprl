@@ -204,10 +204,16 @@ fn pending_line<'a>(p: &PendingActivity, app: &App, t: &Theme) -> Line<'a> {
     if let Some(at) = p.next_attempt_at {
         parts.push(format!("next attempt {}", app.clock.stamp(Some(at))));
     }
-    if let Some(w) = &p.last_worker {
-        parts.push(format!("worker {w}"));
+    let (glyph, glyph_style, style) = super::info::wait_look(tmprl_core::info::Wait::of(p), t);
+    let mut spans = vec![Span::raw("  ")];
+    if let Some(g) = glyph {
+        spans.push(Span::styled(format!("{g} "), glyph_style));
     }
-    Line::from(Span::styled(format!("  {}", parts.join(" · ")), t.warn))
+    spans.push(Span::styled(parts.join(" · "), style));
+    if let Some(w) = &p.last_worker {
+        spans.push(Span::styled(format!(" · worker {w}"), t.dim));
+    }
+    Line::from(spans)
 }
 
 fn failure_lines<'a>(f: &'a Failure, indent: &str, t: &Theme) -> Vec<Line<'a>> {

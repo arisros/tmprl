@@ -79,6 +79,21 @@ pub enum Wait {
     Quiet,
 }
 
+impl Wait {
+    pub fn of(p: &PendingActivity) -> Wait {
+        if p.is_retrying() {
+            return Wait::Retrying;
+        }
+        match p.state {
+            PendingState::Started => Wait::Running,
+            PendingState::Paused | PendingState::PauseRequested | PendingState::CancelRequested => {
+                Wait::Held
+            }
+            PendingState::Scheduled | PendingState::Unspecified => Wait::Queued,
+        }
+    }
+}
+
 pub const MAX_LISTED: usize = 3;
 const VALUE_WIDTH: usize = 120;
 
@@ -199,17 +214,7 @@ impl WorkflowInfo {
         let mut items = Vec::new();
         let mut tone = Tone::Normal;
         for p in pending {
-            let state = if p.is_retrying() {
-                Wait::Retrying
-            } else {
-                match p.state {
-                    PendingState::Started => Wait::Running,
-                    PendingState::Paused
-                    | PendingState::PauseRequested
-                    | PendingState::CancelRequested => Wait::Held,
-                    PendingState::Scheduled | PendingState::Unspecified => Wait::Queued,
-                }
-            };
+            let state = Wait::of(p);
             if state == Wait::Retrying {
                 tone = Tone::Retrying;
             }

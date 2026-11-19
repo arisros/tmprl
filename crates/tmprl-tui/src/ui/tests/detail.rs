@@ -276,6 +276,15 @@ fn k_on_a_retrying_activity_shows_where_it_is() {
     assert!(out.contains("attempt 4/10"), "attempt missing:\n{out}");
     assert!(out.contains("worker-7@host"), "worker missing:\n{out}");
     assert!(out.contains("PaymentDeclined"), "failure missing:\n{out}");
+    assert!(
+        out.contains("↻ attempt 4/10"),
+        "marked as the card marks it:\n{out}"
+    );
+
+    app.view.pending[0].attempt = 1;
+    app.view.pending[0].last_failure = None;
+    app.view.pending[0].state = tmprl_core::pending::PendingState::Started;
+    assert!(draw(&mut app, 120, 20).contains("● attempt 1/10"));
 }
 
 fn lit_on_row(app: &mut App, w: u16, h: u16, row_text: &str, symbol: &str) -> bool {

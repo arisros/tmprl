@@ -170,6 +170,17 @@ fn card(view: &View, stamp: &dyn Fn(i64) -> String) -> Option<Card> {
     Some(info.card(now_ms(), &view.pending, stamp))
 }
 
+/// The glyph, its colour and the text's colour for one state, wherever pending work is shown.
+pub(super) fn wait_look(wait: Wait, t: &Theme) -> (Option<char>, Style, Style) {
+    match wait {
+        Wait::Running => (Some('●'), t.accent, t.accent),
+        Wait::Queued => (Some('○'), t.dim, t.fg),
+        Wait::Retrying => (Some('↻'), t.warn, t.warn),
+        Wait::Held => (Some('‖'), t.warn, t.warn),
+        Wait::Quiet => (None, t.faint, t.faint),
+    }
+}
+
 fn columns(width: usize) -> usize {
     if width >= TWO_COLUMNS { 2 } else { 1 }
 }
@@ -234,13 +245,8 @@ fn styled_card<'a>(view: &View, app: &App, t: &Theme, width: usize) -> Vec<Line<
     let mut lines = Vec::new();
     for (i, item) in card.waiting.iter().enumerate() {
         let label = if i == 0 { WAITING } else { "" };
-        let (glyph, glyph_style, style) = match card.states.get(i).copied().unwrap_or(Wait::Quiet) {
-            Wait::Running => (Some('●'), t.accent, t.accent),
-            Wait::Queued => (Some('○'), t.dim, t.fg),
-            Wait::Retrying => (Some('↻'), t.warn, t.warn),
-            Wait::Held => (Some('‖'), t.warn, t.warn),
-            Wait::Quiet => (None, t.faint, t.faint),
-        };
+        let (glyph, glyph_style, style) =
+            wait_look(card.states.get(i).copied().unwrap_or(Wait::Quiet), t);
         let text = match glyph {
             Some(g) => format!("{g} {item}"),
             None => item.clone(),
