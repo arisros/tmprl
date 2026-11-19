@@ -12,10 +12,14 @@ use crate::theme::Theme;
 const DOTS: [&str; 3] = ["●○○", "○●○", "○○●"];
 pub const FRAME_MS: u64 = 250;
 
+pub(super) fn dots(elapsed_ms: i64) -> &'static str {
+    DOTS[(elapsed_ms.max(0) / FRAME_MS as i64 % 3) as usize]
+}
+
 pub fn render(frame: &mut Frame, wait: &SourceWait, now_ms: i64, t: &Theme) {
     let elapsed = (now_ms - wait.since_ms).max(0);
     let secs = elapsed / 1000;
-    let dots = DOTS[(elapsed / FRAME_MS as i64 % 3) as usize];
+    let dots = dots(elapsed);
     let stage = match &wait.asking {
         None => "decoding the payloads".to_string(),
         Some(program) => format!("asking {program}"),
