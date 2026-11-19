@@ -4,8 +4,8 @@
 
 - **The info card says who runs the workflow**: the SDK's language, name and version, the
   last worker to complete a workflow task and its build id, and, while it runs, the workers
-  polling its task queue, or that none is. The language carries its Nerd Font glyph in
-  Ghostty, WezTerm and kitty, which ship the symbols, and elsewhere with `[display] icons =
+  polling its task queue, or that none is. The language carries its Nerd Font glyph, on the
+  card and in the workflow bar, in Ghostty, WezTerm and kitty, which ship the symbols, and elsewhere with `[display] icons =
   true`; `false` turns it off.
 - **A header that says where you are**: ` tmprl▌  PROD  RO  address › namespace › screen`,
   the brand ending in the logo's pink cursor. The profile is a filled pill in its `accent`, and a profile without one is coloured from

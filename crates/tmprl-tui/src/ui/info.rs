@@ -38,7 +38,10 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
         return;
     }
     let bar = Rect { height: 1, ..area };
-    frame.render_widget(Paragraph::new(bar_line(view, t, area.width as usize)), bar);
+    frame.render_widget(
+        Paragraph::new(bar_line(view, t, app.icons, area.width as usize)),
+        bar,
+    );
     if !view.show_info || area.height < 3 {
         return;
     }
@@ -62,7 +65,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
     );
 }
 
-fn bar_line<'a>(view: &View, t: &Theme, width: usize) -> Line<'a> {
+fn bar_line<'a>(view: &View, t: &Theme, icons: bool, width: usize) -> Line<'a> {
     let Some(row) = &view.viewing else {
         return Line::default();
     };
@@ -94,6 +97,12 @@ fn bar_line<'a>(view: &View, t: &Theme, width: usize) -> Line<'a> {
             vec![Span::styled(format!(" {} ", row.workflow_id), t.fg)],
         ),
     ];
+    if icons && let Some(lang) = WorkerInfo::from_history(&view.history_events).language() {
+        segments.insert(
+            2,
+            (2, vec![Span::styled(format!(" {} ", icon(lang)), t.accent)]),
+        );
+    }
     if queue != workflow_type {
         segments.push((5, vec![Span::styled(format!(" {queue} "), t.dim)]));
     }

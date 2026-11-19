@@ -186,4 +186,8 @@ fn the_card_says_which_sdk_and_worker_run_the_workflow_and_who_polls_its_queue()
     app.icons = true;
     let out = draw(&mut app, 140, 34);
     assert!(line_with(&out, "sdk").contains("\u{e627} Go"), "{out}");
+    assert!(
+        line_with(&out, "gi hide").contains("OrderWorkflow  \u{e627}  order-1001"),
+        "the bar carries the icon after the type:\n{out}"
+    );
 }

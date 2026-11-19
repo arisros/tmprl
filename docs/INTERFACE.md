@@ -494,7 +494,7 @@ is fetched when the history opens and on `R`, and every 5 seconds under `F`, bec
 writes no event for the follow long poll to wake on.
 
 The same reply feeds the top of a history. One line, the workflow bar, is always there: status,
-type, workflow id, task queue, how long it has run (or `took` once closed), failures, groups
+type, the SDK's language as its glyph where icons are on, workflow id, task queue, how long it has run (or `took` once closed), failures, groups
 in flight and the event count, dropping from the right on a narrow pane while the status, the
 id and the failures stay. Until the describe answers it shows the list row it was opened from.
 
