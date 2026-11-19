@@ -2,7 +2,7 @@
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use tmprl_core::Loadable;
@@ -100,7 +100,13 @@ fn bar_line<'a>(view: &View, t: &Theme, icons: bool, width: usize) -> Line<'a> {
     if icons && let Some(lang) = WorkerInfo::from_history(&view.history_events).language() {
         segments.insert(
             2,
-            (2, vec![Span::styled(format!(" {} ", icon(lang)), t.accent)]),
+            (
+                2,
+                vec![Span::styled(
+                    format!(" {} ", icon(lang)),
+                    lang_style(lang, t),
+                )],
+            ),
         );
     }
     if queue != workflow_type {
@@ -189,14 +195,37 @@ fn card(view: &View, icons: bool, stamp: &dyn Fn(i64) -> String) -> Option<Card>
 
 fn icon(lang: Language) -> &'static str {
     match lang {
-        Language::Go => "\u{e627}",
-        Language::TypeScript => "\u{e628}",
-        Language::Python => "\u{e606}",
-        Language::Java => "\u{e738}",
-        Language::DotNet => "\u{e77f}",
-        Language::Ruby => "\u{e791}",
-        Language::Php => "\u{e73d}",
-        Language::Rust => "\u{e7a8}",
+        Language::Go => "\u{f07d3}",
+        Language::TypeScript => "\u{f06e6}",
+        Language::Python => "\u{f0320}",
+        Language::Java => "\u{f0b37}",
+        Language::DotNet => "\u{f0aae}",
+        Language::Ruby => "\u{f0d2d}",
+        Language::Php => "\u{f031f}",
+        Language::Rust => "\u{f1617}",
+    }
+}
+
+fn lang_style(lang: Language, t: &Theme) -> Style {
+    let (rgb, ansi) = match lang {
+        Language::Go => ((0x00, 0xad, 0xd8), Color::Cyan),
+        Language::TypeScript => ((0x31, 0x78, 0xc6), Color::Blue),
+        Language::Python => ((0xff, 0xd4, 0x3b), Color::Yellow),
+        Language::Java => ((0xe7, 0x6f, 0x00), Color::LightRed),
+        Language::DotNet => ((0x9b, 0x7c, 0xf0), Color::Magenta),
+        Language::Ruby => ((0xcc, 0x34, 0x2d), Color::Red),
+        Language::Php => ((0x88, 0x92, 0xbf), Color::Blue),
+        Language::Rust => ((0xde, 0xa5, 0x84), Color::Yellow),
+    };
+    t.fixed(rgb, ansi)
+}
+
+fn fact_style(label: &str, value: &str, t: &Theme) -> Style {
+    match label {
+        "run" | "first run" | "worker" | "build" => t.dim,
+        "pollers" if value.starts_with("none") => t.err,
+        "pollers" => t.ok,
+        _ => t.fg,
     }
 }
 
@@ -282,11 +311,19 @@ fn styled_card<'a>(view: &View, app: &App, t: &Theme, width: usize) -> Vec<Line<
     }
 
     let column = room / cols;
+    let lang = WorkerInfo::from_history(&view.history_events).language();
     for pair in card.facts.chunks(cols) {
         let mut spans = vec![indent()];
         for (i, (label, value)) in pair.iter().enumerate() {
             let label_width = if i == 0 { left } else { right };
-            spans.extend(cell(label, label_width, value, column, t.dim, t.fg));
+            let value_style = fact_style(label, value, t);
+            let mut cell = cell(label, label_width, value, column, t.dim, value_style);
+            if *label == "sdk"
+                && let Some(lang) = lang
+            {
+                cell[1].style = lang_style(lang, t).add_modifier(Modifier::BOLD);
+            }
+            spans.extend(cell);
         }
         lines.push(Line::from(spans));
     }

@@ -177,6 +177,15 @@ impl Theme {
         }
     }
 
+    /// A colour that is not a slot, such as a language's own, at the depth in use.
+    pub fn fixed(&self, rgb: (u8, u8, u8), ansi: Color) -> Style {
+        match self.depth {
+            ColorDepth::TrueColor => Style::new().fg(Color::Rgb(rgb.0, rgb.1, rgb.2)),
+            ColorDepth::Ansi16 => Style::new().fg(ansi),
+            ColorDepth::Mono => Style::new(),
+        }
+    }
+
     pub fn brand_cursor(&self) -> Style {
         match self.depth {
             ColorDepth::TrueColor => Style::new().fg(Color::Rgb(0xff, 0x00, 0x7c)),
