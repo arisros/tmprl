@@ -382,12 +382,22 @@ pub fn normalize(e: HistoryEvent) -> NormalizedEvent {
             Role::Continues,
         )
         .field("identity", a.identity),
-        Some(Attributes::WorkflowTaskCompletedEventAttributes(a)) => at(
-            Category::WorkflowTask,
-            GroupRef::Opened(a.scheduled_event_id),
-            Role::Closes,
-        )
-        .ends(Outcome::Completed),
+        Some(Attributes::WorkflowTaskCompletedEventAttributes(a)) => {
+            let sdk = a.sdk_metadata.unwrap_or_default();
+            at(
+                Category::WorkflowTask,
+                GroupRef::Opened(a.scheduled_event_id),
+                Role::Closes,
+            )
+            .ends(Outcome::Completed)
+            .field("identity", a.identity)
+            .field("sdkName", sdk.sdk_name)
+            .field("sdkVersion", sdk.sdk_version)
+            .field(
+                "buildId",
+                a.deployment_version.map(|v| v.build_id).unwrap_or_default(),
+            )
+        }
         Some(Attributes::WorkflowTaskTimedOutEventAttributes(a)) => at(
             Category::WorkflowTask,
             GroupRef::Opened(a.scheduled_event_id),
@@ -748,6 +758,45 @@ mod tests {
             attributes: Some(attrs),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn a_completed_workflow_task_says_which_worker_and_sdk_ran_it() {
+        use temporalio_common::protos::temporal::api::{
+            deployment::v1::WorkerDeploymentVersion,
+            history::v1::WorkflowTaskCompletedEventAttributes,
+            sdk::v1::WorkflowTaskCompletedMetadata,
+        };
+        let n = normalize(event(
+            4,
+            EventType::WorkflowTaskCompleted,
+            Attributes::WorkflowTaskCompletedEventAttributes(
+                WorkflowTaskCompletedEventAttributes {
+                    scheduled_event_id: 2,
+                    identity: "1@host@".into(),
+                    sdk_metadata: Some(WorkflowTaskCompletedMetadata {
+                        sdk_name: "temporal-go".into(),
+                        sdk_version: "1.26.0".into(),
+                        ..Default::default()
+                    }),
+                    deployment_version: Some(WorkerDeploymentVersion {
+                        build_id: "v42".into(),
+                        deployment_name: "orders".into(),
+                    }),
+                    ..Default::default()
+                },
+            ),
+        ));
+        assert_eq!(n.outcome, Outcome::Completed);
+        assert_eq!(
+            n.fields,
+            vec![
+                ("identity", "1@host@".to_string()),
+                ("sdkName", "temporal-go".to_string()),
+                ("sdkVersion", "1.26.0".to_string()),
+                ("buildId", "v42".to_string()),
+            ]
+        );
     }
 
     #[test]

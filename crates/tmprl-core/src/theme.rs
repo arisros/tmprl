@@ -31,6 +31,25 @@ impl ColorDepth {
     }
 }
 
+/// `setting` from `[display] icons`, `None` for auto: the terminals that bundle the Nerd Font
+/// symbols, recognised also through tmux by the variables they export.
+pub fn icons(setting: Option<bool>, env: impl Fn(&str) -> Option<String>) -> bool {
+    if let Some(on) = setting {
+        return on;
+    }
+    let term_program = env("TERM_PROGRAM").unwrap_or_default().to_ascii_lowercase();
+    let term = env("TERM").unwrap_or_default();
+    matches!(term_program.as_str(), "ghostty" | "wezterm" | "kitty")
+        || matches!(term.as_str(), "xterm-ghostty" | "xterm-kitty" | "wezterm")
+        || [
+            "GHOSTTY_RESOURCES_DIR",
+            "WEZTERM_EXECUTABLE",
+            "KITTY_WINDOW_ID",
+        ]
+        .iter()
+        .any(|name| env(name).is_some_and(|v| !v.is_empty()))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ansi {
     Black,
@@ -246,6 +265,31 @@ pub fn parse_theme(src: &str) -> Result<ThemeOverrides, ConfigError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn icons_are_on_in_a_terminal_that_ships_the_symbols_even_inside_tmux() {
+        let env = |vars: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                vars.iter()
+                    .find(|(k, _)| *k == name)
+                    .map(|(_, v)| v.to_string())
+            }
+        };
+        assert!(icons(None, env(&[("TERM_PROGRAM", "ghostty")])));
+        assert!(icons(None, env(&[("TERM_PROGRAM", "WezTerm")])));
+        assert!(icons(None, env(&[("TERM", "xterm-kitty")])));
+        assert!(icons(
+            None,
+            env(&[
+                ("TERM_PROGRAM", "tmux"),
+                ("GHOSTTY_RESOURCES_DIR", "/Applications/Ghostty.app")
+            ])
+        ));
+        assert!(!icons(None, env(&[("TERM_PROGRAM", "Apple_Terminal")])));
+        assert!(!icons(None, env(&[("TERM_PROGRAM", "tmux")])));
+        assert!(!icons(Some(false), env(&[("TERM_PROGRAM", "ghostty")])));
+        assert!(icons(Some(true), env(&[])));
+    }
 
     #[test]
     fn no_color_wins_over_everything() {

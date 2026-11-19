@@ -2,11 +2,12 @@
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use tmprl_core::Loadable;
 use tmprl_core::info::{self, Card, Tone};
+use tmprl_core::worker::{Language, WorkerInfo};
 
 use super::{status_style, truncate};
 use crate::app::{App, Screen, now_ms};
@@ -25,7 +26,7 @@ pub fn height(view: &View, width: u16) -> u16 {
     if !view.show_info {
         return 1;
     }
-    let body = match card(view, &|_| String::new()) {
+    let body = match card(view, false, &|_| String::new()) {
         Some(card) => card_lines(&card, width as usize),
         None => 1,
     };
@@ -37,7 +38,10 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
         return;
     }
     let bar = Rect { height: 1, ..area };
-    frame.render_widget(Paragraph::new(bar_line(view, t, area.width as usize)), bar);
+    frame.render_widget(
+        Paragraph::new(bar_line(view, t, app.icons, area.width as usize)),
+        bar,
+    );
     if !view.show_info || area.height < 3 {
         return;
     }
@@ -61,7 +65,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: &View, app: &App, t: &Theme) 
     );
 }
 
-fn bar_line<'a>(view: &View, t: &Theme, width: usize) -> Line<'a> {
+fn bar_line<'a>(view: &View, t: &Theme, icons: bool, width: usize) -> Line<'a> {
     let Some(row) = &view.viewing else {
         return Line::default();
     };
@@ -93,6 +97,18 @@ fn bar_line<'a>(view: &View, t: &Theme, width: usize) -> Line<'a> {
             vec![Span::styled(format!(" {} ", row.workflow_id), t.fg)],
         ),
     ];
+    if icons && let Some(lang) = WorkerInfo::from_history(&view.history_events).language() {
+        segments.insert(
+            2,
+            (
+                2,
+                vec![Span::styled(
+                    format!(" {} ", icon(lang)),
+                    lang_style(lang, t),
+                )],
+            ),
+        );
+    }
     if queue != workflow_type {
         segments.push((5, vec![Span::styled(format!(" {queue} "), t.dim)]));
     }
@@ -165,9 +181,52 @@ fn bar_line<'a>(view: &View, t: &Theme, width: usize) -> Line<'a> {
     Line::from(spans)
 }
 
-fn card(view: &View, stamp: &dyn Fn(i64) -> String) -> Option<Card> {
+fn card(view: &View, icons: bool, stamp: &dyn Fn(i64) -> String) -> Option<Card> {
     let info = view.info.value()?;
-    Some(info.card(now_ms(), &view.pending, stamp))
+    let now = now_ms();
+    let mut card = info.card(now, &view.pending, stamp);
+    let worker = WorkerInfo::from_history(&view.history_events);
+    card.facts
+        .extend(worker.facts(view.pollers.as_deref(), now, |lang| {
+            icons.then(|| icon(lang))
+        }));
+    Some(card)
+}
+
+fn icon(lang: Language) -> &'static str {
+    match lang {
+        Language::Go => "\u{f07d3}",
+        Language::TypeScript => "\u{f06e6}",
+        Language::Python => "\u{f0320}",
+        Language::Java => "\u{f0b37}",
+        Language::DotNet => "\u{f0aae}",
+        Language::Ruby => "\u{f0d2d}",
+        Language::Php => "\u{f031f}",
+        Language::Rust => "\u{f1617}",
+    }
+}
+
+fn lang_style(lang: Language, t: &Theme) -> Style {
+    let (rgb, ansi) = match lang {
+        Language::Go => ((0x00, 0xad, 0xd8), Color::Cyan),
+        Language::TypeScript => ((0x31, 0x78, 0xc6), Color::Blue),
+        Language::Python => ((0xff, 0xd4, 0x3b), Color::Yellow),
+        Language::Java => ((0xe7, 0x6f, 0x00), Color::LightRed),
+        Language::DotNet => ((0x9b, 0x7c, 0xf0), Color::Magenta),
+        Language::Ruby => ((0xcc, 0x34, 0x2d), Color::Red),
+        Language::Php => ((0x88, 0x92, 0xbf), Color::Blue),
+        Language::Rust => ((0xde, 0xa5, 0x84), Color::Yellow),
+    };
+    t.fixed(rgb, ansi)
+}
+
+fn fact_style(label: &str, value: &str, t: &Theme) -> Style {
+    match label {
+        "run" | "first run" | "worker" | "build" => t.dim,
+        "pollers" if value.starts_with("none") => t.err,
+        "pollers" => t.ok,
+        _ => t.fg,
+    }
 }
 
 fn columns(width: usize) -> usize {
@@ -213,7 +272,7 @@ fn styled_card<'a>(view: &View, app: &App, t: &Theme, width: usize) -> Vec<Line<
         Loadable::NotAsked | Loadable::Loading => {
             return vec![Line::from(Span::styled("  describing…", t.faint))];
         }
-        Loadable::Loaded(..) => match card(view, &|ms| app.clock.moment(ms)) {
+        Loadable::Loaded(..) => match card(view, app.icons, &|ms| app.clock.moment(ms)) {
             Some(card) => card,
             None => return Vec::new(),
         },
@@ -252,11 +311,31 @@ fn styled_card<'a>(view: &View, app: &App, t: &Theme, width: usize) -> Vec<Line<
     }
 
     let column = room / cols;
+    let lang = WorkerInfo::from_history(&view.history_events).language();
     for pair in card.facts.chunks(cols) {
         let mut spans = vec![indent()];
         for (i, (label, value)) in pair.iter().enumerate() {
             let label_width = if i == 0 { left } else { right };
-            spans.extend(cell(label, label_width, value, column, t.dim, t.fg));
+            let value_style = fact_style(label, value, t);
+            let mut cell = cell(label, label_width, value, column, t.dim, value_style);
+            if *label == "sdk"
+                && let Some(lang) = lang
+            {
+                cell[1].style = lang_style(lang, t).add_modifier(Modifier::BOLD);
+            }
+            let shown = cell[1].content.to_string();
+            if *label == "pollers"
+                && let Some((count, who)) = shown.split_once(" · ")
+            {
+                cell.splice(
+                    1..2,
+                    [
+                        Span::styled(count.to_string(), value_style.add_modifier(Modifier::BOLD)),
+                        Span::styled(format!(" · {who}"), t.dim),
+                    ],
+                );
+            }
+            spans.extend(cell);
         }
         lines.push(Line::from(spans));
     }

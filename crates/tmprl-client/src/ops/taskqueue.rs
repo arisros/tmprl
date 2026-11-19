@@ -6,7 +6,7 @@ use temporalio_common::protos::temporal::api::{
     taskqueue::v1::TaskQueue,
     workflowservice::v1::{DescribeTaskQueueRequest, DescribeTaskQueueResponse},
 };
-use tmprl_core::taskqueue::{QueueHealth, TaskQueueKind};
+use tmprl_core::taskqueue::{Poller, QueueHealth, TaskQueueKind};
 
 use super::OpError;
 use super::workflow::epoch_millis;
@@ -39,6 +39,38 @@ impl Conn {
             .into_inner();
         Ok(health_from(resp))
     }
+
+    pub async fn workflow_pollers(
+        &self,
+        namespace: &str,
+        name: &str,
+    ) -> Result<Vec<Poller>, OpError> {
+        let resp = self
+            .wf()
+            .describe_task_queue(Request::new(DescribeTaskQueueRequest {
+                namespace: namespace.to_string(),
+                task_queue: Some(TaskQueue {
+                    name: name.to_string(),
+                    ..Default::default()
+                }),
+                task_queue_type: TaskQueueType::Workflow as i32,
+                ..Default::default()
+            }))
+            .await
+            .map_err(|s| super::rpc("DescribeTaskQueue", s))?
+            .into_inner();
+        Ok(pollers_from(resp))
+    }
+}
+
+fn pollers_from(resp: DescribeTaskQueueResponse) -> Vec<Poller> {
+    resp.pollers
+        .into_iter()
+        .map(|p| Poller {
+            identity: p.identity,
+            last_access_ms: p.last_access_time.map(epoch_millis),
+        })
+        .collect()
 }
 
 fn health_from(resp: DescribeTaskQueueResponse) -> QueueHealth {
@@ -68,6 +100,21 @@ mod tests {
             identity: "worker".into(),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn each_poller_keeps_its_identity_and_when_it_last_polled() {
+        let pollers = pollers_from(DescribeTaskQueueResponse {
+            pollers: vec![poller(100)],
+            ..Default::default()
+        });
+        assert_eq!(
+            pollers,
+            vec![Poller {
+                identity: "worker".into(),
+                last_access_ms: Some(100_000),
+            }]
+        );
     }
 
     #[test]

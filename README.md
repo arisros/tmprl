@@ -147,6 +147,7 @@ mouse = true              # the wheel scrolls, a click selects, a second click o
 
 [display]
 colors = "truecolor"      # or "16" or "none"; "auto", the default, reads NO_COLOR and COLORTERM
+icons  = true             # Nerd Font glyphs, such as the SDK's language; "auto", the default, is on in Ghostty, WezTerm and kitty
 
 [profile.sit]
 accent  = "green"
@@ -209,9 +210,9 @@ flowchart LR
 
 | Crate | Tests | |
 |---|---|---|
-| `tmprl-client` | 95 | all network IO |
-| `tmprl-core` | 494 | no terminal, no server |
-| `tmprl-tui` | 585 | ratatui |
+| `tmprl-client` | 97 | all network IO |
+| `tmprl-core` | 499 | no terminal, no server |
+| `tmprl-tui` | 587 | ratatui |
 | `tmprl-ui` | 47 | window tree |
 
 ```sh
