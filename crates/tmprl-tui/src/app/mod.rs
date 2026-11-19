@@ -563,7 +563,6 @@ impl App {
                     self.payload_pane = cfg.payload_pane;
                     self.payload_size = cfg.payload_size;
                     self.mouse = cfg.mouse;
-                    self.icons = cfg.icons;
                     self.dashboard_refresh = cfg.dashboard_refresh;
                     self.yank_max = cfg.yank_max;
                     self.source_command = cfg.source.clone();

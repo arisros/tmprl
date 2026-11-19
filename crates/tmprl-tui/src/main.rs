@@ -115,6 +115,12 @@ async fn main() -> std::process::ExitCode {
     app.apply_theme(theme::depth_from_env(), theme.as_deref());
     app.apply_dashboard(dashboard.as_deref());
     app.apply_config(keys.as_deref(), views.as_deref(), config.as_deref());
+    app.icons = theme::icons_from_env(
+        config
+            .as_deref()
+            .and_then(|src| tmprl_core::config::parse_config(src).ok())
+            .and_then(|cfg| cfg.icons),
+    );
     app.start(startup);
 
     let mouse = app.mouse();

@@ -284,7 +284,8 @@ pub struct Config {
     pub source: Option<String>,
     pub mouse: bool,
     pub colors: Option<crate::theme::ColorDepth>,
-    pub icons: bool,
+    /// `None` is `"auto"`: on where the terminal ships the Nerd Font symbols itself.
+    pub icons: Option<bool>,
 }
 
 // Terminals commonly cap OSC 52 around 100 KB and truncate silently.
@@ -301,7 +302,7 @@ impl Default for Config {
             dashboard_refresh: Refresh::default(),
             yank_max: DEFAULT_YANK_MAX,
             mouse: false,
-            icons: false,
+            icons: None,
             source: None,
             colors: None,
         }
@@ -397,7 +398,7 @@ pub fn parse_config(src: &str) -> Result<Config, ConfigError> {
     };
 
     let (colors, icons) = match table.get("display") {
-        None => (None, false),
+        None => (None, None),
         Some(raw) => parse_display(raw)?,
     };
 
@@ -502,7 +503,7 @@ fn parse_input(raw: &toml::Value) -> Result<bool, ConfigError> {
 
 fn parse_display(
     raw: &toml::Value,
-) -> Result<(Option<crate::theme::ColorDepth>, bool), ConfigError> {
+) -> Result<(Option<crate::theme::ColorDepth>, Option<bool>), ConfigError> {
     const FILE: &str = "config.toml";
     let table = raw.as_table().ok_or(ConfigError::Type {
         file: FILE,
@@ -521,12 +522,16 @@ fn parse_display(
             })?,
     };
     let icons = match table.get("icons") {
-        None => false,
-        Some(v) => v.as_bool().ok_or(ConfigError::Type {
-            file: FILE,
-            path: "display.icons".into(),
-            expected: "true or false",
-        })?,
+        None => None,
+        Some(toml::Value::Boolean(on)) => Some(*on),
+        Some(toml::Value::String(s)) if s == "auto" => None,
+        Some(_) => {
+            return Err(ConfigError::Type {
+                file: FILE,
+                path: "display.icons".into(),
+                expected: "\"auto\", true or false",
+            });
+        }
     };
     Ok((colors, icons))
 }
@@ -1251,11 +1256,14 @@ accent = "green"
     }
 
     #[test]
-    fn icons_are_off_until_asked_for() {
-        assert!(!parse_config("").unwrap().icons);
-        assert!(!parse_config("[display]\ncolors = \"16\"").unwrap().icons);
-        assert!(parse_config("[display]\nicons = true").unwrap().icons);
+    fn icons_are_auto_unless_forced() {
+        let icons = |src: &str| parse_config(src).unwrap().icons;
+        assert_eq!(icons(""), None);
+        assert_eq!(icons("[display]\nicons = \"auto\""), None);
+        assert_eq!(icons("[display]\nicons = true"), Some(true));
+        assert_eq!(icons("[display]\nicons = false"), Some(false));
         assert!(parse_config("[display]\nicons = 1").is_err());
+        assert!(parse_config("[display]\nicons = \"yes\"").is_err());
     }
 
     #[test]
