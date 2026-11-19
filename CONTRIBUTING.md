@@ -94,17 +94,27 @@ without anyone's production, and it is what the README's pictures are recorded f
 
 ## `scripts/check-docs.sh`
 
-This is the check a first pull request usually fails. It enforces four things:
+This is the check a first pull request usually fails. It enforces five things:
 
 | Check | To satisfy it |
 |---|---|
 | Every `.rs` file under `crates/*/src/` starts with a `//!` line | Line 1 of a new file says what the file is |
 | Every `crates/tmprl-core/src/*.rs` and `crates/tmprl-client/src/ops/*.rs` is named in `docs/ARCHITECTURE.md` | Add the file to the code map under [Where things live](docs/ARCHITECTURE.md#where-things-live) |
 | Every `crates/tmprl-tui/src/app/*.rs` has a row in the table at the top of `crates/tmprl-tui/src/app/mod.rs` | Add the row |
-| Each crate's row in the crate tables of `README.md` and `docs/ARCHITECTURE.md` carries its number of `#[test]` and `#[tokio::test]` attributes | Adding or removing a test changes the number in both tables |
+| Each crate's row in the crate tables of `README.md` and `docs/ARCHITECTURE.md` carries its number of `#[test]` and `#[tokio::test]` attributes | Adding or removing a test changes the number in both tables; `--fix` writes it |
+| Every fragment in `changelog.d/` starts with a bullet | Begin the file with `- ` |
 
 The script prints the number it expects, for example
-`check-docs: README.md does not say tmprl-core has 316 tests`.
+`check-docs: README.md does not say tmprl-core has 316 tests`, and
+`scripts/check-docs.sh --fix` writes it into both tables. After a merge from `main`, a
+conflict in those rows is resolved by taking either side and running `--fix`.
+
+## The changelog
+
+Do not edit `CHANGELOG.md`. A change a user can see adds a file to `changelog.d/`, named
+after the branch, with its bullets written for a user; [changelog.d/README.md](changelog.d/README.md)
+has the format. The release moves them into `CHANGELOG.md`. Each pull request writing its
+own file is what keeps two of them from conflicting over the same lines.
 
 ## Design rules
 
@@ -133,8 +143,9 @@ it live or planned; keep it true when a binding changes.
 - The subject is imperative, lowercase and under 72 characters, with no trailing period.
 - The scope is optional. The history uses the area touched: `feat(search)`, `fix(audit)`,
   `docs(readme)`.
-- When `CHANGELOG.md` has nothing written for a release, the release falls back to the
-  subjects of the `feat:`, `fix:` and `perf:` commits, so write those subjects for a user.
+- When neither `CHANGELOG.md` nor `changelog.d/` has anything for a release, the release
+  falls back to the subjects of the `feat:`, `fix:` and `perf:` commits, so write those
+  subjects for a user.
 
 Maintainers cut releases; [docs/RELEASING.md](docs/RELEASING.md) has the process.
 

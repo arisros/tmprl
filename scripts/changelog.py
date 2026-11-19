@@ -6,10 +6,14 @@ a month later, and a section per candidate buries the release they were rehearsi
 candidates never get a section of their own; the entry stays under `## Unreleased` until the
 real version ships, and anything a candidate did claim is folded back.
 
-    changelog.py promote 0.1.2     # Unreleased + any 0.1.2-rc.* sections -> ## 0.1.2 — date
+A pull request does not edit CHANGELOG.md: it adds its bullets as a file of their own under
+changelog.d/, so two open pull requests never conflict over the top of `## Unreleased`.
+
+    changelog.py collect           # changelog.d/*.md -> ## Unreleased, then the files go
+    changelog.py promote 0.1.2     # collect, then Unreleased + any 0.1.2-rc.* -> ## 0.1.2 — date
     changelog.py tidy              # fold existing rc sections into their release
 
-Both are idempotent, and both leave the wording alone: bullets are moved, never rewritten.
+All are idempotent, and all leave the wording alone: bullets are moved, never rewritten.
 """
 
 import datetime
@@ -18,6 +22,7 @@ import re
 import sys
 
 PATH = pathlib.Path(__file__).resolve().parent.parent / "CHANGELOG.md"
+FRAGMENTS = PATH.parent / "changelog.d"
 HEADING = re.compile(r"^## (?P<title>.+?)(?: — (?P<date>[\d-]+))?$", re.MULTILINE)
 
 
@@ -77,7 +82,32 @@ def merge(bodies: list[str]) -> str:
     return "\n".join(seen)
 
 
+def fragments() -> list[pathlib.Path]:
+    if not FRAGMENTS.is_dir():
+        return []
+    return sorted(p for p in FRAGMENTS.glob("*.md") if p.name != "README.md")
+
+
+def collect() -> None:
+    files = fragments()
+    if not files:
+        print("collected nothing: changelog.d has no fragments")
+        return
+    preamble, sections = read()
+    unreleased = next((s for s in sections if s.title == "Unreleased"), None)
+    body = merge([unreleased.body if unreleased else ""] + [p.read_text() for p in files])
+    if unreleased:
+        unreleased.body = body
+    else:
+        sections.insert(0, Section("Unreleased", None, body))
+    write(preamble, sections)
+    for p in files:
+        p.unlink()
+    print(f"collected {len(files)} fragment(s) into ## Unreleased")
+
+
 def promote(version: str) -> None:
+    collect()
     preamble, sections = read()
     today = f"{datetime.date.today():%Y-%m-%d}"
 
@@ -120,6 +150,8 @@ def tidy() -> None:
 
 if __name__ == "__main__":
     match sys.argv[1:]:
+        case ["collect"]:
+            collect()
         case ["promote", version]:
             promote(version)
         case ["tidy"]:

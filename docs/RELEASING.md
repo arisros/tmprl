@@ -24,8 +24,10 @@ A candidate does **not** touch `CHANGELOG.md`. What is coming stays under `## Un
 until the real version ships, because a section per candidate buries the release it was
 rehearsing for, and leaves that release with an entry its candidates already emptied.
 
-A real release promotes `## Unreleased` to `## X.Y.Z — date`, folding in any section an
-earlier candidate for that same version did claim. With nothing written down it falls back to
+A real release first collects `changelog.d/*.md`, the entries each pull request wrote as its
+own file, into `## Unreleased` and deletes them, then promotes `## Unreleased` to
+`## X.Y.Z — date`, folding in any section an earlier candidate for that same version did
+claim. A candidate leaves the fragments where they are. With nothing written down it falls back to
 the `feat:` / `fix:` / `perf:` commits since the last *release* (candidates are skipped), so
 a release always says what changed. `scripts/changelog.py tidy` folds stray candidate
 sections back; both it and `promote` only move bullets, never reword them.
