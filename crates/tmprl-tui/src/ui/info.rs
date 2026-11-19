@@ -6,7 +6,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use tmprl_core::Loadable;
-use tmprl_core::info::{self, Card, Tone};
+use tmprl_core::info::{self, Card, Wait};
 
 use super::{status_style, truncate};
 use crate::app::{App, Screen, now_ms};
@@ -231,34 +231,47 @@ fn styled_card<'a>(view: &View, app: &App, t: &Theme, width: usize) -> Vec<Line<
     let left = label_width(left_labels);
     let right = label_width(card.facts.iter().skip(1).step_by(2).map(|(l, _)| *l));
 
-    let waiting_style = match card.tone {
-        Tone::Quiet => t.faint,
-        Tone::Normal => t.fg,
-        Tone::Retrying => t.warn,
-    };
     let mut lines = Vec::new();
     for (i, item) in card.waiting.iter().enumerate() {
         let label = if i == 0 { WAITING } else { "" };
+        let (glyph, glyph_style, style) = match card.states.get(i).copied().unwrap_or(Wait::Quiet) {
+            Wait::Running => (Some('●'), t.accent, t.accent),
+            Wait::Queued => (Some('○'), t.dim, t.fg),
+            Wait::Retrying => (Some('↻'), t.warn, t.warn),
+            Wait::Held => (Some('‖'), t.warn, t.warn),
+            Wait::Quiet => (None, t.faint, t.faint),
+        };
+        let text = match glyph {
+            Some(g) => format!("{g} {item}"),
+            None => item.clone(),
+        };
         let mut spans = vec![indent()];
         let mut cell = cell(
             label,
             left,
-            item,
+            &text,
             room,
             t.accent.add_modifier(Modifier::BOLD),
-            waiting_style,
+            style,
         );
         let value = cell[1].content.to_string();
-        if card.tone != Tone::Quiet
-            && let Some((what, rest)) = value.split_once(" · ")
-        {
-            cell.splice(
-                1..2,
-                [
-                    Span::styled(what.to_string(), waiting_style.add_modifier(Modifier::BOLD)),
-                    Span::styled(format!(" · {rest}"), t.dim),
-                ],
-            );
+        if let Some(g) = glyph {
+            let body = value.strip_prefix(&format!("{g} ")).unwrap_or(&value);
+            let mut parts = vec![Span::styled(format!("{g} "), glyph_style)];
+            match body.split_once(" · ") {
+                Some((what, rest)) => {
+                    parts.push(Span::styled(
+                        what.to_string(),
+                        style.add_modifier(Modifier::BOLD),
+                    ));
+                    parts.push(Span::styled(format!(" · {rest}"), t.dim));
+                }
+                None => parts.push(Span::styled(
+                    body.to_string(),
+                    style.add_modifier(Modifier::BOLD),
+                )),
+            }
+            cell.splice(1..2, parts);
         }
         spans.extend(cell);
         lines.push(Line::from(spans));

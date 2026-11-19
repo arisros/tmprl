@@ -131,6 +131,8 @@ fn a_pending_activity_is_named_in_the_first_line() {
         !buf[(after + 2, y)].modifier.contains(Modifier::BOLD),
         "the rest does not"
     );
+    assert_eq!(buf[(x - 2, y)].symbol(), "↻", "attempt 2 is a retry");
+    assert_eq!(buf[(x, y)].fg, app.theme.warn.fg.unwrap_or_default());
 }
 
 #[test]
