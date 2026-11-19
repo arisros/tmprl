@@ -836,8 +836,9 @@ language server, not one stray file. When it
 cannot say, it exits non-zero and the last line of its stderr is shown.
 
 While the codec decodes the group's payloads and the resolver runs, a card with the mark says
-which of the two it is waiting on and for how long. Other keys wait with it; `Esc` stops, and
-an answer that arrives after is dropped.
+which of the two it is waiting on and for how long. Other keys wait with it; `Esc` stops and
+kills the resolver, and an answer that arrives after is dropped. A resolver that has not
+answered in 60 seconds is killed and its wait shown as an error.
 
 Each further line with a tab in it is a *hop*, one place the event passes through on its
 way, in order: `/absolute/path:line<TAB>/absolute/root<TAB>label`. When there is at least

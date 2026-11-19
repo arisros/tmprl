@@ -87,6 +87,7 @@ const PICKER_SEARCH_LIMIT: i32 = 20;
 const HISTORY_PAGE_SIZE: i32 = 500;
 
 const PENDING_POLL: std::time::Duration = std::time::Duration::from_secs(5);
+const RESOLVER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 use tmprl_client::Continuation as Tokens;
 
@@ -398,6 +399,7 @@ pub struct App {
     source_hops: Vec<tmprl_core::source::Hop>,
     pub source_wait: Option<SourceWait>,
     source_request: u64,
+    source_task: Option<tokio::task::AbortHandle>,
     pub jumps: Jumplist<Jump>,
     scan: Option<Scan>,
     pub search: Search,
@@ -510,6 +512,7 @@ impl App {
             source_hops: Vec::new(),
             source_wait: None,
             source_request: 0,
+            source_task: None,
             jumps: Jumplist::default(),
             scan: None,
             search: Search::default(),
@@ -1334,7 +1337,12 @@ async fn pipe_through(command: &str, input: Vec<u8>) -> Result<String, String> {
     }
 }
 
-async fn run_resolver(program: &str, args: &[String], input: Vec<u8>) -> Result<String, String> {
+async fn run_resolver(
+    program: &str,
+    args: &[String],
+    input: Vec<u8>,
+    limit: std::time::Duration,
+) -> Result<String, String> {
     use tokio::io::AsyncWriteExt;
     use tokio::process::Command;
 
@@ -1343,16 +1351,20 @@ async fn run_resolver(program: &str, args: &[String], input: Vec<u8>) -> Result<
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true)
         .spawn()
         .map_err(|e| format!("could not run `{program}`: {e}"))?;
 
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(&input).await;
-        let _ = stdin.shutdown().await;
-    }
-    let out = child
-        .wait_with_output()
+    let answer = async {
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(&input).await;
+            let _ = stdin.shutdown().await;
+        }
+        child.wait_with_output().await
+    };
+    let out = tokio::time::timeout(limit, answer)
         .await
+        .map_err(|_| format!("`{program}` gave no answer in {}s", limit.as_secs()))?
         .map_err(|e| format!("`{program}` failed: {e}"))?;
 
     if out.status.success() {

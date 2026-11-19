@@ -507,6 +507,7 @@ async fn the_resolver_is_told_what_is_under_the_cursor_on_stdin() {
         script.to_str().unwrap(),
         &[],
         br#"{"version":1,"name":"ChargeCard"}"#.to_vec(),
+        RESOLVER_TIMEOUT,
     )
     .await
     .unwrap();
@@ -516,9 +517,26 @@ async fn the_resolver_is_told_what_is_under_the_cursor_on_stdin() {
         r#"{"version":1,"name":"ChargeCard"}"#
     );
 
-    let missing = super::super::run_resolver("/no/such/resolver", &[], Vec::new()).await;
+    let missing =
+        super::super::run_resolver("/no/such/resolver", &[], Vec::new(), RESOLVER_TIMEOUT).await;
     assert!(missing.unwrap_err().contains("could not run"));
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_resolver_that_hangs_is_given_up_on() {
+    let args = ["-c".to_string(), "sleep 30".to_string()];
+    let started = std::time::Instant::now();
+    let out = super::super::run_resolver(
+        "/bin/sh",
+        &args,
+        Vec::new(),
+        std::time::Duration::from_millis(200),
+    )
+    .await;
+    assert_eq!(out.unwrap_err(), "`/bin/sh` gave no answer in 0s");
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
 }
 
 fn the_secret_event() -> tmprl_core::history::NormalizedEvent {

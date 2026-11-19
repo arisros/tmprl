@@ -10,9 +10,12 @@ use crate::app::SourceWait;
 use crate::theme::Theme;
 
 const DOTS: [&str; 3] = ["●○○", "○●○", "○○●"];
+pub const FRAME_MS: u64 = 250;
 
 pub fn render(frame: &mut Frame, wait: &SourceWait, now_ms: i64, t: &Theme) {
-    let secs = (now_ms - wait.since_ms).max(0) / 1000;
+    let elapsed = (now_ms - wait.since_ms).max(0);
+    let secs = elapsed / 1000;
+    let dots = DOTS[(elapsed / FRAME_MS as i64 % 3) as usize];
     let stage = match &wait.asking {
         None => "decoding the payloads".to_string(),
         Some(program) => format!("asking {program}"),
@@ -25,7 +28,7 @@ pub fn render(frame: &mut Frame, wait: &SourceWait, now_ms: i64, t: &Theme) {
         ]),
         Line::default(),
         Line::from(vec![
-            Span::styled(DOTS[(secs % 3) as usize], t.accent),
+            Span::styled(dots, t.accent),
             Span::styled(format!("  {stage}"), t.fg),
             Span::styled(format!("  {secs}s"), t.faint),
         ]),

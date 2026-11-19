@@ -323,13 +323,15 @@ impl App {
             request: Some(id),
         });
         let tx = self.tx.clone();
-        tokio::spawn(async move {
-            let result = run_resolver(&program, &args, request.into_bytes()).await;
+        let task = tokio::spawn(async move {
+            let result =
+                run_resolver(&program, &args, request.into_bytes(), RESOLVER_TIMEOUT).await;
             let _ = tx.send(Msg::SourceAnswer {
                 request: id,
                 result,
             });
         });
+        self.source_task = Some(task.abort_handle());
     }
 
     pub(super) fn source_decoding(&self) -> bool {
@@ -339,6 +341,9 @@ impl App {
     }
 
     pub(super) fn stop_source(&mut self) {
+        if let Some(task) = self.source_task.take() {
+            task.abort();
+        }
         if let Some(w) = self.source_wait.take() {
             self.note = Some((
                 format!("stopped looking for where `{}` comes from", w.subject),
@@ -365,6 +370,7 @@ impl App {
 
     pub(super) fn source_reply(&mut self, result: Result<String, String>) {
         self.source_wait = None;
+        self.source_task = None;
         let out = match result {
             Ok(out) => out,
             Err(why) => {

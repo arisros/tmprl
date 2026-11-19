@@ -20,6 +20,7 @@ mod schedules;
 mod statusline;
 mod timeline;
 mod waiting;
+pub use waiting::FRAME_MS;
 mod whichkey;
 mod workflows;
 

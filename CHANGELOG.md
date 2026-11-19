@@ -76,7 +76,8 @@
   what the event was about. The group's payloads are now decoded first when a codec is
   configured.
 - **`gf` says what it is waiting on**: a card with the logo shows whether the codec or the
-  resolver is working, and for how long. `Esc` stops it.
+  resolver is working, and for how long. `Esc` stops it and the resolver with it, and a
+  resolver that gives no answer in a minute is given up on.
 - **Fix**: `gf` left out `binary/plain` payloads, such as a Go `[]byte` argument holding
   JSON. The resolver now gets them when they are text.
 
