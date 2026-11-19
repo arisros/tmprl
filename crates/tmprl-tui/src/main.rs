@@ -80,7 +80,11 @@ async fn main() -> std::process::ExitCode {
     );
 
     let splash = Splash::new(&profile);
-    let (connected, terminal) = splash.connect(&profile).await;
+    // Before the splash takes the terminal: `pass` and the like may ask for a passphrase on it.
+    let (connected, terminal) = match tmprl_client::resolve_api_key(&mut profile).await {
+        Ok(()) => splash.connect(&profile).await,
+        Err(e) => (Connected::No(e), None),
+    };
     let conn = match connected {
         Connected::Yes(c) => c,
         Connected::Quit => return std::process::ExitCode::from(130),

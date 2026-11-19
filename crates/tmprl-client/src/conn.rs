@@ -163,6 +163,14 @@ fn options_from(
     Ok((conn_opts, ClientOptions::new(namespace).build()))
 }
 
+/// Runs the profile's `api_key_cmd`, if it has one, and keeps the key it prints in its place.
+pub async fn resolve_api_key(profile: &mut ProfileRef) -> Result<(), ConnectError> {
+    if let Some(ApiKey::Command(command)) = &profile.api_key {
+        profile.api_key = Some(ApiKey::Literal(run_api_key_cmd(command).await?));
+    }
+    Ok(())
+}
+
 async fn run_api_key_cmd(command: &str) -> Result<String, ConnectError> {
     let home = std::env::var("HOME").ok();
     let (program, args) = tmprl_core::source::argv(command, home.as_deref())
@@ -328,6 +336,19 @@ mod tests {
             "secret"
         );
         assert_eq!(run_api_key_cmd("echo $HOME").await.unwrap(), "$HOME");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_api_key_cmd_can_be_run_before_connecting() {
+        let mut profile = ProfileRef {
+            api_key: Some(ApiKey::Command("printf secret".into())),
+            ..ProfileRef::default()
+        };
+        resolve_api_key(&mut profile).await.unwrap();
+        assert_eq!(profile.api_key, Some(ApiKey::Literal("secret".into())));
+        resolve_api_key(&mut profile).await.unwrap();
+        assert_eq!(profile.api_key, Some(ApiKey::Literal("secret".into())));
     }
 
     #[cfg(unix)]
