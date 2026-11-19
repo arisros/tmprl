@@ -235,6 +235,7 @@ impl App {
     }
 
     pub(super) fn open_source(&mut self) {
+        let since_ms = self.source_wait.take().map_or_else(now_ms, |w| w.since_ms);
         if self.view.screen != Screen::History {
             self.note = Some((
                 "the source of an event is found from a workflow history".into(),
@@ -279,10 +280,16 @@ impl App {
             .iter()
             .flat_map(|e| e.payloads.iter().cloned())
             .collect();
+        let subject = group.subject.clone();
         let owed = self.owed_decodes(&payloads);
         if !owed.is_empty() {
             self.spawn_decode(owed);
-            self.source_waiting = true;
+            self.source_wait = Some(SourceWait {
+                subject,
+                asking: None,
+                since_ms,
+                request: None,
+            });
             self.note = Some((
                 "decoding the payloads before asking where the code is…".into(),
                 Note::Info,
@@ -301,14 +308,43 @@ impl App {
         .to_string();
 
         self.note = Some((
-            format!("asking {program} where `{}` comes from…", group.subject),
+            format!("asking {program} where `{subject}` comes from…"),
             Note::Info,
         ));
+        self.source_request += 1;
+        let id = self.source_request;
+        let name = std::path::Path::new(&program)
+            .file_name()
+            .map_or_else(|| program.clone(), |n| n.to_string_lossy().into_owned());
+        self.source_wait = Some(SourceWait {
+            subject,
+            asking: Some(name),
+            since_ms,
+            request: Some(id),
+        });
         let tx = self.tx.clone();
         tokio::spawn(async move {
             let result = run_resolver(&program, &args, request.into_bytes()).await;
-            let _ = tx.send(Msg::Source(result));
+            let _ = tx.send(Msg::SourceAnswer {
+                request: id,
+                result,
+            });
         });
+    }
+
+    pub(super) fn source_decoding(&self) -> bool {
+        self.source_wait
+            .as_ref()
+            .is_some_and(|w| w.asking.is_none())
+    }
+
+    pub(super) fn stop_source(&mut self) {
+        if let Some(w) = self.source_wait.take() {
+            self.note = Some((
+                format!("stopped looking for where `{}` comes from", w.subject),
+                Note::Info,
+            ));
+        }
     }
 
     fn owed_decodes(&self, payloads: &[(String, Payload)]) -> Vec<Payload> {
@@ -328,6 +364,7 @@ impl App {
     }
 
     pub(super) fn source_reply(&mut self, result: Result<String, String>) {
+        self.source_wait = None;
         let out = match result {
             Ok(out) => out,
             Err(why) => {

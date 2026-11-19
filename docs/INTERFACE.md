@@ -835,6 +835,10 @@ project's root there and the editor opens the project, with its file tree, searc
 language server, not one stray file. When it
 cannot say, it exits non-zero and the last line of its stderr is shown.
 
+While the codec decodes the group's payloads and the resolver runs, a card with the mark says
+which of the two it is waiting on and for how long. Other keys wait with it; `Esc` stops, and
+an answer that arrives after is dropped.
+
 Each further line with a tab in it is a *hop*, one place the event passes through on its
 way, in order: `/absolute/path:line<TAB>/absolute/root<TAB>label`. When there is at least
 one, `gf` opens a `source` picker over them with the cursor on the hop that matches the

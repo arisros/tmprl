@@ -75,6 +75,8 @@
 - **Fix**: `gf` on an encrypted history sent the resolver no payloads, so it could not see
   what the event was about. The group's payloads are now decoded first when a codec is
   configured.
+- **`gf` says what it is waiting on**: a card with the logo shows whether the codec or the
+  resolver is working, and for how long. `Esc` stops it.
 - **Fix**: `gf` left out `binary/plain` payloads, such as a Go `[]byte` argument holding
   JSON. The resolver now gets them when they are text.
 

@@ -342,9 +342,9 @@ fn a_resolvers_hops_open_a_picker_on_the_answer() {
     std::fs::write(&here, "package x\n").unwrap();
     let (d, f, h) = (dir.display(), from.display(), here.display());
 
-    app.handle(Msg::Source(Ok(format!(
+    app.source_reply(Ok(format!(
         "{h}:9\n{d}\n{f}:3\t{d}\tSDK  sends it\nrelative.go:1\t{d}\tdropped\n{h}:9\t{d}\tLTW  runs it\n"
-    ))));
+    )));
     assert_eq!(picker_labels(&app), ["1  SDK  sends it", "2  LTW  runs it"]);
     assert_eq!(app.picker.as_ref().unwrap().cursor, 1, "on the answer");
     assert!(app.opening.is_none(), "nothing opens before a pick");
@@ -385,7 +385,11 @@ async fn going_to_the_source_decodes_the_payloads_first() {
     let key = App::payload_key(&encrypted);
 
     app.run("history.source", None);
-    assert!(app.source_waiting, "the resolver waits for the plaintext");
+    let wait = app
+        .source_wait
+        .clone()
+        .expect("a wait while the codec works");
+    assert_eq!(wait.asking, None, "the resolver waits for the plaintext");
     assert!(app.decoding.contains(&key));
     assert!(app.note.clone().unwrap().0.contains("decoding"));
 
@@ -393,7 +397,15 @@ async fn going_to_the_source_decodes_the_payloads_first() {
         key,
         Payload::new("json/plain", br#"{"type":"SURVEY"}"#.to_vec()),
     )])));
-    assert!(!app.source_waiting);
+    let asking = app
+        .source_wait
+        .clone()
+        .expect("still waiting, on the resolver");
+    assert_eq!(asking.asking.as_deref(), Some("true"));
+    assert_eq!(
+        asking.since_ms, wait.since_ms,
+        "one wait, from the keypress"
+    );
     assert!(app.note.clone().unwrap().0.starts_with("asking true"));
 
     let mut app = viewing_payloads();
@@ -403,10 +415,33 @@ async fn going_to_the_source_decodes_the_payloads_first() {
     app.run("history.source", None);
     app.handle(Msg::Decoded(Err("connection refused".into())));
     assert!(
-        !app.source_waiting,
+        app.source_wait.as_ref().is_some_and(|w| w.asking.is_some()),
         "a failed decode still asks, without the payload"
     );
     assert!(app.note.clone().unwrap().0.starts_with("asking true"));
+}
+
+#[tokio::test]
+async fn esc_stops_waiting_and_a_late_answer_is_dropped() {
+    let mut app = viewing_history();
+    app.source_command = Some("true".into());
+    app.run("history.source", None);
+    assert!(app.source_wait.is_some());
+
+    app.handle(Msg::Key(Chord::plain(Key::Char('j'))));
+    assert!(app.source_wait.is_some(), "other keys wait too");
+    app.handle(Msg::Key(Chord::plain(Key::Esc)));
+    assert!(app.source_wait.is_none());
+    assert!(app.note.clone().unwrap().0.starts_with("stopped looking"));
+
+    app.handle(Msg::SourceAnswer {
+        request: 1,
+        result: Err("too late".into()),
+    });
+    assert!(
+        app.note.clone().unwrap().0.starts_with("stopped looking"),
+        "the stopped request's answer is not shown"
+    );
 }
 
 #[test]
@@ -416,11 +451,7 @@ fn a_resolvers_answer_becomes_a_file_to_open_at_its_line() {
     std::fs::write(&file, "package x\n").unwrap();
 
     let root = std::env::temp_dir();
-    app.handle(Msg::Source(Ok(format!(
-        "{}:16\n{}\n",
-        file.display(),
-        root.display()
-    ))));
+    app.source_reply(Ok(format!("{}:16\n{}\n", file.display(), root.display())));
     assert_eq!(
         app.take_source_request(),
         Some(SourceRequest {
@@ -429,10 +460,7 @@ fn a_resolvers_answer_becomes_a_file_to_open_at_its_line() {
             root: Some(root),
         })
     );
-    app.handle(Msg::Source(Ok(format!(
-        "{}:16\n/no/such/project\n",
-        file.display()
-    ))));
+    app.source_reply(Ok(format!("{}:16\n/no/such/project\n", file.display())));
     assert_eq!(
         app.take_source_request().unwrap().root,
         None,
@@ -441,16 +469,16 @@ fn a_resolvers_answer_becomes_a_file_to_open_at_its_line() {
     assert!(app.opening.is_none(), "taken once");
     std::fs::remove_file(&file).unwrap();
 
-    app.handle(Msg::Source(Ok(format!("{}:16\n", file.display()))));
+    app.source_reply(Ok(format!("{}:16\n", file.display())));
     assert!(app.opening.is_none());
     assert!(app.note.clone().unwrap().0.contains("is not a file"));
 
-    app.handle(Msg::Source(Err("no deploy found before that time".into())));
+    app.source_reply(Err("no deploy found before that time".into()));
     let (msg, level) = app.note.clone().unwrap();
     assert_eq!(level, Note::Error);
     assert_eq!(msg, "source: no deploy found before that time");
 
-    app.handle(Msg::Source(Ok("internal/a.go:3".into())));
+    app.source_reply(Ok("internal/a.go:3".into()));
     assert!(app.note.clone().unwrap().0.contains("not an absolute path"));
 }
 

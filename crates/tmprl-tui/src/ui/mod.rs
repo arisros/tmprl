@@ -19,6 +19,7 @@ mod query;
 mod schedules;
 mod statusline;
 mod timeline;
+mod waiting;
 mod whichkey;
 mod workflows;
 
@@ -141,6 +142,9 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     }
     if let Some(c) = &app.confirm {
         confirm::render(frame, c, &theme);
+    }
+    if let Some(w) = &app.source_wait {
+        waiting::render(frame, w, crate::app::now_ms(), &theme);
     }
 }
 
