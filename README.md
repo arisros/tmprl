@@ -8,22 +8,12 @@
 <p align="center"><b>A Temporal TUI that takes you from a history event to the code behind it.</b><br>
 A keyboard-driven terminal client for <a href="https://temporal.io">Temporal</a>.</p>
 
-See a failed activity, press `gf`, and your editor opens on the function that ran it, with
-the workflow that called it and the worker that registered it one keypress away. Around
-that, tmprl browses and searches
-workflows, folds histories, decodes payloads through your codec server, and runs queries,
-mutations and schedules, from the terminal and with Vim-style keys. It reads the same `temporal.toml` as the
-`temporal` CLI, so a profile that works there works here.
+- **`gf`**: from a history event to its code, through every place it passed. [How](#going-to-the-source)
+- **`gi`**: what a workflow waits on, its SDK, worker and pollers.
+- **Payloads**: decoded by your codec server, coloured like `jq -C`.
+- **Mutations**: each shows its `temporal` command first, and is audited.
 
-- **`gf`, from an event to its code.** On any history row, `gf` opens your editor on the
-  activity, the signal handler or the line that started the workflow, and lists the places
-  the event passed through on its way, across services. [How it works](#going-to-the-source).
-- **What a workflow is waiting on, and who runs it.** `gi` opens a card: each pending
-  activity with its state, the SDK and its language, the last worker, and who polls the task
-  queue, or that nobody does.
-- **Payloads you can read.** Decoded through your codec server, coloured like `jq -C`, and
-  piped through `jq` with `!`.
-- **Every mutation shows its `temporal` command first**, and lands in an audit log.
+Same `temporal.toml` as the `temporal` CLI, Vim-style keys.
 
 <p align="center">
   <a href="https://crates.io/crates/tmprl"><img alt="crates.io" src="https://img.shields.io/crates/v/tmprl"></a>
@@ -125,6 +115,8 @@ Any encoding tmprl cannot read itself is offered to the codec, not only Temporal
 `binary/encrypted`. A codec that refuses says why, on the badge. JSON is coloured the way
 `jq -C` colours it, from the theme's own slots.
 
+![The gi info card over a failed history: what it waits on, the SDK and the worker, and the activity's payload decoded and coloured](https://raw.githubusercontent.com/arisros/tmprl/main/docs/img/info.png)
+
 ## Going to the source
 
 `gf` on a history row opens your editor on the code behind that event. tmprl knows nothing
@@ -137,6 +129,8 @@ through on its way, one per line, and `gf` then lists them in a picker:
 /src/orders/register.go:27	/src	the worker registers ChargeCard
 /src/orders/activities.go:145	/src	ChargeCard runs
 ```
+
+![gf on a failed activity: the workflow that asks for it, the worker that registers it, and the function that runs it](https://raw.githubusercontent.com/arisros/tmprl/main/docs/img/source.png)
 
 [`demo/find-source.sh`](demo/find-source.sh) is one in a few dozen lines of grep, for a Go
 worker. [docs/INTERFACE.md](docs/INTERFACE.md#going-to-the-source) has the whole contract.
