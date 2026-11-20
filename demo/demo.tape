@@ -49,12 +49,14 @@ Sleep 3s
 # Who ran it: the SDK and its language, the worker, what it waited on.
 Type "gi"
 Sleep 3500ms
+Screenshot docs/img/info.png
 Type "gi"
 Sleep 800ms
 
 # Go to the code behind it: the places it passes through, then the one picked.
 Type "gf"
 Sleep 3500ms
+Screenshot docs/img/source.png
 Type "k"
 Sleep 900ms
 Type "k"
