@@ -8,13 +8,6 @@
 <p align="center"><b>A Temporal TUI that takes you from a history event to the code behind it.</b><br>
 A keyboard-driven terminal client for <a href="https://temporal.io">Temporal</a>.</p>
 
-- **`gf`**: from a history event to its code, through every place it passed. [How](#going-to-the-source)
-- **`gi`**: what a workflow waits on, its SDK, worker and pollers.
-- **Payloads**: decoded by your codec server, coloured like `jq -C`.
-- **Mutations**: each shows its `temporal` command first, and is audited.
-
-Same `temporal.toml` as the `temporal` CLI, Vim-style keys.
-
 <p align="center">
   <a href="https://crates.io/crates/tmprl"><img alt="crates.io" src="https://img.shields.io/crates/v/tmprl"></a>
   <a href="https://github.com/arisros/tmprl"><img alt="GitHub" src="https://img.shields.io/badge/github-arisros%2Ftmprl-blue?logo=github"></a>
@@ -114,6 +107,13 @@ sequenceDiagram
 Any encoding tmprl cannot read itself is offered to the codec, not only Temporal's sample
 `binary/encrypted`. A codec that refuses says why, on the badge. JSON is coloured the way
 `jq -C` colours it, from the theme's own slots.
+
+## What a workflow waits on
+
+`gi` opens a card under the workflow bar: each pending activity with its state (`●` running,
+`○` not picked up, `↻` retrying), the SDK and its language, the last worker and its build,
+who polls the task queue or that nobody does, then timing, lineage, memo and search
+attributes.
 
 ![The gi info card over a failed history: what it waits on, the SDK and the worker, and the activity's payload decoded and coloured](https://raw.githubusercontent.com/arisros/tmprl/main/docs/img/info.png)
 
