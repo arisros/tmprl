@@ -52,9 +52,11 @@ the sample defines it, then the hops on the way there. Press `gf` on `book_carri
 ## Recording the README's demo
 
 ```sh
+cargo build --release   # the tape runs target/release/tmprl, not the one on PATH
 demo/run.sh up
 for w in 1 2 3 4 5 6; do demo/run.sh seed $((40 + w * 25)) -seed $w -prefix "s$w"; sleep 50; done
-vhs demo/demo.tape      # writes docs/img/demo.gif and timeline.png
+vhs demo/demo.tape      # writes docs/img/demo.gif, timeline.png and help.png
 ```
 
-The waves a minute apart are what give the per-minute charts a shape.
+The waves a minute apart are what give the per-minute charts a shape. The tape turns the
+Nerd Font icons off, since vhs draws with a font that has none.

@@ -36,7 +36,7 @@ mutations and schedules, from the terminal and with Vim-style keys. It reads the
   <img alt="Rust 1.95+" src="https://img.shields.io/badge/rust-1.95%2B-orange">
 </p>
 
-![A recorded tmprl session: a query, a failed history, gf into the source, the timeline, the dashboard, and a workflow that keeps retrying](https://raw.githubusercontent.com/arisros/tmprl/main/docs/img/demo.gif)
+![A recorded tmprl session: a query, a failed history with its payload, the info card, gf through the places the event passed to the code, the timeline, the dashboard, and a workflow that keeps retrying](https://raw.githubusercontent.com/arisros/tmprl/main/docs/img/demo.gif)
 
 ![The timeline view of a history, with the payload pane below it](https://raw.githubusercontent.com/arisros/tmprl/main/docs/img/timeline.png)
 
