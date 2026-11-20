@@ -9,8 +9,8 @@ rust-version = "1.95"
 license = "MIT"
 repository = "https://github.com/arisros/tmprl"
 homepage = "https://github.com/arisros/tmprl"
-keywords = ["temporal", "tui", "terminal", "workflow"]
-categories = ["command-line-utilities"]
+keywords = ["temporal", "tui", "temporal-tui", "workflow", "terminal"]
+categories = ["command-line-utilities", "development-tools"]
 
 [workspace.dependencies]
 tmprl-core = { path = "crates/tmprl-core", version = "0.5.0" }

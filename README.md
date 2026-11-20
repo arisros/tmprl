@@ -5,7 +5,25 @@
   </picture>
 </h1>
 
-<p align="center">A keyboard-driven terminal client for <a href="https://temporal.io">Temporal</a>.</p>
+<p align="center"><b>A Temporal TUI that takes you from a history event to the code behind it.</b><br>
+A keyboard-driven terminal client for <a href="https://temporal.io">Temporal</a>.</p>
+
+See a failed activity, press `gf`, and your editor opens on the function that ran it, with
+the workflow that called it and the worker that registered it one keypress away. Around
+that, tmprl browses and searches
+workflows, folds histories, decodes payloads through your codec server, and runs queries,
+mutations and schedules, from the terminal and with Vim-style keys. It reads the same `temporal.toml` as the
+`temporal` CLI, so a profile that works there works here.
+
+- **`gf`, from an event to its code.** On any history row, `gf` opens your editor on the
+  activity, the signal handler or the line that started the workflow, and lists the places
+  the event passed through on its way, across services. [How it works](#going-to-the-source).
+- **What a workflow is waiting on, and who runs it.** `gi` opens a card: each pending
+  activity with its state, the SDK and its language, the last worker, and who polls the task
+  queue, or that nobody does.
+- **Payloads you can read.** Decoded through your codec server, coloured like `jq -C`, and
+  piped through `jq` with `!`.
+- **Every mutation shows its `temporal` command first**, and lands in an audit log.
 
 <p align="center">
   <a href="https://crates.io/crates/tmprl"><img alt="crates.io" src="https://img.shields.io/crates/v/tmprl"></a>
@@ -18,7 +36,7 @@
   <img alt="Rust 1.95+" src="https://img.shields.io/badge/rust-1.95%2B-orange">
 </p>
 
-![A recorded tmprl session: a query, a failed history, gf into the source, the timeline, the dashboard, and a workflow that keeps retrying](https://raw.githubusercontent.com/arisros/tmprl/main/docs/img/demo.gif)
+![A recorded tmprl session: a query, a failed history with its payload, the info card, gf through the places the event passed to the code, the timeline, the dashboard, and a workflow that keeps retrying](https://raw.githubusercontent.com/arisros/tmprl/main/docs/img/demo.gif)
 
 ![The timeline view of a history, with the payload pane below it](https://raw.githubusercontent.com/arisros/tmprl/main/docs/img/timeline.png)
 
@@ -54,6 +72,7 @@ tmprl --address localhost:7233 -n orders    # another server, straight to a name
 tmprl -q "ExecutionStatus = 'Failed'"       # the workflow list, query applied
 tmprl -w order-42                           # a workflow's history, by workflow or run id
 tmprl -p prod --readonly                    # no mutations this run, shown as prod [ro]
+tmprl --log ~/tmprl.log                     # every message, with the gRPC status, for a bug report
 tmprl --config-path                         # every file tmprl reads, and whether it exists
 ```
 
@@ -76,7 +95,7 @@ tmprl --config-path                         # every file tmprl reads, and whethe
 | `<Space>m…` | cancel, terminate, signal, delete, reset, update | `gs` `gw` `gd` | schedules / workflows / dashboard |
 | `<Space>cq` | query the workflow, from the handlers it lists | `<Space>cs` | its stack trace |
 | `gc` | open the child under the cursor | `gp` | open the parent |
-| `gi` | the workflow's info card: timeouts, what it waits on, lineage, memo, search attributes | | |
+| `gi` | the workflow's info card: what it waits on, timeouts, the SDK and the worker, pollers, lineage, memo, search attributes | `gf` | go to the code behind the event, through your resolver |
 | `<Space>s…` `<C-w>hjkl` | splits | `<Space>t…` | tabs |
 | `<Space>N` | switch namespace | `<Space>P` | switch profile, or `-` from the namespaces |
 | `<Space>T` | times as a clock or an age | `R` | reload from the server |
@@ -103,7 +122,24 @@ sequenceDiagram
 ```
 
 Any encoding tmprl cannot read itself is offered to the codec, not only Temporal's sample
-`binary/encrypted`. A codec that refuses says why, on the badge.
+`binary/encrypted`. A codec that refuses says why, on the badge. JSON is coloured the way
+`jq -C` colours it, from the theme's own slots.
+
+## Going to the source
+
+`gf` on a history row opens your editor on the code behind that event. tmprl knows nothing
+about your code, so it asks a *resolver*: any program, named in `config.toml`, that reads the
+event as JSON on stdin and prints `path:line`. It may also print the places the event passed
+through on its way, one per line, and `gf` then lists them in a picker:
+
+```
+/src/orders/workflow.go:76	/src	the workflow asks for ChargeCard
+/src/orders/register.go:27	/src	the worker registers ChargeCard
+/src/orders/activities.go:145	/src	ChargeCard runs
+```
+
+[`demo/find-source.sh`](demo/find-source.sh) is one in a few dozen lines of grep, for a Go
+worker. [docs/INTERFACE.md](docs/INTERFACE.md#going-to-the-source) has the whole contract.
 
 ## Mutations
 
@@ -144,6 +180,9 @@ max_bytes = 1048576       # default 65536; a longer yank is written to a file, n
 
 [input]
 mouse = true              # the wheel scrolls, a click selects, a second click opens; off by default
+
+[source]
+command = "~/bin/find-source"   # the resolver gf asks where an event's code is
 
 [display]
 colors = "truecolor"      # or "16" or "none"; "auto", the default, reads NO_COLOR and COLORTERM
@@ -231,11 +270,11 @@ TMPRL_REQUIRE_SERVER=1 cargo test  # what CI runs
 - [x] a dashboard: counts, recent failures, failing types, activities retrying, task queues in use, schedules
 - [x] line editing and paste in every prompt, child and parent navigation, queries and the call stack
 - [x] a header that says where you are, a workflow bar, and an info card: timeouts, lineage, pending work, memo, search attributes
+- [x] `gf` to the code behind an event and the places it passed through, who runs a workflow on the info card, payloads coloured like `jq -C`, a splash while connecting
 
 | Next | |
 |---|---|
-| 0.5 | help that knows the screen, saving the query bar as a view |
-| 0.6 | retry policies, run chains, signal and update payloads, task queues and pollers, build ids, reset options, batch over a query |
+| 0.6 | help that knows the screen, saving the query bar as a view, retry policies, run chains, signal and update payloads, a task queue view, build ids on pollers, reset options, batch over a query |
 | 0.7 | export, a history opened from a file, headless `--exec` with JSON output |
 | 0.8 | quickfix, marks, diff, macros |
 
@@ -244,8 +283,8 @@ operations already appear inside a history, and the palette is set in `theme.tom
 
 ## Prior art
 
-[`galaxy-io/tempo`](https://github.com/galaxy-io/tempo) works today and is finished; use it
-if you need a Temporal TUI now. `tmprl` differs in aiming at full web-UI parity with a modal
-editor model rather than a menu.
+[`galaxy-io/tempo`](https://github.com/galaxy-io/tempo) is another Temporal TUI, and came
+first. `tmprl` differs in aiming at full web-UI parity with a modal editor model rather than
+a menu.
 
 MIT. See [LICENSE](LICENSE).

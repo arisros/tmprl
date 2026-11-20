@@ -1,7 +1,7 @@
 [package]
 # Published as `tmprl` so `cargo install tmprl` works; the directory keeps its old name.
 name = "tmprl"
-description = "A keyboard-driven terminal client for Temporal"
+description = "Temporal TUI that takes you from a history event to the code behind it: workflows, histories, payloads and schedules from the terminal"
 readme = "../../README.md"
 version.workspace = true
 edition.workspace = true

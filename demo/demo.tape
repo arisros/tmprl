@@ -1,6 +1,6 @@
 # Records the README's demo against the sample cluster. From the repository root:
 #
-#   demo/run.sh up && demo/run.sh seed 300
+#   cargo build --release && demo/run.sh up && demo/run.sh seed 300
 #   vhs demo/demo.tape
 #
 # Nothing in it is anyone's data: the cluster is local and every value is invented.
@@ -16,6 +16,12 @@ Set TypingSpeed 70ms
 Set PlaybackSpeed 1.0
 Env EDITOR "nvim --clean"
 Env PS1 "$ "
+Env TMPRL "target/release/tmprl"
+# vhs draws with a font that has no Nerd Font glyphs, whatever terminal it was started from.
+Env GHOSTTY_RESOURCES_DIR ""
+Env WEZTERM_EXECUTABLE ""
+Env KITTY_WINDOW_ID ""
+Env TERM_PROGRAM "vhs"
 
 Type "demo/run.sh tmprl"
 Sleep 600ms
@@ -40,11 +46,21 @@ Sleep 1500ms
 Type "K"
 Sleep 3s
 
-# Go to the code behind it.
+# Who ran it: the SDK and its language, the worker, what it waited on.
+Type "gi"
+Sleep 3500ms
+Type "gi"
+Sleep 800ms
+
+# Go to the code behind it: the places it passes through, then the one picked.
 Type "gf"
-Sleep 4s
-Type "jjj"
-Sleep 1200ms
+Sleep 3500ms
+Type "k"
+Sleep 900ms
+Type "k"
+Sleep 900ms
+Enter
+Sleep 2500ms
 Type "ZQ"
 Sleep 1500ms
 
@@ -76,3 +92,10 @@ Type "G"
 Sleep 1200ms
 Type "K"
 Sleep 4s
+
+# The help, generated from the command registry.
+Type "?"
+Sleep 1500ms
+Screenshot docs/img/help.png
+Escape
+Sleep 500ms
