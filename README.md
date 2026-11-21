@@ -244,8 +244,8 @@ flowchart LR
 | Crate | Tests | |
 |---|---|---|
 | `tmprl-client` | 97 | all network IO |
-| `tmprl-core` | 510 | no terminal, no server |
-| `tmprl-tui` | 591 | ratatui |
+| `tmprl-core` | 511 | no terminal, no server |
+| `tmprl-tui` | 592 | ratatui |
 | `tmprl-ui` | 47 | window tree |
 
 ```sh

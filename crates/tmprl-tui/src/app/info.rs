@@ -28,6 +28,16 @@ impl App {
                         *p = plain.clone();
                     }
                 }
+                let first = self.view.info.value().is_none();
+                if let Some(row) = self.view.viewing.as_mut() {
+                    row.status = info.status;
+                    if let Some(list) = self.view.workflows.value_mut() {
+                        list.set_status(row.key(), info.status, info.close_time);
+                    }
+                }
+                if first && info.status == tmprl_core::WorkflowStatus::Running {
+                    self.load_pollers();
+                }
                 self.view.pending = pending;
                 self.view.info = Loadable::loaded(info);
                 self.maybe_decode();
