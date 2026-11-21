@@ -192,8 +192,6 @@ pub fn retry_after(attempt: u32) -> std::time::Duration {
     std::time::Duration::from_secs(secs.min(30))
 }
 
-/// A failed connect, said shortly: the server's own message in place of the status dump,
-/// and what to try for the reason it failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectFailure {
     pub summary: String,
