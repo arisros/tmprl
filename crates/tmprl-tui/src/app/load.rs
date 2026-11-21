@@ -152,23 +152,48 @@ impl App {
             return;
         };
         let (tx, generation) = (self.tx.clone(), self.view.generation);
-        if row.status == tmprl_core::WorkflowStatus::Running {
-            let (conn, tx, row) = (conn.clone(), tx.clone(), row.clone());
-            tokio::spawn(async move {
-                if let Ok(pollers) = conn.workflow_pollers(&row.namespace, &row.task_queue).await {
-                    let _ = tx.send(Msg::Pollers {
-                        generation,
-                        pollers,
-                    });
-                }
-            });
-        }
         tokio::spawn(async move {
             let result = conn
                 .describe(&row.namespace, &row.workflow_id, &row.run_id)
                 .await
                 .map(Box::new);
             let _ = tx.send(Msg::Described { generation, result });
+        });
+    }
+
+    pub(super) fn load_pollers(&mut self, namespace: &str, task_queue: &str) {
+        self.view.pollers_asked = true;
+        let Some(conn) = self.conn.clone() else {
+            return;
+        };
+        let (tx, generation) = (self.tx.clone(), self.view.generation);
+        let (namespace, task_queue) = (namespace.to_string(), task_queue.to_string());
+        tokio::spawn(async move {
+            if let Ok(pollers) = conn.workflow_pollers(&namespace, &task_queue).await {
+                let _ = tx.send(Msg::Pollers {
+                    generation,
+                    pollers,
+                });
+            }
+        });
+    }
+
+    pub(super) fn refresh_workflow_statuses(&mut self) {
+        let Some(conn) = self.conn.clone() else {
+            return;
+        };
+        let (tx, generation, scope, query) = (
+            self.tx.clone(),
+            self.view.generation,
+            self.view.scope.clone(),
+            self.view.query.clone(),
+        );
+        tokio::spawn(async move {
+            let result = conn
+                .list_workflows_across(&scope, &query, PAGE_SIZE)
+                .await
+                .map(|(rows, _)| rows);
+            let _ = tx.send(Msg::WorkflowsFresh { generation, result });
         });
     }
 

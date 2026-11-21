@@ -215,6 +215,34 @@ impl WorkflowList {
         find_by_key(&self.rows, key)
     }
 
+    /// Visibility lags, so what a describe says of a run replaces what the list last heard.
+    pub fn update_run(
+        &mut self,
+        key: (&str, &str),
+        status: WorkflowStatus,
+        close_time: Option<i64>,
+        history_length: i64,
+    ) -> bool {
+        let Some(i) = self.position_of(key) else {
+            return false;
+        };
+        let row = &mut self.rows[i];
+        let before = (row.status, row.close_time, row.history_length);
+        row.status = status;
+        row.close_time = close_time.or(row.close_time);
+        row.history_length = history_length.max(row.history_length);
+        before != (row.status, row.close_time, row.history_length)
+    }
+
+    /// Takes a fresh first page into the rows already listed, keeping their order and every
+    /// page loaded after it. Runs it did not see are left as they were.
+    pub fn refresh(&mut self, fresh: &[WorkflowRow]) -> usize {
+        fresh
+            .iter()
+            .filter(|f| self.update_run(f.key(), f.status, f.close_time, f.history_length))
+            .count()
+    }
+
     fn insert_sorted(&mut self, rows: Vec<WorkflowRow>) {
         self.rows.extend(rows);
         self.rows.sort_by(by_start_time_desc);
@@ -238,6 +266,64 @@ mod tests {
             close_time: None,
             history_length: 3,
         }
+    }
+
+    #[test]
+    fn a_describe_corrects_the_row_the_list_last_heard() {
+        let mut list = WorkflowList::default();
+        list.reset(
+            vec![row("ns", "a", Some(2)), row("ns", "b", Some(1))],
+            Vec::new(),
+        );
+        assert!(list.update_run(("ns", "a"), WorkflowStatus::Completed, Some(9), 40));
+        let a = &list.rows()[0];
+        assert_eq!(
+            (a.status, a.close_time, a.history_length),
+            (WorkflowStatus::Completed, Some(9), 40)
+        );
+        assert_eq!(
+            list.rows()[1].status,
+            WorkflowStatus::Running,
+            "the other run is untouched"
+        );
+        assert!(
+            !list.update_run(("ns", "a"), WorkflowStatus::Completed, None, 40),
+            "nothing new"
+        );
+        assert_eq!(
+            list.rows()[0].close_time,
+            Some(9),
+            "an unknown close time keeps the known one"
+        );
+        assert!(!list.update_run(("other", "a"), WorkflowStatus::Failed, None, 1));
+    }
+
+    #[test]
+    fn a_fresh_page_updates_listed_runs_without_dropping_or_reordering_any() {
+        let mut list = WorkflowList::default();
+        list.reset(
+            vec![row("ns", "a", Some(3)), row("ns", "b", Some(2))],
+            Vec::new(),
+        );
+        list.append(vec![row("ns", "c", Some(1))], Vec::new());
+        let mut done = row("ns", "b", Some(2));
+        done.status = WorkflowStatus::Failed;
+        done.close_time = Some(5);
+        let unseen = row("ns", "z", Some(9));
+        assert_eq!(list.refresh(&[done, unseen]), 1);
+        let runs: Vec<(&str, WorkflowStatus)> = list
+            .rows()
+            .iter()
+            .map(|r| (r.run_id.as_str(), r.status))
+            .collect();
+        assert_eq!(
+            runs,
+            [
+                ("a", WorkflowStatus::Running),
+                ("b", WorkflowStatus::Failed),
+                ("c", WorkflowStatus::Running)
+            ]
+        );
     }
 
     #[test]
