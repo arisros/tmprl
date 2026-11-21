@@ -275,6 +275,12 @@ TMPRL_REQUIRE_SERVER=1 cargo test  # what CI runs
 [docs/ROADMAP.md](docs/ROADMAP.md) has each item, and what is not planned and why. Nexus
 operations already appear inside a history, and the palette is set in `theme.toml`.
 
+## Sponsors
+
+`tmprl` is built and maintained in spare time. If it saves you a trip to the web UI,
+[sponsoring it on GitHub](https://github.com/sponsors/arisros) keeps the Temporal SDK bumps
+and releases coming.
+
 ## Prior art
 
 [`galaxy-io/tempo`](https://github.com/galaxy-io/tempo) is another Temporal TUI, and came
