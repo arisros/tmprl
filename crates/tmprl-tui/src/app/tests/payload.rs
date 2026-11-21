@@ -318,7 +318,7 @@ fn nothing_is_decoded_without_a_configured_codec() {
 }
 
 #[test]
-fn going_to_the_source_needs_a_history_and_a_resolver() {
+fn going_to_the_source_needs_a_history_and_a_resolver_or_a_stack_trace() {
     let mut app = app();
     four(&mut app);
     app.run("history.source", None);
@@ -328,8 +328,94 @@ fn going_to_the_source_needs_a_history_and_a_resolver() {
     app.run("history.source", None);
     let (msg, level) = app.note.clone().unwrap();
     assert_eq!(level, Note::Warn);
+    assert!(msg.contains("no stack trace"), "{msg}");
     assert!(msg.contains("[source] command"), "{msg}");
     assert!(app.opening.is_none());
+}
+
+fn viewing_a_failure_with_a_trace() -> App {
+    use tmprl_core::history::{Category as C, Failure, GroupRef as G, Outcome, Role as R};
+    let mut failed = hev(8, G::Opened(7), R::Closes, C::Activity).with_outcome(Outcome::Failed);
+    let mut cause = Failure::new("card declined");
+    cause.stack_trace =
+        Some("  File \"/build/crates/tmprl-core/src/locate.rs\", line 10, in charge".into());
+    let mut failure = Failure::new("activity failed");
+    failure.cause = Some(Box::new(cause));
+    failed.failure = Some(failure);
+    let events = vec![
+        hev(1, G::Workflow, R::Opens, C::Workflow).with_subject("Order"),
+        hev(7, G::Opened(7), R::Opens, C::Activity).with_subject("Ship"),
+        failed,
+    ];
+    let mut app = app();
+    loaded(&mut app, vec![wf("default", "r1", 100)], vec![]);
+    app.run("nav.open", None);
+    app.handle(Msg::History {
+        generation: app.view.generation,
+        result: Ok((events, Vec::new())),
+    });
+    let outline = app.view.history.value().unwrap();
+    app.view.cursor = (0..outline.len())
+        .find(|&i| match outline.row_at(i) {
+            Some(tmprl_core::outline::Row::Group { group, .. }) => {
+                outline.group(group).is_some_and(|g| g.subject == "Ship")
+            }
+            _ => false,
+        })
+        .expect("the failed activity is listed");
+    app
+}
+
+#[tokio::test]
+async fn gf_with_no_resolver_follows_the_failures_stack_trace() {
+    let mut app = viewing_a_failure_with_a_trace();
+    app.run("history.source", None);
+    let wait = app.source_wait.clone().expect("it searches");
+    assert_eq!(wait.asking.as_deref(), Some("the stack trace"));
+    assert!(
+        app.note
+            .clone()
+            .unwrap()
+            .0
+            .contains("following the stack trace of `Ship`")
+    );
+}
+
+#[tokio::test]
+async fn a_resolver_that_fails_hands_over_to_the_stack_trace_once() {
+    let mut app = viewing_a_failure_with_a_trace();
+    app.source_command = Some("tmprl-no-such-resolver".into());
+    app.run("history.source", None);
+    assert_eq!(
+        app.source_wait.as_ref().unwrap().asking.as_deref(),
+        Some("tmprl-no-such-resolver")
+    );
+
+    app.source_reply(Err("it could not say".into()));
+    assert_eq!(
+        app.source_wait.as_ref().unwrap().asking.as_deref(),
+        Some("the stack trace")
+    );
+    let (msg, level) = app.note.clone().unwrap();
+    assert_eq!(level, Note::Warn);
+    assert!(msg.contains("it could not say"), "{msg}");
+
+    app.source_reply(Err("no frame of the stack trace is a file".into()));
+    assert!(app.source_wait.is_none(), "it does not go round again");
+    assert_eq!(app.note.clone().unwrap().1, Note::Error);
+}
+
+#[test]
+fn the_repository_is_searched_for_a_frame_by_the_tail_of_its_path() {
+    let trace = "  File \"/build/crates/tmprl-core/src/locate.rs\", line 10, in charge".to_string();
+    let out = super::super::find_in_repo(&[trace]).unwrap();
+    let first = out.lines().next().unwrap();
+    assert!(
+        first.ends_with("crates/tmprl-core/src/locate.rs:10"),
+        "{out}"
+    );
+    let missing = super::super::find_in_repo(&["  File \"/x/nowhere.rs\", line 1".into()]);
+    assert!(missing.unwrap_err().contains("no frame"));
 }
 
 #[test]

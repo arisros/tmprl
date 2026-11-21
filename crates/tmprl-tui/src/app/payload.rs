@@ -236,6 +236,7 @@ impl App {
 
     pub(super) fn open_source(&mut self) {
         let since_ms = self.source_wait.take().map_or_else(now_ms, |w| w.since_ms);
+        self.source_builtin = false;
         if self.view.screen != Screen::History {
             self.note = Some((
                 "the source of an event is found from a workflow history".into(),
@@ -243,18 +244,6 @@ impl App {
             ));
             return;
         }
-        let Some(command) = self.source_command.clone() else {
-            self.note = Some((
-                "no `[source] command` in config.toml to ask where the code is".into(),
-                Note::Warn,
-            ));
-            return;
-        };
-        let Some((program, args)) =
-            tmprl_core::source::argv(&command, std::env::var("HOME").ok().as_deref())
-        else {
-            return;
-        };
         let (Some(workflow), Some(outline)) =
             (self.view.viewing.as_ref(), self.view.history.value())
         else {
@@ -269,6 +258,21 @@ impl App {
             }
         };
         let Some(group) = outline.group(group) else {
+            return;
+        };
+        let pending = tmprl_core::pending::for_group(&self.view.pending, group, outline.events());
+        self.source_traces = group
+            .failure
+            .iter()
+            .chain(pending.and_then(|p| p.last_failure.as_ref()))
+            .flat_map(tmprl_core::locate::traces)
+            .collect();
+        let resolver = self.source_command.as_deref().and_then(|command| {
+            tmprl_core::source::argv(command, std::env::var("HOME").ok().as_deref())
+        });
+        let Some((program, args)) = resolver else {
+            let subject = group.subject.clone();
+            self.find_in_traces(subject, since_ms);
             return;
         };
         let events: Vec<&tmprl_core::history::NormalizedEvent> = outline
@@ -368,12 +372,60 @@ impl App {
             .collect()
     }
 
+    /// gf with no resolver, or after one failed: the failure's stack trace, found in the repository.
+    pub(super) fn find_in_traces(&mut self, subject: String, since_ms: i64) {
+        self.source_builtin = true;
+        if self.source_traces.is_empty() {
+            self.note = Some((
+                format!(
+                    "`{subject}` has no stack trace to follow; a `[source] command` in config.toml can say where its code is"
+                ),
+                Note::Warn,
+            ));
+            return;
+        }
+        self.note = Some((
+            format!("following the stack trace of `{subject}`…"),
+            Note::Info,
+        ));
+        self.source_request += 1;
+        let id = self.source_request;
+        self.source_wait = Some(SourceWait {
+            subject,
+            asking: Some("the stack trace".into()),
+            since_ms,
+            request: Some(id),
+        });
+        let (tx, traces) = (self.tx.clone(), self.source_traces.clone());
+        let task = tokio::spawn(async move {
+            let result = tokio::task::spawn_blocking(move || find_in_repo(&traces))
+                .await
+                .unwrap_or_else(|e| Err(e.to_string()));
+            let _ = tx.send(Msg::SourceAnswer {
+                request: id,
+                result,
+            });
+        });
+        self.source_task = Some(task.abort_handle());
+    }
+
     pub(super) fn source_reply(&mut self, result: Result<String, String>) {
-        self.source_wait = None;
+        let wait = self.source_wait.take();
         self.source_task = None;
         let out = match result {
             Ok(out) => out,
             Err(why) => {
+                if !self.source_builtin
+                    && !self.source_traces.is_empty()
+                    && let Some(wait) = wait
+                {
+                    self.find_in_traces(wait.subject, wait.since_ms);
+                    self.note = Some((
+                        format!("source: {why}; following the stack trace instead"),
+                        Note::Warn,
+                    ));
+                    return;
+                }
                 self.note = Some((format!("source: {why}"), Note::Error));
                 return;
             }
