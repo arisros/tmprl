@@ -215,7 +215,6 @@ impl WorkflowList {
         find_by_key(&self.rows, key)
     }
 
-    /// The list comes from visibility, which lags; a describe of the run is the fresher word.
     pub fn set_status(&mut self, key: (&str, &str), status: WorkflowStatus, close: Option<i64>) {
         if let Some(i) = self.position_of(key) {
             self.rows[i].status = status;
