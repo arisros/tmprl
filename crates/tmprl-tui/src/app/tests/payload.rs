@@ -318,19 +318,19 @@ fn nothing_is_decoded_without_a_configured_codec() {
 }
 
 #[test]
-fn going_to_the_source_needs_a_history_and_a_resolver_or_a_stack_trace() {
+fn going_to_the_source_needs_a_history_and_a_resolver_or_the_builtin_finder() {
     let mut app = app();
     four(&mut app);
     app.run("history.source", None);
     assert!(app.note.clone().unwrap().0.contains("history"));
 
     let mut app = viewing_history();
+    app.apply_config(None, None, Some("[source]\nbuiltin = false"));
     app.run("history.source", None);
     let (msg, level) = app.note.clone().unwrap();
     assert_eq!(level, Note::Warn);
-    assert!(msg.contains("no stack trace"), "{msg}");
-    assert!(msg.contains("[source] command"), "{msg}");
-    assert!(app.opening.is_none());
+    assert!(msg.contains("builtin = false"), "{msg}");
+    assert!(app.source_wait.is_none() && app.opening.is_none());
 }
 
 fn viewing_a_failure_with_a_trace() -> App {
@@ -371,13 +371,13 @@ async fn gf_with_no_resolver_follows_the_failures_stack_trace() {
     let mut app = viewing_a_failure_with_a_trace();
     app.run("history.source", None);
     let wait = app.source_wait.clone().expect("it searches");
-    assert_eq!(wait.asking.as_deref(), Some("the stack trace"));
+    assert_eq!(wait.asking.as_deref(), Some("the repository"));
     assert!(
         app.note
             .clone()
             .unwrap()
             .0
-            .contains("following the stack trace of `Ship`")
+            .contains("looking for `Ship` in the repository")
     );
 }
 
@@ -394,13 +394,13 @@ async fn a_resolver_that_fails_hands_over_to_the_stack_trace_once() {
     app.source_reply(Err("it could not say".into()));
     assert_eq!(
         app.source_wait.as_ref().unwrap().asking.as_deref(),
-        Some("the stack trace")
+        Some("the repository")
     );
     let (msg, level) = app.note.clone().unwrap();
     assert_eq!(level, Note::Warn);
     assert!(msg.contains("it could not say"), "{msg}");
 
-    app.source_reply(Err("no frame of the stack trace is a file".into()));
+    app.source_reply(Err("no stack trace frame and no `Ship`".into()));
     assert!(app.source_wait.is_none(), "it does not go round again");
     assert_eq!(app.note.clone().unwrap().1, Note::Error);
 }
@@ -408,14 +408,38 @@ async fn a_resolver_that_fails_hands_over_to_the_stack_trace_once() {
 #[test]
 fn the_repository_is_searched_for_a_frame_by_the_tail_of_its_path() {
     let trace = "  File \"/build/crates/tmprl-core/src/locate.rs\", line 10, in charge".to_string();
-    let out = super::super::find_in_repo(&[trace]).unwrap();
+    let out = super::super::find_in_repo(&[trace], "Ship", &[], None).unwrap();
     let first = out.lines().next().unwrap();
     assert!(
         first.ends_with("crates/tmprl-core/src/locate.rs:10"),
         "{out}"
     );
-    let missing = super::super::find_in_repo(&["  File \"/x/nowhere.rs\", line 1".into()]);
-    assert!(missing.unwrap_err().contains("no frame"));
+}
+
+#[test]
+fn with_no_trace_the_roots_are_searched_for_the_name() {
+    let dir = std::env::temp_dir().join(format!("tmprl-named-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(dir.join("acts")).unwrap();
+    std::fs::write(
+        dir.join("acts/charge.go"),
+        "package acts\n\nfunc ChargeCard(ctx context.Context) error {\n\treturn nil\n}\n",
+    )
+    .unwrap();
+    let roots = [dir.display().to_string()];
+    let out = super::super::find_in_repo(&[], "charge_card", &roots, None).unwrap();
+    assert_eq!(
+        out.lines().next().unwrap(),
+        format!("{}:3", dir.join("acts/charge.go").display())
+    );
+
+    let missing = format!("tmprl_{}", uuid::Uuid::new_v4().simple());
+    let err = super::super::find_in_repo(&[], &missing, &roots, None).unwrap_err();
+    assert!(err.contains("[source] roots"), "{err}");
+
+    let home = dir.display().to_string();
+    let out = super::super::find_in_repo(&[], "ChargeCard", &["~/acts".into()], Some(&home));
+    assert!(out.is_ok(), "~ is the home directory");
+    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]

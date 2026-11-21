@@ -20,6 +20,7 @@ pub mod loadable;
 pub mod locate;
 pub mod mode;
 pub mod mutation;
+pub mod named;
 pub mod outline;
 pub mod payload;
 pub mod pending;

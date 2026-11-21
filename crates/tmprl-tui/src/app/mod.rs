@@ -406,6 +406,8 @@ pub struct App {
     source_task: Option<tokio::task::AbortHandle>,
     source_traces: Vec<String>,
     source_builtin: bool,
+    source_roots: Vec<String>,
+    source_finder: bool,
     pub jumps: Jumplist<Jump>,
     scan: Option<Scan>,
     pub search: Search,
@@ -522,6 +524,8 @@ impl App {
             source_task: None,
             source_traces: Vec::new(),
             source_builtin: false,
+            source_roots: Vec::new(),
+            source_finder: true,
             jumps: Jumplist::default(),
             scan: None,
             search: Search::default(),
@@ -570,6 +574,8 @@ impl App {
                     self.dashboard_refresh = cfg.dashboard_refresh;
                     self.yank_max = cfg.yank_max;
                     self.source_command = cfg.source.clone();
+                    self.source_roots = cfg.source_roots.clone();
+                    self.source_finder = cfg.source_builtin;
                     if let Some(depth) = cfg.colors {
                         self.theme = Theme::new(depth, &self.theme_overrides);
                     }
@@ -1355,24 +1361,89 @@ async fn pipe_through(command: &str, input: Vec<u8>) -> Result<String, String> {
     }
 }
 
-/// The repository tmprl runs in: git's own root and file list, so `.gitignore` holds;
-/// outside a repository, a bounded walk of the working directory.
-fn find_in_repo(traces: &[String]) -> Result<String, String> {
-    const MOST_FILES: usize = 200_000;
-    let cwd = std::env::current_dir().map_err(|e| format!("no working directory: {e}"))?;
-    let git = |args: &[&str], dir: &std::path::Path| {
-        std::process::Command::new("git")
-            .args(args)
-            .current_dir(dir)
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+fn git(args: &[&str], dir: &std::path::Path) -> Option<String> {
+    std::process::Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+}
+
+/// `gf` with no resolver: the failure's stack trace, then the registered name, looked for in
+/// `[source] roots`, or with none the repository tmprl runs in.
+fn find_in_repo(
+    traces: &[String],
+    name: &str,
+    roots: &[String],
+    home: Option<&str>,
+) -> Result<String, String> {
+    const LARGEST_FILE: u64 = 1024 * 1024;
+    const MOST_BYTES: u64 = 256 * 1024 * 1024;
+    let roots: Vec<std::path::PathBuf> = if roots.is_empty() {
+        let cwd = std::env::current_dir().map_err(|e| format!("no working directory: {e}"))?;
+        let top = git(&["rev-parse", "--show-toplevel"], &cwd)
+            .map(|s| std::path::PathBuf::from(s.trim()))
+            .unwrap_or(cwd);
+        vec![top]
+    } else {
+        roots
+            .iter()
+            .map(|r| match (r.strip_prefix("~/"), home) {
+                (Some(rest), Some(home)) => std::path::Path::new(home).join(rest),
+                _ => std::path::PathBuf::from(r),
+            })
+            .collect()
     };
-    let root = git(&["rev-parse", "--show-toplevel"], &cwd)
-        .map(|s| std::path::PathBuf::from(s.trim()))
-        .unwrap_or(cwd);
-    let files: Vec<String> = match git(
+    let listed: Vec<(std::path::PathBuf, Vec<String>)> = roots
+        .into_iter()
+        .map(|root| {
+            let files = repo_files(&root);
+            (root, files)
+        })
+        .collect();
+    for (root, files) in &listed {
+        if let Some(out) = tmprl_core::locate::answer(traces, files, root) {
+            return Ok(out);
+        }
+    }
+    let mut read: Vec<(&std::path::Path, &str, String)> = Vec::new();
+    let mut bytes = 0;
+    'roots: for (root, files) in &listed {
+        for file in files.iter().filter(|f| tmprl_core::named::is_source(f)) {
+            let path = root.join(file);
+            let Ok(meta) = std::fs::metadata(&path) else {
+                continue;
+            };
+            if meta.len() > LARGEST_FILE {
+                continue;
+            }
+            if bytes + meta.len() > MOST_BYTES {
+                break 'roots;
+            }
+            if let Ok(text) = std::fs::read_to_string(&path) {
+                bytes += meta.len();
+                read.push((root, file, text));
+            }
+        }
+    }
+    let sources: Vec<(&std::path::Path, &str, &str)> =
+        read.iter().map(|(r, f, t)| (*r, *f, t.as_str())).collect();
+    tmprl_core::named::answer(name, &sources).ok_or_else(|| {
+        let at: Vec<String> = listed.iter().map(|(r, _)| r.display().to_string()).collect();
+        format!(
+            "no stack trace frame and no `{name}` under {}; set `[source] roots` or a `[source] command`",
+            at.join(", ")
+        )
+    })
+}
+
+/// A root's files: git's own list, so `.gitignore` holds; outside a repository, a bounded walk.
+fn repo_files(root: &std::path::Path) -> Vec<String> {
+    const MOST_FILES: usize = 200_000;
+    let root = root.to_path_buf();
+    match git(
         &["ls-files", "--cached", "--others", "--exclude-standard"],
         &root,
     ) {
@@ -1404,13 +1475,7 @@ fn find_in_repo(traces: &[String]) -> Result<String, String> {
             }
             out
         }
-    };
-    tmprl_core::locate::answer(traces, &files, &root).ok_or_else(|| {
-        format!(
-            "no frame of the stack trace is a file under {}; run tmprl from the repository, or set a `[source] command`",
-            root.display()
-        )
-    })
+    }
 }
 
 async fn run_resolver(

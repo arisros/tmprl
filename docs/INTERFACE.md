@@ -91,6 +91,8 @@ max_bytes = 1048576     # 65536 is the default
 
 [source]
 command = "~/bin/find-source"   # asked by gf where the code behind an event is
+roots   = ["~/src/orders"]      # searched by gf with no resolver; the repository tmprl runs in by default
+builtin = true                  # false: gf asks the resolver only, and never searches itself
 ```
 
 ### Icons are optional
@@ -552,7 +554,7 @@ closed is refused with a message instead of polling for events that can never ar
 | `<C-e>` / `<C-y>` | scroll the payload pane | **live** |
 | `<C-w>j` (`<C-w>l` when the pane is beside the list) | focus the payload pane: `j` `k` `<C-d>` `<C-u>` `<C-f>` `<C-b>` `gg` `G` scroll it, `<C-w>k` (`<C-w>h`) or `<Esc>` goes back | **live** |
 | `<leader>e` | open the payloads in `$EDITOR`, read-only | **live** |
-| `gf` | go to the source of the focused event, through the resolver `[source] command` names, or the failure's stack trace when there is none | **live** |
+| `gf` | go to the source of the focused event, through the resolver `[source] command` names, or with none the failure's stack trace, then the registered name | **live** |
 | `gc` / `gp` | open the child workflow under the cursor / the parent of this one; `<C-o>` comes back | **live** |
 | `gi` | show or hide the workflow info card under the workflow bar: identity, timing, limits, what it is waiting on, lineage, memo, search attributes. The payload pane is left as it is | **live** |
 
@@ -868,14 +870,28 @@ its note. A hop without an absolute path is
 dropped, and a line with a tab is never taken for the answer or the root, so a resolver
 that prints hops still works with an older tmprl.
 
-With no `[source] command`, or when the resolver exits non-zero, `gf` follows the stack
-trace of the group's failure instead, its causes and a retrying activity's last failure
-included. It reads Go, Java, Node, Python and .NET traces, skips the SDK's, the runtime's
-and dependencies' frames, and matches each remaining frame to a file of the repository tmprl
-runs in (git's own list, so `.gitignore` holds) by the longest shared tail of its path; a
-tie names nothing rather than the wrong file. The frame that threw is the answer, and with
-more than one the picker lists them all. An event with no trace says so, and names
-`[source] command` for the rest.
+With no `[source] command`, or when the resolver exits non-zero, `gf` searches itself, in
+each of `[source] roots` or with none the repository tmprl runs in (git's own list, so
+`.gitignore` holds). `[source] builtin = false` turns this off.
+
+First it follows the stack trace of the group's failure, its causes and a retrying
+activity's last failure included. It reads Go, Java, Node, Python and .NET traces, skips the
+SDK's, the runtime's and dependencies' frames, and matches each remaining frame to a file by
+the longest shared tail of its path; a tie names nothing rather than the wrong file. The
+frame that threw is the answer, and with more than one the picker lists them all.
+
+With no trace that matches, which is every Go error returned rather than panicked, it looks
+up the group's name (the activity or workflow type) in the source text of Go, TypeScript,
+JavaScript, Python, Java, Kotlin and C# files, comments, tests last and vendored code left
+out:
+
+| Found | As |
+|---|---|
+| the name as a string bound to an identifier, `CalculateDutiesName = "calculate_duties"` | names it, and its uses are looked for too |
+| the name or that identifier in a registration: a map entry `CalculateDutiesName: CalculateDuties`, a `Register…(fn, …)`, a decorator or an attribute over a function | registers it, and the function it hands over is looked for |
+| a function declared with that function's name, or the name spelled `PascalCase`, `camelCase` or `snake_case` | defines it, the answer |
+
+The picker lists every place, what defines it first.
 
 ## Configuration files
 

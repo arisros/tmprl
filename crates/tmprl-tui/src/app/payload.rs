@@ -272,7 +272,7 @@ impl App {
         });
         let Some((program, args)) = resolver else {
             let subject = group.subject.clone();
-            self.find_in_traces(subject, since_ms);
+            self.look_in_repo(subject, since_ms);
             return;
         };
         let events: Vec<&tmprl_core::history::NormalizedEvent> = outline
@@ -372,35 +372,42 @@ impl App {
             .collect()
     }
 
-    /// gf with no resolver, or after one failed: the failure's stack trace, found in the repository.
-    pub(super) fn find_in_traces(&mut self, subject: String, since_ms: i64) {
+    /// gf with no resolver, or after one failed: the stack trace, then the name, in the repository.
+    pub(super) fn look_in_repo(&mut self, subject: String, since_ms: i64) {
         self.source_builtin = true;
-        if self.source_traces.is_empty() {
+        if !self.source_finder {
             self.note = Some((
                 format!(
-                    "`{subject}` has no stack trace to follow; a `[source] command` in config.toml can say where its code is"
+                    "`{subject}`: no `[source] command` to ask, and `[source] builtin = false`"
                 ),
                 Note::Warn,
             ));
             return;
         }
         self.note = Some((
-            format!("following the stack trace of `{subject}`…"),
+            format!("looking for `{subject}` in the repository…"),
             Note::Info,
         ));
         self.source_request += 1;
         let id = self.source_request;
         self.source_wait = Some(SourceWait {
-            subject,
-            asking: Some("the stack trace".into()),
+            subject: subject.clone(),
+            asking: Some("the repository".into()),
             since_ms,
             request: Some(id),
         });
-        let (tx, traces) = (self.tx.clone(), self.source_traces.clone());
+        let (tx, traces, roots) = (
+            self.tx.clone(),
+            self.source_traces.clone(),
+            self.source_roots.clone(),
+        );
+        let home = std::env::var("HOME").ok();
         let task = tokio::spawn(async move {
-            let result = tokio::task::spawn_blocking(move || find_in_repo(&traces))
-                .await
-                .unwrap_or_else(|e| Err(e.to_string()));
+            let result = tokio::task::spawn_blocking(move || {
+                find_in_repo(&traces, &subject, &roots, home.as_deref())
+            })
+            .await
+            .unwrap_or_else(|e| Err(e.to_string()));
             let _ = tx.send(Msg::SourceAnswer {
                 request: id,
                 result,
@@ -416,12 +423,12 @@ impl App {
             Ok(out) => out,
             Err(why) => {
                 if !self.source_builtin
-                    && !self.source_traces.is_empty()
+                    && self.source_finder
                     && let Some(wait) = wait
                 {
-                    self.find_in_traces(wait.subject, wait.since_ms);
+                    self.look_in_repo(wait.subject, wait.since_ms);
                     self.note = Some((
-                        format!("source: {why}; following the stack trace instead"),
+                        format!("source: {why}; looking in the repository instead"),
                         Note::Warn,
                     ));
                     return;
