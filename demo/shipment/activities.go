@@ -120,11 +120,21 @@ func ScoreRouteRisk(ctx context.Context, s Shipment) (Result, error) {
 	return Result{"risk.score": 0.18, "risk.level": "LOW"}, nil
 }
 
+type tariff struct{ rate float64 }
+
+func tariffFor(s Shipment) *tariff {
+	if s.Scenario == BadTariff {
+		return nil
+	}
+	return &tariff{rate: 0.045}
+}
+
 func CalculateDuties(ctx context.Context, s Shipment) (Result, error) {
 	if err := work(ctx, s.ID, 30, 140); err != nil {
 		return nil, err
 	}
-	return Result{"duties.rate": 0.045, "duties.amount_usd": float64(s.ValueUSD) * 0.045}, nil
+	t := tariffFor(s)
+	return Result{"duties.rate": t.rate, "duties.amount_usd": float64(s.ValueUSD) * t.rate}, nil
 }
 
 func CalculateQuote(ctx context.Context, s Shipment) (Result, error) {
