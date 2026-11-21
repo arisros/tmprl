@@ -192,9 +192,70 @@ pub fn retry_after(attempt: u32) -> std::time::Duration {
     std::time::Duration::from_secs(secs.min(30))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectFailure {
+    pub summary: String,
+    pub hint: [&'static str; 2],
+}
+
+pub fn connect_failure(error: &str) -> ConnectFailure {
+    let code = error.split_once("code: ").map(|(_, rest)| {
+        rest.split(|c: char| !c.is_alphanumeric())
+            .next()
+            .unwrap_or("")
+    });
+    let message = error
+        .split_once("message: \"")
+        .and_then(|(_, rest)| rest.split_once('"'))
+        .map(|(m, _)| m);
+    let summary = match (code, message) {
+        (Some(code), Some(message)) if !code.is_empty() => {
+            let head = error.split_once(": ").map_or("", |(h, _)| h);
+            format!("{head}: {message} ({code})")
+        }
+        _ => error.to_string(),
+    };
+    let hint = match code {
+        Some("Unauthenticated") => [
+            "The server refused the credentials: an API key or token that expired or is wrong.",
+            "Renew it, or check the profile's api_key or api_key_cmd in config.toml or temporal.toml.",
+        ],
+        Some("PermissionDenied") => [
+            "The credentials were accepted but do not reach this namespace.",
+            "Check the namespace with `-n <namespace>`, or what the key is allowed.",
+        ],
+        _ => [
+            "Is a server reachable? Try `temporal server start-dev`,",
+            "or point tmprl at one with `--profile <name>` or `--address <host:port>`.",
+        ],
+    };
+    ConnectFailure { summary, hint }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_refused_connect_names_the_credentials_not_the_server() {
+        let expired = "could not connect to Temporal: `get_system_info` call error after connection: Status { code: Unauthenticated, message: \"Jwt is expired\", metadata: MetadataMap { headers: {\"www-authenticate\": \"Bearer\"} }, source: None }";
+        let f = connect_failure(expired);
+        assert_eq!(
+            f.summary,
+            "could not connect to Temporal: Jwt is expired (Unauthenticated)"
+        );
+        assert!(f.hint[0].contains("credentials"), "{:?}", f.hint);
+
+        let denied =
+            "could not connect to Temporal: Status { code: PermissionDenied, message: \"no\" }";
+        assert!(connect_failure(denied).hint[1].contains("-n"));
+
+        let down =
+            "could not connect to Temporal: tcp connect error: Connection refused (os error 61)";
+        let f = connect_failure(down);
+        assert_eq!(f.summary, down);
+        assert!(f.hint[0].starts_with("Is a server reachable?"));
+    }
 
     #[test]
     fn an_rpc_failure_names_the_call_the_code_and_the_reason() {
