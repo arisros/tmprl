@@ -408,7 +408,7 @@ async fn a_resolver_that_fails_hands_over_to_the_stack_trace_once() {
 #[test]
 fn the_repository_is_searched_for_a_frame_by_the_tail_of_its_path() {
     let trace = "  File \"/build/crates/tmprl-core/src/locate.rs\", line 10, in charge".to_string();
-    let out = super::super::find_in_repo(&[trace], "Ship", &[], None).unwrap();
+    let out = super::super::find_in_repo(&[trace], "Ship", &RepoSearch::default()).unwrap();
     let first = out.lines().next().unwrap();
     assert!(
         first.ends_with("crates/tmprl-core/src/locate.rs:10"),
@@ -420,26 +420,51 @@ fn the_repository_is_searched_for_a_frame_by_the_tail_of_its_path() {
 fn with_no_trace_the_roots_are_searched_for_the_name() {
     let dir = std::env::temp_dir().join(format!("tmprl-named-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(dir.join("acts")).unwrap();
+    let dir = std::fs::canonicalize(&dir).unwrap();
     std::fs::write(
         dir.join("acts/charge.go"),
         "package acts\n\nfunc ChargeCard(ctx context.Context) error {\n\treturn nil\n}\n",
     )
     .unwrap();
-    let roots = [dir.display().to_string()];
-    let out = super::super::find_in_repo(&[], "charge_card", &roots, None).unwrap();
+    let search = |roots: Vec<String>, home: Option<String>| RepoSearch {
+        roots,
+        home,
+        ..RepoSearch::default()
+    };
+    let at = search(vec![dir.display().to_string()], None);
+    let out = super::super::find_in_repo(&[], "charge_card", &at).unwrap();
     assert_eq!(
         out.lines().next().unwrap(),
         format!("{}:3", dir.join("acts/charge.go").display())
     );
 
     let missing = format!("tmprl_{}", uuid::Uuid::new_v4().simple());
-    let err = super::super::find_in_repo(&[], &missing, &roots, None).unwrap_err();
+    let err = super::super::find_in_repo(&[], &missing, &at).unwrap_err();
     assert!(err.contains("[source] roots"), "{err}");
 
-    let home = dir.display().to_string();
-    let out = super::super::find_in_repo(&[], "ChargeCard", &["~/acts".into()], Some(&home));
+    let home = search(vec!["~/acts".into()], Some(dir.display().to_string()));
+    let out = super::super::find_in_repo(&[], "ChargeCard", &home);
     assert!(out.is_ok(), "~ is the home directory");
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+#[ignore = "needs gopls on PATH; run with --ignored"]
+fn gopls_confirms_the_demos_activity_and_finds_its_uses() {
+    let demo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../demo");
+    let search = RepoSearch {
+        roots: vec![demo.display().to_string()],
+        lsp: true,
+        ..RepoSearch::default()
+    };
+    let out = super::super::find_in_repo(&[], "book_carrier", &search).unwrap();
+    let lines: Vec<&str> = out.lines().collect();
+    assert!(lines[0].ends_with("shipment/activities.go:155"), "{out}");
+    assert!(
+        lines[2].ends_with("defines `BookCarrier`, says gopls"),
+        "{out}"
+    );
+    assert!(lines.iter().any(|l| l.contains("workflow.go")), "{out}");
 }
 
 #[test]

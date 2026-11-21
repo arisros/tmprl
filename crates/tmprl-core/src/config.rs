@@ -285,6 +285,10 @@ pub struct Config {
     /// Where `gf` looks with no resolver; empty is the repository tmprl runs in.
     pub source_roots: Vec<String>,
     pub source_builtin: bool,
+    /// Whether `gf`'s own search also asks the repository's language server.
+    pub source_lsp: bool,
+    /// A language's server command in place of its default, such as `("go", "gopls -rpc.trace")`.
+    pub source_servers: Vec<(String, String)>,
     pub mouse: bool,
     pub colors: Option<crate::theme::ColorDepth>,
     /// `None` is `"auto"`: on where the terminal ships the Nerd Font symbols itself.
@@ -309,6 +313,8 @@ impl Default for Config {
             source: None,
             source_roots: Vec::new(),
             source_builtin: true,
+            source_lsp: true,
+            source_servers: Vec::new(),
             colors: None,
         }
     }
@@ -392,8 +398,14 @@ pub fn parse_config(src: &str) -> Result<Config, ConfigError> {
         Some(raw) => parse_yank(raw)?,
     };
 
-    let (source, source_roots, source_builtin) = match table.get("source") {
-        None => (None, Vec::new(), true),
+    let Source {
+        command: source,
+        roots: source_roots,
+        builtin: source_builtin,
+        lsp: source_lsp,
+        servers: source_servers,
+    } = match table.get("source") {
+        None => Source::default(),
         Some(raw) => parse_source(raw)?,
     };
 
@@ -418,15 +430,35 @@ pub fn parse_config(src: &str) -> Result<Config, ConfigError> {
         source,
         source_roots,
         source_builtin,
+        source_lsp,
+        source_servers,
         mouse,
         colors,
         icons,
     })
 }
 
-type SourceConfig = (Option<String>, Vec<String>, bool);
+struct Source {
+    command: Option<String>,
+    roots: Vec<String>,
+    builtin: bool,
+    lsp: bool,
+    servers: Vec<(String, String)>,
+}
 
-fn parse_source(raw: &toml::Value) -> Result<SourceConfig, ConfigError> {
+impl Default for Source {
+    fn default() -> Self {
+        Self {
+            command: None,
+            roots: Vec::new(),
+            builtin: true,
+            lsp: true,
+            servers: Vec::new(),
+        }
+    }
+}
+
+fn parse_source(raw: &toml::Value) -> Result<Source, ConfigError> {
     const FILE: &str = "config.toml";
     let table = raw.as_table().ok_or(ConfigError::Type {
         file: FILE,
@@ -463,15 +495,40 @@ fn parse_source(raw: &toml::Value) -> Result<SourceConfig, ConfigError> {
                 expected: "a list of directories, such as [\"~/src/orders\"]",
             })?,
     };
-    let builtin = match table.get("builtin") {
-        None => true,
+    let flag = |key: &str| match table.get(key) {
+        None => Ok(true),
         Some(v) => v.as_bool().ok_or(ConfigError::Type {
             file: FILE,
-            path: "source.builtin".into(),
+            path: format!("source.{key}"),
             expected: "true or false",
-        })?,
+        }),
     };
-    Ok((command, roots, builtin))
+    let (builtin, lsp) = (flag("builtin")?, flag("lsp")?);
+    let mut servers = Vec::new();
+    if let Some(v) = table.get("servers") {
+        let bad = |path: String| ConfigError::Type {
+            file: FILE,
+            path,
+            expected: "a server command for go, typescript, python, java or csharp, such as go = \"gopls\"",
+        };
+        let t = v.as_table().ok_or_else(|| bad("source.servers".into()))?;
+        for (lang, command) in t {
+            let command = command
+                .as_str()
+                .map(str::trim)
+                .filter(|c| !c.is_empty())
+                .filter(|_| crate::lsp::SERVERS.iter().any(|(l, _, _)| l == lang))
+                .ok_or_else(|| bad(format!("source.servers.{lang}")))?;
+            servers.push((lang.clone(), command.to_string()));
+        }
+    }
+    Ok(Source {
+        command,
+        roots,
+        builtin,
+        lsp,
+        servers,
+    })
 }
 
 fn parse_refresh(raw: &toml::Value) -> Result<Refresh, ConfigError> {
@@ -1276,11 +1333,24 @@ accent = "green"
         assert_eq!(cfg.source_roots, ["~/src/a", "/b"]);
         assert!(!cfg.source_builtin);
         assert_eq!(cfg.source, None);
+        assert!(none.source_lsp && none.source_servers.is_empty());
+        let cfg =
+            parse_config("[source]\nlsp = false\n[source.servers]\ngo = \" gopls -remote=auto \"")
+                .unwrap();
+        assert!(!cfg.source_lsp);
+        assert_eq!(
+            cfg.source_servers,
+            [("go".to_string(), "gopls -remote=auto".to_string())]
+        );
         for bad in [
             "roots = \"~/a\"",
             "roots = [3]",
             "roots = [\"\"]",
             "builtin = \"no\"",
+            "lsp = 1",
+            "servers = \"gopls\"",
+            "servers = { rust = \"rust-analyzer\" }",
+            "servers = { go = \"\" }",
         ] {
             assert!(parse_config(&format!("[source]\n{bad}")).is_err(), "{bad}");
         }

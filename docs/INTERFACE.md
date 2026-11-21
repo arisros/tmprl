@@ -93,6 +93,10 @@ max_bytes = 1048576     # 65536 is the default
 command = "~/bin/find-source"   # asked by gf where the code behind an event is
 roots   = ["~/src/orders"]      # searched by gf with no resolver; the repository tmprl runs in by default
 builtin = true                  # false: gf asks the resolver only, and never searches itself
+lsp     = true                  # false: gf's search reads the text only, and starts no language server
+
+[source.servers]
+go = "gopls"                    # a language's server in place of its default
 ```
 
 ### Icons are optional
@@ -892,6 +896,26 @@ out:
 | a function declared with that function's name, or the name spelled `PascalCase`, `camelCase` or `snake_case` | defines it, the answer |
 
 The picker lists every place, what defines it first.
+
+The text alone can be fooled, so `gf` also asks the root's language server, picked by the
+files at the root's top, when it is on `PATH`:
+
+| Language | Marked by | Server |
+|---|---|---|
+| `go` | `go.mod` | `gopls` |
+| `typescript` | `tsconfig.json`, `package.json` | `typescript-language-server --stdio` |
+| `python` | `pyproject.toml`, `setup.py`, `setup.cfg`, `requirements.txt` | `pyright-langserver --stdio` |
+| `java` | `pom.xml`, `build.gradle`, `build.gradle.kts` | `jdtls` |
+| `csharp` | a `.sln` or `.csproj` | `csharp-ls` |
+
+The server is asked, by `workspace/symbol`, where each function spelling of the name and each
+function a registration hands over is defined, and, by `textDocument/references`, where each
+identifier bound to the name is used. Its places are labelled `says gopls` (or the server's
+name) and come before the text's at the same line. It is started for each `gf` and shut down
+after, and its first answer waits on its index of the workspace, up to two minutes, behind
+the same spinner. A server that is missing or fails leaves the text's answer, and when there
+is none the error names what the server said, such as a workspace it could not load.
+`[source.servers]` gives a language another command; `[source] lsp = false` starts none.
 
 ## Configuration files
 

@@ -64,8 +64,8 @@ project testable:
 | Crate | Status | How it is tested | Tests |
 |---|---|---|---|
 | `tmprl-client` | built | Integration tests against `temporal server start-dev`, and the codec client against a real socket | 97 |
-| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 519 |
-| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 593 |
+| `tmprl-core` | built | Plain unit tests. No server, no terminal, no async runtime. | 524 |
+| `tmprl-tui` | built | Rendered into ratatui's `TestBackend` and asserted on | 594 |
 | `tmprl-ui` | built | Plain unit tests over the layout tree | 47 |
 
 That `tmprl-core` carries the most tests while needing the least to run them is the
@@ -133,6 +133,7 @@ Every file opens with a `//!` line saying what it is; this is those lines, gathe
 | `worker.rs` | who runs a workflow: the SDK and its language, the last worker and its build, from the history |
 | `source.rs` | `gf`: what a source resolver is told about an event, and how its answer is read |
 | `locate.rs` | `gf` with no resolver: the frames of a Go, Java, Node, Python or .NET stack trace, matched to repository files by the tail of their path |
+| `lsp.rs` | `gf`'s language servers: which one a repository's top files call for, the JSON-RPC framing, and the `workspace/symbol` and `textDocument/references` requests and replies. The process itself is `tmprl-tui`'s `app/finder.rs` |
 | `named.rs` | `gf` with no resolver and no trace: an activity or workflow's registered name, followed through the identifier that holds it and the registration to the function that defines it |
 | `syntax.rs` | a line of pretty JSON cut into keys, strings, numbers, literals and punctuation for the payload pane |
 

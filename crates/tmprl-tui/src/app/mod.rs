@@ -10,6 +10,7 @@
 //! | `find` | the pickers and `/` search |
 //! | `history` | folds, follow, `]f` / `[f` |
 //! | `payload` | decoding, the `!` pipe, `$EDITOR` |
+//! | `finder` | `gf` with no resolver: the stack trace, the name, the language server |
 //! | `yank` | copying fields, rows and payloads |
 //! | `mutate` | cancel, terminate, signal, reset, schedules |
 //! | `windows` | splits and tabs |
@@ -24,6 +25,7 @@
 
 mod dashboard;
 mod find;
+mod finder;
 mod history;
 mod info;
 mod interaction;
@@ -42,6 +44,8 @@ mod yank;
 
 pub use mouse::Mouse;
 pub use startup::Startup;
+
+use finder::{RepoSearch, find_in_repo};
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -408,6 +412,8 @@ pub struct App {
     source_builtin: bool,
     source_roots: Vec<String>,
     source_finder: bool,
+    source_lsp: bool,
+    source_servers: Vec<(String, String)>,
     pub jumps: Jumplist<Jump>,
     scan: Option<Scan>,
     pub search: Search,
@@ -526,6 +532,8 @@ impl App {
             source_builtin: false,
             source_roots: Vec::new(),
             source_finder: true,
+            source_lsp: true,
+            source_servers: Vec::new(),
             jumps: Jumplist::default(),
             scan: None,
             search: Search::default(),
@@ -576,6 +584,8 @@ impl App {
                     self.source_command = cfg.source.clone();
                     self.source_roots = cfg.source_roots.clone();
                     self.source_finder = cfg.source_builtin;
+                    self.source_lsp = cfg.source_lsp;
+                    self.source_servers = cfg.source_servers.clone();
                     if let Some(depth) = cfg.colors {
                         self.theme = Theme::new(depth, &self.theme_overrides);
                     }
@@ -1358,123 +1368,6 @@ async fn pipe_through(command: &str, input: Vec<u8>) -> Result<String, String> {
         } else {
             stderr
         })
-    }
-}
-
-fn git(args: &[&str], dir: &std::path::Path) -> Option<String> {
-    std::process::Command::new("git")
-        .args(args)
-        .current_dir(dir)
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-}
-
-/// `gf` with no resolver: the failure's stack trace, then the registered name, looked for in
-/// `[source] roots`, or with none the repository tmprl runs in.
-fn find_in_repo(
-    traces: &[String],
-    name: &str,
-    roots: &[String],
-    home: Option<&str>,
-) -> Result<String, String> {
-    const LARGEST_FILE: u64 = 1024 * 1024;
-    const MOST_BYTES: u64 = 256 * 1024 * 1024;
-    let roots: Vec<std::path::PathBuf> = if roots.is_empty() {
-        let cwd = std::env::current_dir().map_err(|e| format!("no working directory: {e}"))?;
-        let top = git(&["rev-parse", "--show-toplevel"], &cwd)
-            .map(|s| std::path::PathBuf::from(s.trim()))
-            .unwrap_or(cwd);
-        vec![top]
-    } else {
-        roots
-            .iter()
-            .map(|r| match (r.strip_prefix("~/"), home) {
-                (Some(rest), Some(home)) => std::path::Path::new(home).join(rest),
-                _ => std::path::PathBuf::from(r),
-            })
-            .collect()
-    };
-    let listed: Vec<(std::path::PathBuf, Vec<String>)> = roots
-        .into_iter()
-        .map(|root| {
-            let files = repo_files(&root);
-            (root, files)
-        })
-        .collect();
-    for (root, files) in &listed {
-        if let Some(out) = tmprl_core::locate::answer(traces, files, root) {
-            return Ok(out);
-        }
-    }
-    let mut read: Vec<(&std::path::Path, &str, String)> = Vec::new();
-    let mut bytes = 0;
-    'roots: for (root, files) in &listed {
-        for file in files.iter().filter(|f| tmprl_core::named::is_source(f)) {
-            let path = root.join(file);
-            let Ok(meta) = std::fs::metadata(&path) else {
-                continue;
-            };
-            if meta.len() > LARGEST_FILE {
-                continue;
-            }
-            if bytes + meta.len() > MOST_BYTES {
-                break 'roots;
-            }
-            if let Ok(text) = std::fs::read_to_string(&path) {
-                bytes += meta.len();
-                read.push((root, file, text));
-            }
-        }
-    }
-    let sources: Vec<(&std::path::Path, &str, &str)> =
-        read.iter().map(|(r, f, t)| (*r, *f, t.as_str())).collect();
-    tmprl_core::named::answer(name, &sources).ok_or_else(|| {
-        let at: Vec<String> = listed.iter().map(|(r, _)| r.display().to_string()).collect();
-        format!(
-            "no stack trace frame and no `{name}` under {}; set `[source] roots` or a `[source] command`",
-            at.join(", ")
-        )
-    })
-}
-
-/// A root's files: git's own list, so `.gitignore` holds; outside a repository, a bounded walk.
-fn repo_files(root: &std::path::Path) -> Vec<String> {
-    const MOST_FILES: usize = 200_000;
-    let root = root.to_path_buf();
-    match git(
-        &["ls-files", "--cached", "--others", "--exclude-standard"],
-        &root,
-    ) {
-        Some(list) => list.lines().map(String::from).collect(),
-        None => {
-            let mut out = Vec::new();
-            let mut dirs = vec![root.clone()];
-            while let Some(dir) = dirs.pop() {
-                let Ok(entries) = std::fs::read_dir(&dir) else {
-                    continue;
-                };
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    let name = entry.file_name();
-                    let name = name.to_string_lossy();
-                    if name.starts_with('.') || name == "target" || name == "node_modules" {
-                        continue;
-                    }
-                    if path.is_dir() {
-                        dirs.push(path);
-                    } else if let Ok(rel) = path.strip_prefix(&root) {
-                        out.push(rel.to_string_lossy().into_owned());
-                    }
-                    if out.len() >= MOST_FILES {
-                        dirs.clear();
-                        break;
-                    }
-                }
-            }
-            out
-        }
     }
 }
 

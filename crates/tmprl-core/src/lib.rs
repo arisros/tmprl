@@ -18,6 +18,7 @@ pub mod keymap;
 pub mod line;
 pub mod loadable;
 pub mod locate;
+pub mod lsp;
 pub mod mode;
 pub mod mutation;
 pub mod named;

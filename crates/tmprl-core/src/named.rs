@@ -3,7 +3,7 @@
 use std::path::Path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum Role {
+pub enum Role {
     Defines,
     Registers,
     Names,
@@ -64,7 +64,7 @@ fn is_ident(c: char) -> bool {
 }
 
 /// The spellings code gives a registered name: as written, PascalCase, camelCase, snake_case.
-fn variants(name: &str) -> Vec<String> {
+pub fn variants(name: &str) -> Vec<String> {
     let mut words: Vec<String> = Vec::new();
     for part in name.split(|c: char| !c.is_alphanumeric()) {
         let mut word = String::new();
@@ -253,13 +253,58 @@ fn decorated(lines: &[&str], at: usize) -> Option<(usize, String)> {
     Some((i, fn_name_of(next)?))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Place {
+    pub path: String,
+    pub root: String,
+    pub line: u32,
+    pub role: Role,
+    pub label: String,
+}
+
+/// What the text says: the places, the functions that may define the name, and the
+/// identifiers bound to it, which a language server can follow further.
+#[derive(Debug, Default)]
+pub struct Found {
+    pub places: Vec<Place>,
+    pub fns: Vec<String>,
+    pub idents: Vec<String>,
+}
+
 /// Where `name` is in `sources` (each a root, a file relative to it, and its text), written the
 /// way a resolver answers: what defines it first, then what registers it, binds it and uses it.
 pub fn answer(name: &str, sources: &[(&Path, &str, &str)]) -> Option<String> {
+    write(search(name, sources).places)
+}
+
+/// Places written as a resolver's answer, the best first: defined, registered, named, used,
+/// tests after code. Two at one line keep the better.
+pub fn write(mut places: Vec<Place>) -> Option<String> {
     const MOST_HOPS: usize = 40;
+    places.sort_by(|a, b| {
+        (a.role, is_test(&a.path), &a.path, a.line).cmp(&(
+            b.role,
+            is_test(&b.path),
+            &b.path,
+            b.line,
+        ))
+    });
+    let mut seen = std::collections::HashSet::new();
+    places.retain(|p| seen.insert((p.path.clone(), p.line)));
+    let first = places.first()?;
+    let mut out = format!("{}:{}\n{}\n", first.path, first.line, first.root);
+    if places.len() > 1 {
+        for p in places.iter().take(MOST_HOPS) {
+            out.push_str(&format!("{}:{}\t{}\t{}\n", p.path, p.line, p.root, p.label));
+        }
+    }
+    Some(out)
+}
+
+pub fn search(name: &str, sources: &[(&Path, &str, &str)]) -> Found {
     let name = name.trim();
     if name.is_empty() {
-        return None;
+        return Found::default();
     }
     let texts: Vec<Vec<&str>> = sources
         .iter()
@@ -361,27 +406,24 @@ pub fn answer(name: &str, sources: &[(&Path, &str, &str)]) -> Option<String> {
         }
     }
 
-    hits.sort_by(|a, b| {
-        let (fa, fb) = (sources[a.source].1, sources[b.source].1);
-        (a.role, is_test(fa), a.source, a.line).cmp(&(b.role, is_test(fb), b.source, b.line))
-    });
-    let first = hits.first()?;
-    let at = |h: &Hit| {
-        let (root, file, _) = sources[h.source];
-        (
-            root.join(file).display().to_string(),
-            root.display().to_string(),
-        )
-    };
-    let (path, root) = at(first);
-    let mut out = format!("{path}:{}\n{root}\n", first.line);
-    if hits.len() > 1 {
-        for h in hits.iter().take(MOST_HOPS) {
-            let (path, root) = at(h);
-            out.push_str(&format!("{path}:{}\t{root}\t{}\n", h.line, h.label));
-        }
+    let places = hits
+        .into_iter()
+        .map(|h| {
+            let (root, file, _) = sources[h.source];
+            Place {
+                path: root.join(file).display().to_string(),
+                root: root.display().to_string(),
+                line: h.line,
+                role: h.role,
+                label: h.label,
+            }
+        })
+        .collect();
+    Found {
+        places,
+        fns,
+        idents,
     }
-    Some(out)
 }
 
 #[cfg(test)]

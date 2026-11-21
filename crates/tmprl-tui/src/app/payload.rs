@@ -384,8 +384,13 @@ impl App {
             ));
             return;
         }
+        let asking = if self.source_lsp {
+            ", and asking its language server"
+        } else {
+            ""
+        };
         self.note = Some((
-            format!("looking for `{subject}` in the repository…"),
+            format!("looking for `{subject}` in the repository{asking}…"),
             Note::Info,
         ));
         self.source_request += 1;
@@ -396,18 +401,18 @@ impl App {
             since_ms,
             request: Some(id),
         });
-        let (tx, traces, roots) = (
-            self.tx.clone(),
-            self.source_traces.clone(),
-            self.source_roots.clone(),
-        );
-        let home = std::env::var("HOME").ok();
+        let (tx, traces) = (self.tx.clone(), self.source_traces.clone());
+        let search = RepoSearch {
+            roots: self.source_roots.clone(),
+            home: std::env::var("HOME").ok(),
+            lsp: self.source_lsp,
+            servers: self.source_servers.clone(),
+        };
         let task = tokio::spawn(async move {
-            let result = tokio::task::spawn_blocking(move || {
-                find_in_repo(&traces, &subject, &roots, home.as_deref())
-            })
-            .await
-            .unwrap_or_else(|e| Err(e.to_string()));
+            let result =
+                tokio::task::spawn_blocking(move || find_in_repo(&traces, &subject, &search))
+                    .await
+                    .unwrap_or_else(|e| Err(e.to_string()));
             let _ = tx.send(Msg::SourceAnswer {
                 request: id,
                 result,
