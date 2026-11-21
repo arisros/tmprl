@@ -296,10 +296,6 @@ pub enum Msg {
         generation: u64,
         pollers: Vec<tmprl_core::taskqueue::Poller>,
     },
-    WorkflowsFresh {
-        generation: u64,
-        result: Result<Vec<WorkflowRow>, Fault>,
-    },
     FollowRetrying {
         generation: u64,
         error: Fault,
@@ -915,13 +911,6 @@ impl App {
             } => {
                 if generation == self.view.generation {
                     self.view.pollers = Some(pollers);
-                }
-            }
-            Msg::WorkflowsFresh { generation, result } => {
-                if generation == self.view.generation
-                    && let (Ok(rows), Some(list)) = (result, self.view.workflows.value_mut())
-                {
-                    list.refresh(&rows);
                 }
             }
             Msg::Schedules { generation, result } => {

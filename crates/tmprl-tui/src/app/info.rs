@@ -17,30 +17,6 @@ impl App {
         self.maybe_decode();
     }
 
-    fn take_status(&mut self, info: &tmprl_core::info::WorkflowInfo) {
-        let Some(row) = self.view.viewing.as_mut() else {
-            return;
-        };
-        if row.run_id != info.run_id {
-            return;
-        }
-        row.status = info.status;
-        row.close_time = info.close_time.or(row.close_time);
-        row.history_length = info.history_length.max(row.history_length);
-        let (namespace, task_queue) = (row.namespace.clone(), row.task_queue.clone());
-        if let Some(list) = self.view.workflows.value_mut() {
-            list.update_run(
-                (&namespace, &info.run_id),
-                info.status,
-                info.close_time,
-                info.history_length,
-            );
-        }
-        if info.status == tmprl_core::WorkflowStatus::Running && !self.view.pollers_asked {
-            self.load_pollers(&namespace, &task_queue);
-        }
-    }
-
     pub(super) fn described(&mut self, generation: u64, result: Result<Box<Described>, Fault>) {
         if generation != self.view.generation {
             return;
@@ -52,7 +28,16 @@ impl App {
                         *p = plain.clone();
                     }
                 }
-                self.take_status(&info);
+                let first = self.view.info.value().is_none();
+                if let Some(row) = self.view.viewing.as_mut() {
+                    row.status = info.status;
+                    if let Some(list) = self.view.workflows.value_mut() {
+                        list.set_status(row.key(), info.status, info.close_time);
+                    }
+                }
+                if first && info.status == tmprl_core::WorkflowStatus::Running {
+                    self.load_pollers();
+                }
                 self.view.pending = pending;
                 self.view.info = Loadable::loaded(info);
                 self.maybe_decode();

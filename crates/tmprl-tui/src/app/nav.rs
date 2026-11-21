@@ -72,8 +72,6 @@ impl App {
                 self.restore_cursor();
                 if self.view.workflows.value().is_none() {
                     self.load_workflows(false);
-                } else {
-                    self.refresh_workflow_statuses();
                 }
             }
             Screen::Workflows => {
@@ -154,7 +152,6 @@ impl App {
         self.view.queried = None;
         self.view.info = Loadable::NotAsked;
         self.view.pollers = None;
-        self.view.pollers_asked = false;
     }
 
     pub(super) fn here(&self) -> Jump {

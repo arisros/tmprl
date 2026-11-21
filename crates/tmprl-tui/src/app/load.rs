@@ -161,39 +161,18 @@ impl App {
         });
     }
 
-    pub(super) fn load_pollers(&mut self, namespace: &str, task_queue: &str) {
-        self.view.pollers_asked = true;
-        let Some(conn) = self.conn.clone() else {
+    pub(super) fn load_pollers(&mut self) {
+        let (Some(row), Some(conn)) = (self.view.viewing.clone(), self.conn.clone()) else {
             return;
         };
         let (tx, generation) = (self.tx.clone(), self.view.generation);
-        let (namespace, task_queue) = (namespace.to_string(), task_queue.to_string());
         tokio::spawn(async move {
-            if let Ok(pollers) = conn.workflow_pollers(&namespace, &task_queue).await {
+            if let Ok(pollers) = conn.workflow_pollers(&row.namespace, &row.task_queue).await {
                 let _ = tx.send(Msg::Pollers {
                     generation,
                     pollers,
                 });
             }
-        });
-    }
-
-    pub(super) fn refresh_workflow_statuses(&mut self) {
-        let Some(conn) = self.conn.clone() else {
-            return;
-        };
-        let (tx, generation, scope, query) = (
-            self.tx.clone(),
-            self.view.generation,
-            self.view.scope.clone(),
-            self.view.query.clone(),
-        );
-        tokio::spawn(async move {
-            let result = conn
-                .list_workflows_across(&scope, &query, PAGE_SIZE)
-                .await
-                .map(|(rows, _)| rows);
-            let _ = tx.send(Msg::WorkflowsFresh { generation, result });
         });
     }
 
