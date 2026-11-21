@@ -215,6 +215,13 @@ impl WorkflowList {
         find_by_key(&self.rows, key)
     }
 
+    pub fn set_status(&mut self, key: (&str, &str), status: WorkflowStatus, close: Option<i64>) {
+        if let Some(i) = self.position_of(key) {
+            self.rows[i].status = status;
+            self.rows[i].close_time = close;
+        }
+    }
+
     fn insert_sorted(&mut self, rows: Vec<WorkflowRow>) {
         self.rows.extend(rows);
         self.rows.sort_by(by_start_time_desc);
@@ -238,6 +245,29 @@ mod tests {
             close_time: None,
             history_length: 3,
         }
+    }
+
+    #[test]
+    fn a_status_set_on_one_run_leaves_the_others() {
+        let mut list = WorkflowList::default();
+        list.reset(
+            vec![row("ns", "a", Some(2)), row("ns", "b", Some(1))],
+            Vec::new(),
+        );
+        list.set_status(("ns", "a"), WorkflowStatus::Completed, Some(9));
+        list.set_status(("other", "b"), WorkflowStatus::Failed, None);
+        let seen: Vec<_> = list
+            .rows()
+            .iter()
+            .map(|r| (r.status, r.close_time))
+            .collect();
+        assert_eq!(
+            seen,
+            [
+                (WorkflowStatus::Completed, Some(9)),
+                (WorkflowStatus::Running, None)
+            ]
+        );
     }
 
     #[test]

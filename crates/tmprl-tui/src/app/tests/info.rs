@@ -133,3 +133,18 @@ fn leaving_a_history_forgets_its_info() {
     app.run("nav.up", None);
     assert!(app.view.info.value().is_none());
 }
+
+#[test]
+fn a_run_that_finished_after_the_list_loaded_reads_completed_back_on_the_list() {
+    let mut app = viewing_history();
+    let mut done = info();
+    done.status = WorkflowStatus::Completed;
+    done.close_time = Some(900);
+    reply(&mut app, done);
+    app.run("nav.up", None);
+    let row = &app.view.workflows.value().unwrap().rows()[0];
+    assert_eq!(
+        (row.status, row.close_time),
+        (WorkflowStatus::Completed, Some(900))
+    );
+}
