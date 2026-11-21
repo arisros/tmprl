@@ -11,6 +11,7 @@ const (
 	FlakyCustoms       Scenario = "flaky_customs"       // file_customs_declaration needs four tries
 	BadPostcode        Scenario = "bad_postcode"        // validate_address fails for good
 	SlowRating         Scenario = "slow_rating"         // rate_lanes times out
+	BadTariff          Scenario = "bad_tariff"          // calculate_duties panics, with a stack trace
 )
 
 // Party is a made-up person or company. Every value is invented.

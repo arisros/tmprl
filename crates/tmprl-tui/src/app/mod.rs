@@ -404,6 +404,8 @@ pub struct App {
     pub source_wait: Option<SourceWait>,
     source_request: u64,
     source_task: Option<tokio::task::AbortHandle>,
+    source_traces: Vec<String>,
+    source_builtin: bool,
     pub jumps: Jumplist<Jump>,
     scan: Option<Scan>,
     pub search: Search,
@@ -518,6 +520,8 @@ impl App {
             source_wait: None,
             source_request: 0,
             source_task: None,
+            source_traces: Vec::new(),
+            source_builtin: false,
             jumps: Jumplist::default(),
             scan: None,
             search: Search::default(),
@@ -1349,6 +1353,64 @@ async fn pipe_through(command: &str, input: Vec<u8>) -> Result<String, String> {
             stderr
         })
     }
+}
+
+/// The repository tmprl runs in: git's own root and file list, so `.gitignore` holds;
+/// outside a repository, a bounded walk of the working directory.
+fn find_in_repo(traces: &[String]) -> Result<String, String> {
+    const MOST_FILES: usize = 200_000;
+    let cwd = std::env::current_dir().map_err(|e| format!("no working directory: {e}"))?;
+    let git = |args: &[&str], dir: &std::path::Path| {
+        std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+    };
+    let root = git(&["rev-parse", "--show-toplevel"], &cwd)
+        .map(|s| std::path::PathBuf::from(s.trim()))
+        .unwrap_or(cwd);
+    let files: Vec<String> = match git(
+        &["ls-files", "--cached", "--others", "--exclude-standard"],
+        &root,
+    ) {
+        Some(list) => list.lines().map(String::from).collect(),
+        None => {
+            let mut out = Vec::new();
+            let mut dirs = vec![root.clone()];
+            while let Some(dir) = dirs.pop() {
+                let Ok(entries) = std::fs::read_dir(&dir) else {
+                    continue;
+                };
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    let name = entry.file_name();
+                    let name = name.to_string_lossy();
+                    if name.starts_with('.') || name == "target" || name == "node_modules" {
+                        continue;
+                    }
+                    if path.is_dir() {
+                        dirs.push(path);
+                    } else if let Ok(rel) = path.strip_prefix(&root) {
+                        out.push(rel.to_string_lossy().into_owned());
+                    }
+                    if out.len() >= MOST_FILES {
+                        dirs.clear();
+                        break;
+                    }
+                }
+            }
+            out
+        }
+    };
+    tmprl_core::locate::answer(traces, &files, &root).ok_or_else(|| {
+        format!(
+            "no frame of the stack trace is a file under {}; run tmprl from the repository, or set a `[source] command`",
+            root.display()
+        )
+    })
 }
 
 async fn run_resolver(

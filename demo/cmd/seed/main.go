@@ -27,7 +27,8 @@ var mix = []struct {
 	scenario shipment.Scenario
 	weight   int
 }{
-	{shipment.Happy, 55},
+	{shipment.Happy, 52},
+	{shipment.BadTariff, 3},
 	{shipment.AwaitingInspection, 20},
 	{shipment.FlakyCustoms, 8},
 	{shipment.CarrierDown, 6},
@@ -70,6 +71,7 @@ func main() {
 	seed := flag.Int64("seed", 1, "the same seed starts the same shipments")
 	rate := flag.Int("rate", 40, "shipments started a second")
 	prefix := flag.String("prefix", "shp", "workflow id prefix, to seed twice without colliding")
+	only := flag.String("scenario", "", "start every shipment with this one fate, such as bad_tariff")
 	flag.Parse()
 
 	c, err := client.Dial(client.Options{
@@ -106,6 +108,9 @@ func main() {
 			Pieces:    r.Intn(12) + 1,
 			ValueUSD:  (r.Intn(180) + 5) * 100,
 			Lane:      shipper.Country + "-" + consignee.Country,
+		}
+		if *only != "" {
+			s.Scenario = shipment.Scenario(*only)
 		}
 		if s.Scenario == shipment.BadPostcode {
 			s.Consignee.Postcode = "00000"

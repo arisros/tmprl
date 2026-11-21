@@ -552,7 +552,7 @@ closed is refused with a message instead of polling for events that can never ar
 | `<C-e>` / `<C-y>` | scroll the payload pane | **live** |
 | `<C-w>j` (`<C-w>l` when the pane is beside the list) | focus the payload pane: `j` `k` `<C-d>` `<C-u>` `<C-f>` `<C-b>` `gg` `G` scroll it, `<C-w>k` (`<C-w>h`) or `<Esc>` goes back | **live** |
 | `<leader>e` | open the payloads in `$EDITOR`, read-only | **live** |
-| `gf` | go to the source of the focused event, through the resolver `[source] command` names | **live** |
+| `gf` | go to the source of the focused event, through the resolver `[source] command` names, or the failure's stack trace when there is none | **live** |
 | `gc` / `gp` | open the child workflow under the cursor / the parent of this one; `<C-o>` comes back | **live** |
 | `gi` | show or hide the workflow info card under the workflow bar: identity, timing, limits, what it is waiting on, lineage, memo, search attributes. The payload pane is left as it is | **live** |
 
@@ -867,6 +867,15 @@ hop at once. The label, numbered, is what the picker shows, the path relative to
 its note. A hop without an absolute path is
 dropped, and a line with a tab is never taken for the answer or the root, so a resolver
 that prints hops still works with an older tmprl.
+
+With no `[source] command`, or when the resolver exits non-zero, `gf` follows the stack
+trace of the group's failure instead, its causes and a retrying activity's last failure
+included. It reads Go, Java, Node, Python and .NET traces, skips the SDK's, the runtime's
+and dependencies' frames, and matches each remaining frame to a file of the repository tmprl
+runs in (git's own list, so `.gitignore` holds) by the longest shared tail of its path; a
+tie names nothing rather than the wrong file. The frame that threw is the answer, and with
+more than one the picker lists them all. An event with no trace says so, and names
+`[source] command` for the rest.
 
 ## Configuration files
 
