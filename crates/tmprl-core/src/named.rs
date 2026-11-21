@@ -30,7 +30,6 @@ const LIBRARY: [&str; 5] = [
     "dist/",
 ];
 
-/// Whether a repository file is source worth reading for a name: code, and not vendored or built.
 pub fn is_source(file: &str) -> bool {
     let ext = file.rsplit('.').next().unwrap_or("");
     EXTENSIONS.contains(&ext)
@@ -63,7 +62,6 @@ fn is_ident(c: char) -> bool {
     c.is_alphanumeric() || c == '_' || c == '$'
 }
 
-/// The spellings code gives a registered name: as written, PascalCase, camelCase, snake_case.
 pub fn variants(name: &str) -> Vec<String> {
     let mut words: Vec<String> = Vec::new();
     for part in name.split(|c: char| !c.is_alphanumeric()) {
@@ -102,7 +100,6 @@ pub fn variants(name: &str) -> Vec<String> {
     out
 }
 
-/// Each index in `line` where `word` stands as a whole identifier.
 fn word_at(line: &str, word: &str) -> Vec<usize> {
     let mut out = Vec::new();
     let mut from = 0;
@@ -123,8 +120,6 @@ fn quoted_at(line: &str, name: &str) -> Option<usize> {
         .find_map(|q| line.find(&format!("{q}{name}{q}")))
 }
 
-/// The identifier a literal is bound to: `X = "name"`, `X := "name"`, `const string X = "name"`.
-/// A keyword argument or a field (`name="x"`, `Name: "x"`) binds nothing.
 fn bound_ident(line: &str, at: usize) -> Option<String> {
     let before = line[..at].trim_end();
     let before = if let Some(b) = before.strip_suffix(":=") {
@@ -161,8 +156,6 @@ fn ident_path_at(text: &str) -> Option<String> {
     (!last.is_empty() && !last.chars().next().is_some_and(|c| c.is_ascii_digit())).then_some(last)
 }
 
-/// The function a registration line hands over: the first argument of a `Register…(`, or the
-/// value of a map entry keyed by the name (`CalculateDutiesName: CalculateDuties,`).
 fn registered_fn(line: &str, key_end: usize) -> Option<String> {
     let rest = line[key_end..].trim_start();
     if let Some(value) = rest.strip_prefix(':').filter(|r| !r.starts_with(':'))
@@ -193,8 +186,6 @@ const MODIFIERS: [&str; 14] = [
     "export ",
 ];
 
-/// Whether `line` declares a function named `name`: `func (a *A) Name(`, `def name(`,
-/// `export async function name(`, `public Result name(`, `name(…) {` in a class, `const name = (`.
 fn declares(line: &str, name: &str) -> bool {
     let trimmed = line.trim_start();
     word_at(trimmed, name).into_iter().any(|i| {
@@ -234,8 +225,6 @@ fn fn_name_of(line: &str) -> Option<String> {
     Some(before[start..].to_string())
 }
 
-/// The function under a decorator or attribute that names it: Python's `@activity.defn(name=…)`,
-/// Java's `@ActivityMethod(name = …)`, .NET's `[Activity("…")]`.
 fn decorated(lines: &[&str], at: usize) -> Option<(usize, String)> {
     let line = lines[at].trim_start();
     if !line.starts_with('@') && !line.starts_with('[') {
@@ -262,8 +251,6 @@ pub struct Place {
     pub label: String,
 }
 
-/// What the text says: the places, the functions that may define the name, and the
-/// identifiers bound to it, which a language server can follow further.
 #[derive(Debug, Default)]
 pub struct Found {
     pub places: Vec<Place>,
@@ -271,14 +258,10 @@ pub struct Found {
     pub idents: Vec<String>,
 }
 
-/// Where `name` is in `sources` (each a root, a file relative to it, and its text), written the
-/// way a resolver answers: what defines it first, then what registers it, binds it and uses it.
 pub fn answer(name: &str, sources: &[(&Path, &str, &str)]) -> Option<String> {
     write(search(name, sources).places)
 }
 
-/// Places written as a resolver's answer, the best first: defined, registered, named, used,
-/// tests after code. Two at one line keep the better.
 pub fn write(mut places: Vec<Place>) -> Option<String> {
     const MOST_HOPS: usize = 40;
     places.sort_by(|a, b| {

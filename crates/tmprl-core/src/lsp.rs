@@ -4,7 +4,6 @@ use std::path::Path;
 
 use serde_json::{Value, json};
 
-/// A language, the files at a repository's top that mark it, and the server asked by default.
 pub const SERVERS: [(&str, &[&str], &str); 5] = [
     ("go", &["go.mod"], "gopls"),
     (
@@ -30,8 +29,6 @@ pub const SERVERS: [(&str, &[&str], &str); 5] = [
     ("csharp", &[".sln", ".csproj"], "csharp-ls"),
 ];
 
-/// The servers a root's top-level file names call for, as `(language, command)`; an entry in
-/// `overrides` replaces a language's default command.
 pub fn servers(top: &[String], overrides: &[(String, String)]) -> Vec<(String, String)> {
     SERVERS
         .iter()
@@ -59,7 +56,6 @@ pub fn frame(msg: &Value) -> Vec<u8> {
     out
 }
 
-/// Messages cut out of a server's stdout, however the bytes arrive.
 #[derive(Debug, Default)]
 pub struct Reader {
     buf: Vec<u8>,
@@ -172,8 +168,6 @@ pub fn references(id: u64, path: &str, line: u32, col: u32) -> Value {
     )
 }
 
-/// The reply a request from the server needs: a null for each configuration item it asks
-/// for, a null for anything else. A notification needs none.
 pub fn reply_to_server(msg: &Value) -> Option<Value> {
     let id = msg.get("id")?;
     let method = msg.get("method")?.as_str()?;
@@ -186,8 +180,6 @@ pub fn reply_to_server(msg: &Value) -> Option<Value> {
     Some(json!({"jsonrpc": "2.0", "id": id, "result": result}))
 }
 
-/// What a server says has gone wrong, such as a workspace it could not load: the first line of
-/// a message it shows or logs as an error.
 pub fn complaint(msg: &Value) -> Option<String> {
     let method = msg.get("method")?.as_str()?;
     if !matches!(method, "window/showMessage" | "window/logMessage") || msg["params"]["type"] != 1 {
@@ -198,7 +190,6 @@ pub fn complaint(msg: &Value) -> Option<String> {
     Some(line.chars().take(200).collect())
 }
 
-/// The result of the reply to request `id`, or the error it carries.
 pub fn reply(msg: &Value, id: u64) -> Option<Result<Value, String>> {
     if msg.get("method").is_some() || msg.get("id").and_then(Value::as_u64) != Some(id) {
         return None;
@@ -254,17 +245,14 @@ pub fn parse_locations(result: &Value) -> Vec<(String, u32)> {
         .collect()
 }
 
-/// A function, a method or a constructor.
 pub fn is_callable(kind: u64) -> bool {
     matches!(kind, 6 | 9 | 12)
 }
 
-/// A constant, a variable, a field or a property.
 pub fn is_value(kind: u64) -> bool {
     matches!(kind, 7 | 8 | 13 | 14)
 }
 
-/// The symbols under `root` named `want` exactly, as `want` or a type's `T.want` or `want(int)`.
 pub fn named<'a>(symbols: &'a [Symbol], want: &str, root: &str) -> Vec<&'a Symbol> {
     symbols
         .iter()

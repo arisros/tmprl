@@ -31,9 +31,6 @@ fn git(args: &[&str], dir: &Path) -> Option<String> {
         .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
 }
 
-/// The failure's stack trace, then the registered name in the source text and from each
-/// root's language server, looked for in `[source] roots`, or with none the repository tmprl
-/// runs in.
 pub(super) fn find_in_repo(
     traces: &[String],
     name: &str,
@@ -136,7 +133,6 @@ pub(super) fn find_in_repo(
     })
 }
 
-/// A root's files: git's own list, so `.gitignore` holds; outside a repository, a bounded walk.
 fn repo_files(root: &Path) -> Vec<String> {
     const MOST_FILES: usize = 200_000;
     if let Some(list) = git(
@@ -171,7 +167,6 @@ fn repo_files(root: &Path) -> Vec<String> {
     out
 }
 
-/// One language server, spoken to over its stdio until dropped, which shuts it down.
 struct Server {
     child: Child,
     stdin: ChildStdin,
@@ -268,8 +263,6 @@ impl Drop for Server {
     }
 }
 
-/// Where a server says each lead function is defined, and where each identifier bound to the
-/// name is used.
 fn ask_server(
     command: &str,
     root: &Path,

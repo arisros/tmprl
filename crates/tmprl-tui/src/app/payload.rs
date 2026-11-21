@@ -372,7 +372,6 @@ impl App {
             .collect()
     }
 
-    /// gf with no resolver, or after one failed: the stack trace, then the name, in the repository.
     pub(super) fn look_in_repo(&mut self, subject: String, since_ms: i64) {
         self.source_builtin = true;
         if !self.source_finder {

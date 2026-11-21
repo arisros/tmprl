@@ -282,12 +282,9 @@ pub struct Config {
     pub dashboard_refresh: Refresh,
     pub yank_max: usize,
     pub source: Option<String>,
-    /// Where `gf` looks with no resolver; empty is the repository tmprl runs in.
     pub source_roots: Vec<String>,
     pub source_builtin: bool,
-    /// Whether `gf`'s own search also asks the repository's language server.
     pub source_lsp: bool,
-    /// A language's server command in place of its default, such as `("go", "gopls -rpc.trace")`.
     pub source_servers: Vec<(String, String)>,
     pub mouse: bool,
     pub colors: Option<crate::theme::ColorDepth>,
