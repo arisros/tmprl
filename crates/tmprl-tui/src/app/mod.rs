@@ -10,6 +10,7 @@
 //! | `find` | the pickers and `/` search |
 //! | `history` | folds, follow, `]f` / `[f` |
 //! | `payload` | decoding, the `!` pipe, `$EDITOR` |
+//! | `finder` | `gf` with no resolver: the stack trace, the name, the language server |
 //! | `yank` | copying fields, rows and payloads |
 //! | `mutate` | cancel, terminate, signal, reset, schedules |
 //! | `windows` | splits and tabs |
@@ -24,6 +25,7 @@
 
 mod dashboard;
 mod find;
+mod finder;
 mod history;
 mod info;
 mod interaction;
@@ -42,6 +44,8 @@ mod yank;
 
 pub use mouse::Mouse;
 pub use startup::Startup;
+
+use finder::{RepoSearch, find_in_repo};
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -406,6 +410,10 @@ pub struct App {
     source_task: Option<tokio::task::AbortHandle>,
     source_traces: Vec<String>,
     source_builtin: bool,
+    source_roots: Vec<String>,
+    source_finder: bool,
+    source_lsp: bool,
+    source_servers: Vec<(String, String)>,
     pub jumps: Jumplist<Jump>,
     scan: Option<Scan>,
     pub search: Search,
@@ -522,6 +530,10 @@ impl App {
             source_task: None,
             source_traces: Vec::new(),
             source_builtin: false,
+            source_roots: Vec::new(),
+            source_finder: true,
+            source_lsp: true,
+            source_servers: Vec::new(),
             jumps: Jumplist::default(),
             scan: None,
             search: Search::default(),
@@ -570,6 +582,10 @@ impl App {
                     self.dashboard_refresh = cfg.dashboard_refresh;
                     self.yank_max = cfg.yank_max;
                     self.source_command = cfg.source.clone();
+                    self.source_roots = cfg.source_roots.clone();
+                    self.source_finder = cfg.source_builtin;
+                    self.source_lsp = cfg.source_lsp;
+                    self.source_servers = cfg.source_servers.clone();
                     if let Some(depth) = cfg.colors {
                         self.theme = Theme::new(depth, &self.theme_overrides);
                     }
@@ -1353,64 +1369,6 @@ async fn pipe_through(command: &str, input: Vec<u8>) -> Result<String, String> {
             stderr
         })
     }
-}
-
-/// The repository tmprl runs in: git's own root and file list, so `.gitignore` holds;
-/// outside a repository, a bounded walk of the working directory.
-fn find_in_repo(traces: &[String]) -> Result<String, String> {
-    const MOST_FILES: usize = 200_000;
-    let cwd = std::env::current_dir().map_err(|e| format!("no working directory: {e}"))?;
-    let git = |args: &[&str], dir: &std::path::Path| {
-        std::process::Command::new("git")
-            .args(args)
-            .current_dir(dir)
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-    };
-    let root = git(&["rev-parse", "--show-toplevel"], &cwd)
-        .map(|s| std::path::PathBuf::from(s.trim()))
-        .unwrap_or(cwd);
-    let files: Vec<String> = match git(
-        &["ls-files", "--cached", "--others", "--exclude-standard"],
-        &root,
-    ) {
-        Some(list) => list.lines().map(String::from).collect(),
-        None => {
-            let mut out = Vec::new();
-            let mut dirs = vec![root.clone()];
-            while let Some(dir) = dirs.pop() {
-                let Ok(entries) = std::fs::read_dir(&dir) else {
-                    continue;
-                };
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    let name = entry.file_name();
-                    let name = name.to_string_lossy();
-                    if name.starts_with('.') || name == "target" || name == "node_modules" {
-                        continue;
-                    }
-                    if path.is_dir() {
-                        dirs.push(path);
-                    } else if let Ok(rel) = path.strip_prefix(&root) {
-                        out.push(rel.to_string_lossy().into_owned());
-                    }
-                    if out.len() >= MOST_FILES {
-                        dirs.clear();
-                        break;
-                    }
-                }
-            }
-            out
-        }
-    };
-    tmprl_core::locate::answer(traces, &files, &root).ok_or_else(|| {
-        format!(
-            "no frame of the stack trace is a file under {}; run tmprl from the repository, or set a `[source] command`",
-            root.display()
-        )
-    })
 }
 
 async fn run_resolver(

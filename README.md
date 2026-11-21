@@ -135,6 +135,11 @@ through on its way, one per line, and `gf` then lists them in a picker:
 [`demo/find-source.sh`](demo/find-source.sh) is one in a few dozen lines of grep, for a Go
 worker. [docs/INTERFACE.md](docs/INTERFACE.md#going-to-the-source) has the whole contract.
 
+With no resolver, `gf` still finds the code itself: it follows the failure's stack trace, and
+without one looks the activity or workflow up by its registered name, in the repository tmprl
+runs in or the `[source] roots` you list, checked with the repository's language server when
+one is installed.
+
 ## Mutations
 
 Every destructive action shows the equivalent `temporal` CLI command before it runs, and is
@@ -177,6 +182,8 @@ mouse = true              # the wheel scrolls, a click selects, a second click o
 
 [source]
 command = "~/bin/find-source"   # the resolver gf asks where an event's code is
+roots   = ["~/src/orders"]      # with no resolver, where gf looks; the repository tmprl runs in by default
+lsp     = true                  # gf also asks the repository's language server (gopls, jdtls, …) when it is installed
 
 [display]
 colors = "truecolor"      # or "16" or "none"; "auto", the default, reads NO_COLOR and COLORTERM
@@ -244,8 +251,8 @@ flowchart LR
 | Crate | Tests | |
 |---|---|---|
 | `tmprl-client` | 97 | all network IO |
-| `tmprl-core` | 512 | no terminal, no server |
-| `tmprl-tui` | 592 | ratatui |
+| `tmprl-core` | 525 | no terminal, no server |
+| `tmprl-tui` | 594 | ratatui |
 | `tmprl-ui` | 47 | window tree |
 
 ```sh

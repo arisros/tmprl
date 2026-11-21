@@ -12,7 +12,6 @@ pub struct Frame {
     pub func: Option<String>,
 }
 
-/// Every stack trace in a failure and the causes under it, outermost first.
 pub fn traces(failure: &Failure) -> Vec<String> {
     let mut out = Vec::new();
     let mut at = Some(failure);
@@ -25,7 +24,6 @@ pub fn traces(failure: &Failure) -> Vec<String> {
     out
 }
 
-/// The frames of a Go, Java, Node, Python or .NET trace, the one that threw first.
 pub fn frames(trace: &str) -> Vec<Frame> {
     let lines: Vec<&str> = trace.lines().map(str::trim).collect();
     let mut out = Vec::new();
@@ -72,7 +70,6 @@ fn dotnet_frame(line: &str) -> Option<Frame> {
     })
 }
 
-/// Java's `at pkg.Class.method(File.java:41)`, and Node's `at fn (/app/x.ts:12:5)` or `at /app/x.ts:12:5`.
 fn at_frame(line: &str) -> Option<Frame> {
     let rest = line.strip_prefix("at ")?;
     let (func, place) = match rest.rfind('(') {
@@ -113,7 +110,6 @@ fn at_frame(line: &str) -> Option<Frame> {
     }
 }
 
-/// `com.acme.orders.Charge.run` in `Charge.java` lives at `com/acme/orders/Charge.java`.
 fn java_path(func: &str, file: &str) -> String {
     let mut parts: Vec<&str> = func.split('.').collect();
     parts.truncate(parts.len().saturating_sub(2));
@@ -129,7 +125,6 @@ fn java_path(func: &str, file: &str) -> String {
     }
 }
 
-/// Go prints the function, then on the next line `\t/path/file.go:41 +0x1d`.
 fn go_frame(line: &str, previous: Option<&str>) -> Option<Frame> {
     let token = line.split_whitespace().next()?;
     let (path, num) = token.rsplit_once(':')?;
@@ -161,7 +156,6 @@ fn strip_scheme(place: &str) -> &str {
         .unwrap_or(place)
 }
 
-/// The SDK, dependencies and runtimes: never the code a user wants to open.
 fn is_library(frame: &Frame) -> bool {
     const PATHS: [&str; 6] = [
         "/vendor/",
@@ -191,8 +185,7 @@ fn components(path: &str) -> Vec<&str> {
     path.split(['/', '\\']).filter(|c| !c.is_empty()).collect()
 }
 
-/// The repository file a build machine's path names: the one sharing the longest tail of
-/// components with it. A tie leaves it unnamed rather than open the wrong file.
+/// A tie leaves the path unnamed rather than open the wrong file.
 pub fn by_suffix<'a>(path: &str, files: &'a [String]) -> Option<&'a str> {
     let want = components(path);
     let name = *want.last()?;
@@ -221,8 +214,6 @@ pub fn by_suffix<'a>(path: &str, files: &'a [String]) -> Option<&'a str> {
     best.filter(|_| !tied).map(|(_, f)| f)
 }
 
-/// The frames of `traces` that are in `files` (paths relative to `root`), written the way a
-/// resolver answers: the first on line one, the root on line two, then each as a hop.
 pub fn answer(traces: &[String], files: &[String], root: &Path) -> Option<String> {
     let mut by_name: HashMap<&str, Vec<String>> = HashMap::new();
     for f in files {
