@@ -89,12 +89,10 @@ async fn main() -> std::process::ExitCode {
         Connected::Yes(c) => c,
         Connected::Quit => return std::process::ExitCode::from(130),
         Connected::No(e) => {
-            let hint = [
-                "Is a server reachable? Try `temporal server start-dev`,",
-                "or point tmprl at one with `--profile <name>` or `--address <host:port>`.",
-            ];
+            let failure = tmprl_core::fault::connect_failure(&e.to_string());
+            let hint = failure.hint;
             let mut status = vec![
-                Line::from(Span::styled(e.to_string(), splash.theme.err)),
+                Line::from(Span::styled(failure.summary.clone(), splash.theme.err)),
                 Line::default(),
             ];
             status.extend(hint.map(|h| Line::from(Span::styled(h, splash.theme.faint))));
